@@ -68,6 +68,95 @@
   z-index: 1;
 }
 
+/* ── Round escalation tiers ─────────────────────────────────────────────── */
+
+/* Tier 1: Rondas 3-4 — leve tensión */
+#vne-main.vne-round-tier-1 .vne-background-overlay {
+  background: linear-gradient(
+    to bottom,
+    rgba(20,0,0,0.52) 0%,
+    rgba(10,0,0,0.15) 40%,
+    rgba(10,0,0,0.15) 55%,
+    rgba(30,0,0,0.72) 100%
+  );
+  transition: background 1.5s ease;
+}
+#vne-main.vne-round-tier-1 .vne-round-num {
+  color: #e8a050;
+  text-shadow: 0 0 12px rgba(220,100,30,0.6);
+}
+
+/* Tier 2: Rondas 5-6 — peligro creciente */
+#vne-main.vne-round-tier-2 .vne-background-overlay {
+  background: linear-gradient(
+    to bottom,
+    rgba(40,0,0,0.60) 0%,
+    rgba(20,0,0,0.20) 40%,
+    rgba(20,0,0,0.20) 55%,
+    rgba(60,0,0,0.82) 100%
+  );
+  transition: background 1.5s ease;
+}
+#vne-main.vne-round-tier-2::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  box-shadow: inset 0 0 80px rgba(180,20,20,0.18);
+  animation: vne-tier2-pulse 2.8s ease-in-out infinite;
+}
+@keyframes vne-tier2-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 1;   }
+}
+#vne-main.vne-round-tier-2 .vne-round-num {
+  color: #e05030;
+  text-shadow: 0 0 18px rgba(220,60,20,0.8);
+  animation: vne-round-throb 1.8s ease-in-out infinite;
+}
+@keyframes vne-round-throb {
+  0%, 100% { transform: scale(1);    }
+  50%      { transform: scale(1.06); }
+}
+
+/* Tier 3: Rondas 7+ — atmósfera máxima de peligro */
+#vne-main.vne-round-tier-3 .vne-background-overlay {
+  background: linear-gradient(
+    to bottom,
+    rgba(60,0,0,0.70) 0%,
+    rgba(30,0,0,0.28) 40%,
+    rgba(30,0,0,0.28) 55%,
+    rgba(80,0,0,0.90) 100%
+  );
+  transition: background 1.5s ease;
+}
+#vne-main.vne-round-tier-3::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  box-shadow: inset 0 0 120px rgba(200,10,10,0.30);
+  animation: vne-tier3-pulse 1.6s ease-in-out infinite;
+}
+@keyframes vne-tier3-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1;   }
+}
+#vne-main.vne-round-tier-3 .vne-round-num {
+  color: #ff2020;
+  text-shadow: 0 0 24px rgba(255,30,0,1), 0 0 48px rgba(200,0,0,0.6);
+  animation: vne-round-throb 1.1s ease-in-out infinite;
+}
+#vne-main.vne-round-tier-3 .vne-carousel-active {
+  box-shadow: 0 0 20px rgba(255,40,0,0.9), 0 0 6px rgba(255,40,0,0.5) !important;
+  border-color: #ff3010 !important;
+}
+#vne-main.vne-round-tier-3 .vne-combat-controls {
+  border-top-color: rgba(200,30,10,0.5);
+}
+
 /* ── UI Layer ───────────────────────────────────────────────────────────── */
 .vne-ui-layer {
   position: absolute;
@@ -1681,6 +1770,88 @@
 }
 .vne-ao-actor  { font-size: 1.05em; font-weight: 600; color: var(--vne-accent); text-shadow: 0 0 16px rgba(200,155,60,0.8); letter-spacing: 0.06em; }
 .vne-ao-action { font-size: 0.84em; color: var(--vne-text); letter-spacing: 0.04em; opacity: 0.82; }
+
+/* ── VICTORY OVERLAY ─────────────────────────────────────────────────────── */
+.vne-victory-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  animation: vne-victory-in 4.6s ease-out forwards;
+}
+@keyframes vne-victory-in {
+  0%   { opacity: 0; }
+  10%  { opacity: 1; }
+  75%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.vne-victory-fadeout {
+  animation: vne-victory-out 0.6s ease-out forwards !important;
+}
+@keyframes vne-victory-out {
+  to { opacity: 0; }
+}
+
+.vne-victory-rays {
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%, rgba(200,155,60,0.07) 5%, transparent 10%,
+    transparent 20%, rgba(200,155,60,0.05) 25%, transparent 30%,
+    transparent 40%, rgba(200,155,60,0.07) 45%, transparent 50%,
+    transparent 60%, rgba(200,155,60,0.05) 65%, transparent 70%,
+    transparent 80%, rgba(200,155,60,0.07) 85%, transparent 90%,
+    transparent 100%
+  );
+  animation: vne-victory-spin 6s linear infinite;
+  transform-origin: center;
+}
+@keyframes vne-victory-spin {
+  to { transform: rotate(360deg); }
+}
+
+.vne-victory-text {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  animation: vne-victory-rise 0.7s cubic-bezier(0.2, 0, 0.2, 1.4) both;
+}
+@keyframes vne-victory-rise {
+  from { transform: translateY(30px) scale(0.8); opacity: 0; }
+  to   { transform: translateY(0)    scale(1);   opacity: 1; }
+}
+
+.vne-victory-title {
+  font-family: var(--font-primary, serif);
+  font-size: 4.5em;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vne-accent);
+  text-shadow:
+    0 0 40px rgba(200,155,60,0.9),
+    0 0 80px rgba(200,155,60,0.5),
+    0 2px 8px rgba(0,0,0,1);
+  animation: vne-victory-glow 1.2s ease-in-out infinite alternate;
+}
+@keyframes vne-victory-glow {
+  from { text-shadow: 0 0 30px rgba(200,155,60,0.8), 0 2px 8px rgba(0,0,0,1); }
+  to   { text-shadow: 0 0 60px rgba(220,180,80,1),   0 2px 8px rgba(0,0,0,1); }
+}
+
+.vne-victory-sub {
+  font-size: 1em;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.65);
+  text-shadow: 0 1px 6px rgba(0,0,0,0.9);
+}
 
 /* ── COMBAT VS DISPLAY ───────────────────────────────────────────────────── */
 

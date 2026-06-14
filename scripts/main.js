@@ -81,6 +81,13 @@ function _startTurnTimer(minutes) {
   }, 1000);
 }
 
+function _getRoundTier(round) {
+  if (round >= 7) return 3;
+  if (round >= 5) return 2;
+  if (round >= 3) return 1;
+  return 0;
+}
+
 function _patchCombatDisplay() {
   const combat = game.combat;
   const round   = combat?.round ?? 0;
@@ -89,6 +96,14 @@ function _patchCombatDisplay() {
   const nameEl  = document.getElementById("vne-turn-name");
   if (roundEl) roundEl.textContent = round || "–";
   if (nameEl)  nameEl.textContent  = name;
+
+  // Visual escalation by round tier
+  const main = document.getElementById("vne-main");
+  if (main) {
+    main.classList.remove("vne-round-tier-1", "vne-round-tier-2", "vne-round-tier-3");
+    const tier = _getRoundTier(round);
+    if (tier > 0) main.classList.add(`vne-round-tier-${tier}`);
+  }
 }
 
 // ── Data helpers ─────────────────────────────────────────────────────────────
@@ -195,6 +210,47 @@ function _applyReaction(d, actorId, reactionName) {
     if (p) p.activeReaction = reactionName;
   }
   if (d.portraits[actorId]) d.portraits[actorId].activeReaction = reactionName;
+}
+
+// Auto-reaction thresholds: keys checked in order for each tier
+const _AUTO_REACTION_TIERS = [
+  { maxPct: 0.25, keys: ["critical", "ko", "dying", "near_death"] },
+  { maxPct: 0.50, keys: ["hurt",     "wounded", "injured", "damaged"] },
+];
+
+function _applyAutoReaction(actorId) {
+  if (!game.user.isGM) return;
+  const d = getData();
+  let portrait = null;
+  for (const side of ["leftCast", "rightCast"]) {
+    portrait = d[side].find(p => p.id === actorId);
+    if (portrait) break;
+  }
+  if (!portrait) return;
+
+  const actor = game.actors.get(actorId);
+  const hp    = actor?.system?.attributes?.hp ?? actor?.system?.hp ?? null;
+  if (!hp || !hp.max || hp.max <= 0) return;
+
+  const pct       = Math.max(0, hp.value / hp.max);
+  const reactions = portrait.reactions ?? { default: portrait.img };
+
+  // Find which reaction key to use for current HP tier
+  let targetKey = null;
+  for (const tier of _AUTO_REACTION_TIERS) {
+    if (pct <= tier.maxPct) {
+      targetKey = tier.keys.find(k => reactions[k]);
+      if (targetKey) break;
+    }
+  }
+
+  // Fall back to default if above all thresholds or no matching key found
+  const finalKey = targetKey ?? "default";
+  if (!reactions[finalKey]) return;                       // key doesn't exist, skip
+  if (portrait.activeReaction === finalKey) return;       // already set, no save needed
+
+  _applyReaction(d, actorId, finalKey);
+  saveData(d, { change: "castChange" });
 }
 
 async function setReaction(actorId, reactionName) {
@@ -459,6 +515,57 @@ function _showActionImageOverlay({ imagePath, actorName = "", actionName = "", r
     overlay.remove();
     portraitImgs.forEach(el => { el.style.transition = "opacity 0.5s"; el.style.opacity = ""; });
   }, 3500);
+}
+
+// ── Victory State ────────────────────────────────────────────────────────────
+
+function _showVictoryOverlay() {
+  const main = document.getElementById("vne-main");
+  if (!main || main.style.display === "none") return;
+  document.getElementById("vne-victory-overlay")?.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "vne-victory-overlay";
+  overlay.className = "vne-victory-overlay";
+  overlay.innerHTML = `
+    <div class="vne-victory-rays"></div>
+    <div class="vne-victory-text">
+      <span class="vne-victory-title">¡VICTORIA!</span>
+      <span class="vne-victory-sub">El combate ha concluido</span>
+    </div>`;
+  main.appendChild(overlay);
+
+  // Auto-remove after 4 s and switch back to VN mode
+  setTimeout(async () => {
+    overlay.classList.add("vne-victory-fadeout");
+    setTimeout(() => overlay.remove(), 600);
+    if (game.user.isGM) {
+      const d = getData();
+      if (d.combatMode) {
+        d.combatMode = false;
+        await saveData(d, { change: "combatMode" });
+      }
+    }
+  }, 4000);
+}
+
+// Determine victory: called when deleteCombat fires or all enemies are defeated.
+// Only triggers if VNE is open in combat mode.
+function _checkVictoryCondition(combat) {
+  if (!game.user.isGM) return;
+  const d = getData();
+  if (!d.showVN || !d.combatMode) return;
+
+  // At least one left-side (player) combatant still active AND all right-side defeated
+  const turns = combat?.turns ?? [];
+  const leftIds  = new Set(d.leftCast.map(p => p.id));
+  const rightIds = new Set(d.rightCast.map(p => p.id));
+
+  const leftAlive  = turns.some(c => leftIds.has(c.actorId)  && !c.defeated);
+  const rightAll   = turns.filter(c => rightIds.has(c.actorId));
+  const rightAllDefeated = rightAll.length > 0 && rightAll.every(c => c.defeated);
+
+  if (leftAlive && rightAllDefeated) _showVictoryOverlay();
 }
 
 // ── VS Combat Display ─────────────────────────────────────────────────────────
@@ -798,6 +905,10 @@ function openReactionManager(actorId) {
     title: `Reactions: ${p.name}`,
     content: `<div class="vne-reaction-manager">
       <p class="vne-rm-hint">Each row = one expression. Players who own this actor can switch between them during play.</p>
+      <p class="vne-rm-hint" style="color:rgba(200,155,60,0.75);margin-top:4px;">
+        <i class="fas fa-heart-broken"></i> <strong>Auto-HP reactions:</strong>
+        name a reaction <code>hurt</code> or <code>wounded</code> (≤50% HP) and <code>critical</code> or <code>ko</code> (≤25% HP) to activate automatically when HP drops.
+      </p>
       <div id="vne-rm-rows">${initialRows}</div>
       <button type="button" id="vne-rm-add" class="vne-rm-add-btn"><i class="fas fa-plus"></i> Add Reaction</button>
     </div>`,
@@ -1367,8 +1478,10 @@ Hooks.on("updateSetting", (setting, _value, options) => {
     }
     if (change === "combatMode") {
       _stopTurnTimer();
-      // Reset VS portraits so they re-initialize from current combat state
       _vsLeft = _vsRight = null;
+      // Clear round-tier classes when leaving combat
+      const main = document.getElementById("vne-main");
+      main?.classList.remove("vne-round-tier-1", "vne-round-tier-2", "vne-round-tier-3");
     }
     VNE.instance?.render(true);
     return;
@@ -1761,6 +1874,8 @@ function renderVNECombatCarousel() {
     _renderVNECarouselVNMode(el, d);
   }
   _updateVSFromCombat();
+  // Apply round escalation tier immediately on any carousel render
+  if (d.combatMode) _patchCombatDisplay();
 }
 
 function _getCarouselActorHP(actor) {
@@ -2033,8 +2148,14 @@ function _onVNECarouselContextMenu(event) {
 Hooks.on("updateCombat",     renderVNECombatCarousel);
 Hooks.on("createCombatant",  renderVNECombatCarousel);
 Hooks.on("deleteCombatant",  renderVNECombatCarousel);
-Hooks.on("updateCombatant",  renderVNECombatCarousel);
-Hooks.on("deleteCombat",     renderVNECombatCarousel);
+Hooks.on("updateCombatant",  (combatant, changes) => {
+  renderVNECombatCarousel();
+  if (changes.defeated === true) _checkVictoryCondition(combatant.combat);
+});
+Hooks.on("deleteCombat",     (combat) => {
+  renderVNECombatCarousel();
+  _checkVictoryCondition(combat);
+});
 Hooks.on("createCombat",     renderVNECombatCarousel);
 
 // Live HP / status effect updates (debounced 80 ms)
@@ -2054,6 +2175,8 @@ Hooks.on("updateActor", (actor, changes) => {
     if (_vsLeft  && d.leftCast.some(p => p.id === actor.id))  { _vsLeft  = { ..._vsLeft,  hp, hpMax }; changed = true; }
     if (_vsRight && d.rightCast.some(p => p.id === actor.id)) { _vsRight = { ..._vsRight, hp, hpMax }; changed = true; }
     if (changed) _renderVSDisplay();
+    // Auto-switch reaction portrait based on HP threshold
+    _applyAutoReaction(actor.id);
   }
 });
 Hooks.on("updateToken",       _scheduleCarousel);
