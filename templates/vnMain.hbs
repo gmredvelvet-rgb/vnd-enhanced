@@ -109,6 +109,10 @@
           <div id="vne-timer-display" class="vne-timer-display{{#if timerEnabled}} vne-timer-running{{/if}}{{#if timerLow}} vne-timer-low{{/if}}">
             {{timerDisplay}}
           </div>
+          <div id="vne-timer-auto-btn" class="vne-ctrl-btn vne-timer-auto{{#if timerAuto}} vne-active{{/if}}"
+               title="{{#if timerAuto}}Auto-reset ON — reinicia el timer en cada turno (click para desactivar){{else}}Auto-reset OFF — el timer no se reinicia solo (click para activar){{/if}}">
+            <i class="fas fa-sync-alt"></i>
+          </div>
         </div>
 
         <div id="vne-roll-all-init-btn" class="vne-ctrl-btn" title="Roll All Initiative">

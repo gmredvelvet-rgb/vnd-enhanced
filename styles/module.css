@@ -318,6 +318,9 @@
   to   { opacity: 0.4; }
 }
 
+.vne-timer-auto { font-size: 0.75em; opacity: 0.6; }
+.vne-timer-auto.vne-active { opacity: 1; color: #ffe080; }
+
 /* Top-right control buttons */
 .vne-top-controls {
   display: flex;
@@ -1744,6 +1747,26 @@
   text-transform: uppercase;
 }
 
+.vne-vs-hp-bar-wrap {
+  width: 80%;
+  height: 5px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 3px;
+  margin: 5px auto 2px;
+  overflow: hidden;
+}
+.vne-vs-hp-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+.vne-vs-hp-text {
+  font-size: 0.7em;
+  color: rgba(255,255,255,0.55);
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+
 .vne-vs-sep {
   display: flex;
   align-items: flex-end;
@@ -1815,6 +1838,35 @@
   filter: grayscale(1) brightness(0.45);
   opacity: 0.55;
 }
+
+/* NEXT / +2 turn indicators */
+.vne-carousel-next {
+  border-color: rgba(120,200,255,0.55);
+  box-shadow: 0 0 8px rgba(100,180,255,0.35);
+}
+.vne-carousel-next2 {
+  border-color: rgba(255,255,255,0.2);
+  opacity: 0.8;
+}
+
+/* Turn badges (NOW / NEXT / +2) */
+.vne-carousel-badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  font-size: 0.55em;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  z-index: 5;
+  pointer-events: none;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+.vne-badge-now  { background: var(--vne-accent); color: #1a1208; }
+.vne-badge-next { background: rgba(100,180,255,0.85); color: #061420; }
+.vne-badge-next2{ background: rgba(255,255,255,0.55); color: #333333; }
 
 /* Status effect icons */
 .vne-carousel-effects {

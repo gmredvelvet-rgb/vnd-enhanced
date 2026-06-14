@@ -20,14 +20,15 @@ let _playerLocalUIHidden  = false;
 // ── VS Combat Display state ───────────────────────────────────────────────────
 // Each side is updated permanently on two events: (a) their turn starts, (b) they are targeted.
 // No timers — the most recent event always wins and persists until a new event overwrites it.
-let _vsLeft  = null;  // { img, name } — PC shown on left (leftCast)
-let _vsRight = null;  // { img, name } — NPC shown on right (rightCast)
+let _vsLeft  = null;  // { img, name, hp, hpMax } — PC shown on left (leftCast)
+let _vsRight = null;  // { img, name, hp, hpMax } — NPC shown on right (rightCast)
 
 // ── Turn timer state ─────────────────────────────────────────────────────────
-let _timerInterval  = null;
+let _timerInterval   = null;
 let _timerSecondsLeft = 0;
-let _timerEnabled   = false;
-let _timerMinutes   = 2;
+let _timerEnabled    = false;
+let _timerMinutes    = 2;
+let _timerAutoReset  = false;  // if true, timer restarts automatically on each turn change
 
 function _timerDisplayStr() {
   if (!_timerEnabled && _timerSecondsLeft === 0) return "--:--";
@@ -51,6 +52,15 @@ function _stopTurnTimer() {
   _patchTimerDisplay();
   const btn = document.getElementById("vne-timer-toggle-btn");
   if (btn) { btn.classList.remove("vne-active"); btn.title = "Start turn timer"; btn.querySelector("i").className = "fas fa-hourglass-start"; }
+}
+
+function _patchTimerAutoBtn() {
+  const btn = document.getElementById("vne-timer-auto-btn");
+  if (!btn) return;
+  btn.classList.toggle("vne-active", _timerAutoReset);
+  btn.title = _timerAutoReset
+    ? "Auto-reset ON — reinicia el timer en cada turno (click para desactivar)"
+    : "Auto-reset OFF — el timer no se reinicia solo (click para activar)";
 }
 
 function _startTurnTimer(minutes) {
@@ -468,14 +478,29 @@ function _renderVSDisplay() {
     vsEl.className = "vne-combat-vs";
     stage.appendChild(vsEl);
   }
+  const mkHpBar = (p) => {
+    if (p.hp == null || p.hpMax == null || p.hpMax <= 0) return "";
+    const pct = Math.max(0, Math.min(100, Math.round((p.hp / p.hpMax) * 100)));
+    const color = pct > 50 ? "#4caf50" : pct > 25 ? "#ff9800" : "#f44336";
+    return `<div class="vne-vs-hp-bar-wrap" title="${p.hp}/${p.hpMax} HP">
+      <div class="vne-vs-hp-bar" style="width:${pct}%;background:${color};"></div>
+    </div><div class="vne-vs-hp-text">${p.hp}/${p.hpMax}</div>`;
+  };
   const mkSide = (p) => p
-    ? `<img class="vne-vs-img" src="${p.img}" /><div class="vne-vs-name">${p.name}</div>`
+    ? `<img class="vne-vs-img" src="${p.img}" /><div class="vne-vs-name">${p.name}</div>${mkHpBar(p)}`
     : "";
   const showVS = !!(_vsLeft || _vsRight);
   vsEl.innerHTML = `
     <div class="vne-vs-side vne-vs-left">${mkSide(_vsLeft)}</div>
     <div class="vne-vs-sep">${showVS ? "<span>VS</span>" : ""}</div>
     <div class="vne-vs-side vne-vs-right">${mkSide(_vsRight)}</div>`;
+}
+
+function _vsDataFromPortrait(p) {
+  const actor = game.actors.get(p.id);
+  const hp    = actor?.system?.attributes?.hp?.value ?? null;
+  const hpMax = actor?.system?.attributes?.hp?.max   ?? null;
+  return { img: getPortraitImg(p), name: p.name, hp, hpMax };
 }
 
 // Called on turn change — updates the side that corresponds to the active combatant.
@@ -490,19 +515,19 @@ function _updateVSFromCombat() {
   if (currentId) {
     const leftP  = d.leftCast.find(p => p.id === currentId);
     const rightP = d.rightCast.find(p => p.id === currentId);
-    if (leftP)  _vsLeft  = { img: getPortraitImg(leftP),  name: leftP.name  };
-    if (rightP) _vsRight = { img: getPortraitImg(rightP), name: rightP.name };
+    if (leftP)  _vsLeft  = _vsDataFromPortrait(leftP);
+    if (rightP) _vsRight = _vsDataFromPortrait(rightP);
   }
   // Seed any side that is still empty from the full turn order
   if (!_vsLeft || !_vsRight) {
     for (const turn of (combat.turns ?? [])) {
       if (!_vsLeft) {
         const p = d.leftCast.find(q => q.id === turn.actorId);
-        if (p) _vsLeft  = { img: getPortraitImg(p), name: p.name };
+        if (p) _vsLeft  = _vsDataFromPortrait(p);
       }
       if (!_vsRight) {
         const p = d.rightCast.find(q => q.id === turn.actorId);
-        if (p) _vsRight = { img: getPortraitImg(p), name: p.name };
+        if (p) _vsRight = _vsDataFromPortrait(p);
       }
       if (_vsLeft && _vsRight) break;
     }
@@ -975,6 +1000,7 @@ export class VNE extends FormApplication {
       combatTurnName,
       timerMinutes:    _timerMinutes,
       timerEnabled:    _timerEnabled,
+      timerAuto:       _timerAutoReset,
       timerDisplay:    _timerDisplayStr(),
       timerLow:        _timerEnabled && _timerSecondsLeft <= 30
     };
@@ -1081,6 +1107,13 @@ export class VNE extends FormApplication {
         const minutes = parseInt(root.querySelector("#vne-timer-input")?.value ?? "2") || 2;
         _startTurnTimer(minutes);
       }
+    });
+
+    // Turn timer: auto-reset toggle
+    root.querySelector("#vne-timer-auto-btn")?.addEventListener("click", () => {
+      if (!game.user.isGM) return;
+      _timerAutoReset = !_timerAutoReset;
+      _patchTimerAutoBtn();
     });
 
     // Turn timer: change minutes (stops current timer)
@@ -1756,9 +1789,11 @@ function _carouselEffectsHtml(actor) {
   return `<div class="vne-carousel-effects">${icons}</div>`;
 }
 
-function _carouselCardHtml({ img, name, initLabel, isActive, isDefeated, mode, combatantId, actorId, side, actor }) {
+function _carouselCardHtml({ img, name, initLabel, isActive, isDefeated, isNext, isNextTwo, mode, combatantId, actorId, side, actor }) {
   const classes = ["vne-carousel-item",
     isActive   ? "vne-carousel-active"   : "",
+    isNext     ? "vne-carousel-next"     : "",
+    isNextTwo  ? "vne-carousel-next2"    : "",
     isDefeated ? "vne-carousel-defeated" : ""
   ].filter(Boolean).join(" ");
 
@@ -1769,7 +1804,13 @@ function _carouselCardHtml({ img, name, initLabel, isActive, isDefeated, mode, c
   const initPart = initLabel !== null
     ? `<span class="vne-carousel-cinit">${initLabel}</span>` : "";
 
+  const turnBadge = isActive  ? '<div class="vne-carousel-badge vne-badge-now">NOW</div>'
+                  : isNext    ? '<div class="vne-carousel-badge vne-badge-next">NEXT</div>'
+                  : isNextTwo ? '<div class="vne-carousel-badge vne-badge-next2">+2</div>'
+                  : "";
+
   return `<div class="${classes}" ${dataAttrs}>
+    ${turnBadge}
     <img src="${img}" alt="${name}" onerror="this.src='icons/svg/mystery-man.svg'">
     ${_carouselEffectsHtml(actor)}
     ${_carouselHpBarHtml(actor)}
@@ -1783,7 +1824,17 @@ function _carouselCardHtml({ img, name, initLabel, isActive, isDefeated, mode, c
 
 function _renderVNECarouselUnified(el, combat) {
   const turns = combat.turns ?? [];
-  function toCard(c) {
+  const activeIdx = turns.findIndex(c => combat.combatant?.id === c.id);
+  const total = turns.length;
+
+  function nextIdx(offset) {
+    if (total === 0 || activeIdx < 0) return -1;
+    return (activeIdx + offset) % total;
+  }
+  const nextI  = nextIdx(1);
+  const next2I = nextIdx(2);
+
+  function toCard(c, idx) {
     const actor = c.actor ?? game.actors.get(c.actorId);
     const img   = c.token?.texture?.src ?? actor?.img ?? "icons/svg/mystery-man.svg";
     const init  = c.initiative !== null && c.initiative !== undefined
@@ -1791,7 +1842,9 @@ function _renderVNECarouselUnified(el, combat) {
     return _carouselCardHtml({
       img, name: c.name || actor?.name || "???",
       initLabel: init,
-      isActive:   combat.combatant?.id === c.id,
+      isActive:   idx === activeIdx,
+      isNext:     idx === nextI  && idx !== activeIdx,
+      isNextTwo:  idx === next2I && idx !== activeIdx && idx !== nextI,
       isDefeated: c.defeated,
       mode: "combat",
       combatantId: c.id,
@@ -1801,6 +1854,18 @@ function _renderVNECarouselUnified(el, combat) {
   }
   el.innerHTML = turns.map(toCard).join("");
   _bindVNECarouselEvents(el);
+
+  // Auto-scroll: bring the active card into view (centered)
+  requestAnimationFrame(() => {
+    const activeCard = el.querySelector(".vne-carousel-active");
+    if (activeCard) {
+      const elLeft   = el.getBoundingClientRect().left;
+      const cardLeft = activeCard.getBoundingClientRect().left;
+      const cardCenter = cardLeft - elLeft + activeCard.offsetWidth / 2;
+      const targetScroll = cardCenter - el.clientWidth / 2;
+      el.scrollTo({ left: el.scrollLeft + targetScroll, behavior: "smooth" });
+    }
+  });
 }
 
 function _renderVNECarouselVNMode(el, d) {
@@ -1978,7 +2043,19 @@ function _scheduleCarousel() {
   clearTimeout(_vneCarouselTimer);
   _vneCarouselTimer = setTimeout(renderVNECombatCarousel, 80);
 }
-Hooks.on("updateActor",       _scheduleCarousel);
+Hooks.on("updateActor", (actor, changes) => {
+  _scheduleCarousel();
+  // Refresh VS display HP bars when HP changes
+  if (changes?.system?.attributes?.hp !== undefined) {
+    const hp    = actor.system?.attributes?.hp?.value ?? null;
+    const hpMax = actor.system?.attributes?.hp?.max   ?? null;
+    const d = getData();
+    let changed = false;
+    if (_vsLeft  && d.leftCast.some(p => p.id === actor.id))  { _vsLeft  = { ..._vsLeft,  hp, hpMax }; changed = true; }
+    if (_vsRight && d.rightCast.some(p => p.id === actor.id)) { _vsRight = { ..._vsRight, hp, hpMax }; changed = true; }
+    if (changed) _renderVSDisplay();
+  }
+});
 Hooks.on("updateToken",       _scheduleCarousel);
 Hooks.on("createActiveEffect",_scheduleCarousel);
 Hooks.on("deleteActiveEffect",_scheduleCarousel);
@@ -2153,9 +2230,13 @@ Hooks.on("updateCombat", (combat, changed) => {
   const d = getData();
   if (!d.showVN || !d.combatMode) return;
   _patchCombatDisplay();
-  // Auto-restart timer on new turn (if timer was running)
-  if (_timerEnabled && (changed.turn !== undefined || changed.round !== undefined)) {
-    _startTurnTimer(_timerMinutes);
+  // Auto-restart timer on new turn
+  if (changed.turn !== undefined || changed.round !== undefined) {
+    if (_timerAutoReset) {
+      _startTurnTimer(_timerMinutes);          // auto-reset: always restart
+    } else if (_timerEnabled) {
+      _startTurnTimer(_timerMinutes);          // timer running: restart for new turn
+    }
   }
   // Auto-set active speaker + refresh VS display when turn advances
   if (changed.turn !== undefined || changed.round !== undefined) {
@@ -2170,6 +2251,23 @@ Hooks.on("updateCombat", (combat, changed) => {
           d2.activeSpeakerId = currentActorId;
           saveData(d2, { change: "activeSpeaker" });
         }
+      }
+    }
+  }
+  // Spotlight: notify player it's their turn
+  if (game.user.isGM && (changed.turn !== undefined || changed.round !== undefined)) {
+    const combatant = combat.combatant;
+    if (combatant?.actorId) {
+      const actor = game.actors.get(combatant.actorId);
+      const owner = game.users.find(u => !u.isGM && actor?.testUserPermission(u, "OWNER"));
+      if (owner && actor) {
+        const portrait = actor.img ? `<img src="${actor.img}" style="width:48px;height:48px;border-radius:4px;vertical-align:middle;margin-right:8px;" />` : "";
+        ChatMessage.create({
+          content: `${portrait}<strong>${actor.name}</strong>, ¡es tu turno!`,
+          whisper: [owner.id],
+          speaker: { alias: "VND Enhanced" },
+          flags: { "vnd-enhanced": { type: "turn-notification" } }
+        });
       }
     }
   }
