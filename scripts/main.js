@@ -13,7 +13,6 @@ import { registerSettings } from "./settings.js";
 
 const ID = "vnd-enhanced";
 let combatChatHidden = false;
-const combatLogMessageIds = new Set();
 
 // Per-client local hide — non-GM players close/open without affecting others
 let _playerLocalHidden    = false;
@@ -135,8 +134,9 @@ function templatePortrait(p, side, activeSpeakerId, worldOffsetY, editMode, comb
   const oy = (p.offsetY || 0) - worldOffsetY;
   const ox = p.offsetX || 0;
   const isCombatTarget = side === "right" && combatMode;
+  // Use actorId from the token document to support unlinked tokens
   const isTargeted = isCombatTarget
-    ? [...(game.user.targets ?? [])].some(t => t.actor?.id === p.id)
+    ? [...(game.user.targets ?? [])].some(t => (t.document?.actorId ?? t.actorId ?? t.actor?.id) === p.id)
     : false;
   return {
     ...p,
@@ -203,7 +203,10 @@ async function setReaction(actorId, reactionName) {
 // ── Combat Stage helpers ──────────────────────────────────────────────────────
 
 function targetActorToken(actorId) {
-  const tokens = canvas.tokens?.placeables?.filter(t => t.actor?.id === actorId) ?? [];
+  // Match by document.actorId to support unlinked tokens (t.actor?.id may be synthetic)
+  const tokens = canvas.tokens?.placeables?.filter(t =>
+    (t.document?.actorId ?? t.actorId ?? t.actor?.id) === actorId
+  ) ?? [];
   if (!tokens.length) { ui.notifications?.warn("No token on the active scene for this actor."); return; }
   const token = tokens[0];
   const ids = [...(game.user.targets ?? [])].map(t => t.id);
@@ -267,9 +270,49 @@ async function toggleHideUI() {
   await saveData(d, { change: "hideUI" });
 }
 
+// Chat mirror: snapshot + hook-based updates.
+// renderChatMessageHTML fires before PF2e finishes post-processing the element,
+// so we clone with a 200ms delay to get the fully-modified DOM node.
+
+function _setupChatMirror() {
+  const chatLog = document.getElementById("chat-log");
+  const container = document.getElementById("vne-combat-log");
+  if (!container) return;
+  container.innerHTML = "";
+  // Seed with whatever is already in #chat-log (rendered messages)
+  if (chatLog) {
+    [...chatLog.children].forEach(li => container.appendChild(li.cloneNode(true)));
+    requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
+  }
+}
+
+function _teardownChatMirror() {
+  const container = document.getElementById("vne-combat-log");
+  if (container) container.innerHTML = "";
+}
+
+function _addToCombatLog(message, element) {
+  const container = document.getElementById("vne-combat-log");
+  if (!container) return;
+  const msgId = message?.id;
+  if (msgId) {
+    // Replace existing clone on re-renders (PF2e updates degree-of-success this way)
+    const existing = container.querySelector(`[data-message-id="${msgId}"]`);
+    if (existing) { existing.replaceWith(element.cloneNode(true)); return; }
+  }
+  container.appendChild(element.cloneNode(true));
+  container.scrollTop = container.scrollHeight;
+}
+
 async function toggleCombatChat() {
   combatChatHidden = !combatChatHidden;
-  document.getElementById("vne-combat-log")?.classList.toggle("vne-chat-collapsed", combatChatHidden);
+  const log = document.getElementById("vne-combat-log");
+  if (log) log.classList.toggle("vne-chat-collapsed", combatChatHidden);
+  if (combatChatHidden) {
+    _teardownChatMirror();
+  } else if (getData().combatMode) {
+    _setupChatMirror();
+  }
   document.querySelectorAll(".vne-chat-toggle").forEach(btn => {
     btn.title = combatChatHidden ? "Show combat chat" : "Hide combat chat";
     const icon = btn.querySelector("i");
@@ -480,83 +523,10 @@ function _updateVSOnTarget(actorId, side) {
   _renderVSDisplay();
 }
 
-function _isCombatChatMessage(message) {
-  return !!(message?.content || message?.rolls?.length || message?.flags?.pf2e || message?.flags?.dnd5e);
-}
-
-function _shouldShowCombatLogMessage(message) {
-  const d = getData();
-  return d.showVN && d.combatMode && _isCombatChatMessage(message);
-}
-
-function _messageActor(message) {
-  const speakerToken = message.speaker?.scene && message.speaker?.token
-    ? game.scenes.get(message.speaker.scene)?.tokens?.get(message.speaker.token)
-    : null;
-  return speakerToken?.actor ?? game.actors.get(message.speaker?.actor) ?? null;
-}
-
 function _escapeHTML(value) {
   const div = document.createElement("div");
   div.textContent = value ?? "";
   return div.innerHTML;
-}
-
-function _nativeChatNode(message) {
-  if (!message?.id) return null;
-  return document.querySelector(`#chat-log [data-message-id="${message.id}"], #chat-log .message[data-message-id="${message.id}"], #chat-log .chat-message[data-message-id="${message.id}"]`);
-}
-
-function _cleanNativeChatClone(node) {
-  const clone = node.cloneNode(true);
-  clone.removeAttribute("id");
-  clone.querySelectorAll("[id]").forEach(el => el.removeAttribute("id"));
-  clone.querySelectorAll(".message-delete, .message-delete-button, .message-metadata, .flavor-text .message-metadata").forEach(el => el.remove());
-  clone.classList.add("vne-native-message");
-  return clone;
-}
-
-function _buildFallbackNativeCard(message) {
-  const actor = _messageActor(message);
-  const card = document.createElement("article");
-  card.className = "chat-message message vne-native-message vne-native-fallback";
-  card.dataset.messageId = message.id ?? "";
-  card.innerHTML = `
-    <header class="message-header">
-      ${actor?.img ? `<img class="vne-native-speaker-img" src="${actor.img}" />` : ""}
-      <h4 class="message-sender">${_escapeHTML(message.speaker?.alias || actor?.name || "Roll")}</h4>
-    </header>
-    <div class="message-content">
-      ${message.flavor ? `<div class="flavor-text">${_escapeHTML(message.flavor)}</div>` : ""}
-      ${message.content || ""}
-    </div>
-  `;
-  return card;
-}
-
-function _addCombatLogElement(message, node) {
-  const log = document.getElementById("vne-combat-log");
-  if (!log) return;
-  if (!message?.id || combatLogMessageIds.has(message.id)) return;
-  combatLogMessageIds.add(message.id);
-  if (!combatChatHidden) log.classList.remove("vne-chat-collapsed");
-  const el = document.createElement("div");
-  el.className = "vne-cl-entry vne-cl-new";
-  el.appendChild(_cleanNativeChatClone(node));
-  log.prepend(el);
-  requestAnimationFrame(() => el.classList.remove("vne-cl-new"));
-  setTimeout(() => {
-    el.classList.add("vne-cl-expiring");
-    setTimeout(() => {
-      el.remove();
-      combatLogMessageIds.delete(message.id);
-    }, 650);
-  }, 10000);
-}
-
-function _addCombatLogEntry(message) {
-  const native = _nativeChatNode(message);
-  _addCombatLogElement(message, native instanceof HTMLElement ? native : _buildFallbackNativeCard(message));
 }
 
 // ── Small sub-dialogs ────────────────────────────────────────────────────────
@@ -900,6 +870,16 @@ export class VNE extends FormApplication {
     await saveData(d, { change: "showVN" });
   }
 
+  async render(force, options) {
+    _teardownChatMirror();
+    return super.render(force, options);
+  }
+
+  async close(options) {
+    _teardownChatMirror();
+    return super.close(options);
+  }
+
   // ── Template data ──────────────────────────────────────────────────────────
 
   getData() {
@@ -1193,6 +1173,9 @@ export class VNE extends FormApplication {
     renderVNECombatCarousel();
     _updateVSFromCombat();
 
+    // Mirror Foundry's #chat-log into our panel when in combat + chat visible
+    if (getData().combatMode && !combatChatHidden) _setupChatMirror();
+
     // Drag-over styling for drop zones
     root.querySelectorAll(".vne-drop-zone").forEach(zone => {
       zone.addEventListener("dragover", (e) => {
@@ -1297,7 +1280,7 @@ Hooks.on("updateSetting", (setting, _value, options) => {
     }
     if (change === "combatMode") {
       combatChatHidden = false;
-      combatLogMessageIds.clear();
+      _teardownChatMirror();
       _stopTurnTimer();
       // Reset VS portraits so they re-initialize from current combat state
       _vsLeft = _vsRight = null;
@@ -1334,12 +1317,26 @@ Hooks.on("updateSetting", (setting, _value, options) => {
     });
   }
 
-  if (change === "castChange" || change === "activeSpeaker") {
+  if (change === "castChange") {
     _patchCast(d);
     renderVNECombatCarousel();
-    // Re-seed VS in case portraits changed or actors were removed/added
     _vsLeft = _vsRight = null;
     _updateVSFromCombat();
+  }
+
+  if (change === "activeSpeaker") {
+    _patchCast(d);
+    renderVNECombatCarousel();
+    if (d.activeSpeakerId) {
+      // Speaker set → bring them "al frente" on their side in VS
+      const leftP  = d.leftCast.find(p => p.id === d.activeSpeakerId);
+      const rightP = d.rightCast.find(p => p.id === d.activeSpeakerId);
+      if (leftP)  { _vsLeft  = { img: getPortraitImg(leftP),  name: leftP.name  }; _renderVSDisplay(); }
+      if (rightP) { _vsRight = { img: getPortraitImg(rightP), name: rightP.name }; _renderVSDisplay(); }
+    } else {
+      // Speaker cleared → revert VS to current combatant
+      _updateVSFromCombat();
+    }
   }
 
   if (change === "locationList") {
@@ -1539,20 +1536,15 @@ function _patchCast(d) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function renderVNECombatCarousel() {
-  const pcsEl  = document.getElementById("vne-header-pcs");
-  const npcsEl = document.getElementById("vne-header-npcs");
-  if (!pcsEl || !npcsEl) return;
+  const el = document.getElementById("vne-unified-carousel");
+  if (!el) return;
   const d = getData();
-  if (!d.showVN) {
-    pcsEl.innerHTML = "";
-    npcsEl.innerHTML = "";
-    return;
-  }
+  if (!d.showVN) { el.innerHTML = ""; _updateVSFromCombat(); return; }
   const combat = game.combat;
   if (combat?.turns?.length) {
-    _renderVNECarouselCombatMode(pcsEl, npcsEl, combat);
+    _renderVNECarouselUnified(el, combat);
   } else {
-    _renderVNECarouselVNMode(pcsEl, npcsEl, d);
+    _renderVNECarouselVNMode(el, d);
   }
   _updateVSFromCombat();
 }
@@ -1608,11 +1600,8 @@ function _carouselCardHtml({ img, name, initLabel, isActive, isDefeated, mode, c
   </div>`;
 }
 
-function _renderVNECarouselCombatMode(pcsEl, npcsEl, combat) {
+function _renderVNECarouselUnified(el, combat) {
   const turns = combat.turns ?? [];
-  const pcs   = turns.filter(c => c.hasPlayerOwner);
-  const npcs  = turns.filter(c => !c.hasPlayerOwner);
-
   function toCard(c) {
     const actor = c.actor ?? game.actors.get(c.actorId);
     const img   = c.token?.texture?.src ?? actor?.img ?? "icons/svg/mystery-man.svg";
@@ -1629,18 +1618,14 @@ function _renderVNECarouselCombatMode(pcsEl, npcsEl, combat) {
       actor
     });
   }
-
-  pcsEl.innerHTML  = pcs.map(toCard).join("");
-  npcsEl.innerHTML = npcs.map(toCard).join("");
-  _bindVNECarouselEvents(pcsEl);
-  _bindVNECarouselEvents(npcsEl);
+  el.innerHTML = turns.map(toCard).join("");
+  _bindVNECarouselEvents(el);
 }
 
-function _renderVNECarouselVNMode(pcsEl, npcsEl, d) {
-  const left  = d.leftCast  ?? [];
-  const right = d.rightCast ?? [];
-
-  function toCard(p, side) {
+function _renderVNECarouselVNMode(el, d) {
+  const all = [...(d.leftCast ?? []).map(p => ({ p, side: "left" })),
+               ...(d.rightCast ?? []).map(p => ({ p, side: "right" }))];
+  function toCard({ p, side }) {
     const actor = game.actors.get(p.id);
     const img   = getPortraitImg(p) || actor?.img || "icons/svg/mystery-man.svg";
     return _carouselCardHtml({
@@ -1654,11 +1639,8 @@ function _renderVNECarouselVNMode(pcsEl, npcsEl, d) {
       actor
     });
   }
-
-  pcsEl.innerHTML  = left.map(p => toCard(p, "left")).join("");
-  npcsEl.innerHTML = right.map(p => toCard(p, "right")).join("");
-  _bindVNECarouselEvents(pcsEl);
-  _bindVNECarouselEvents(npcsEl);
+  el.innerHTML = all.map(toCard).join("");
+  _bindVNECarouselEvents(el);
 }
 
 function _bindVNECarouselEvents(carouselEl) {
@@ -1955,21 +1937,34 @@ Hooks.on("ready", () => {
   };
 });
 
+// Helper: get base actor ID from a token (works for linked AND unlinked tokens, v11-v13)
+function _tokenActorId(token) {
+  return token?.document?.actorId  // PlaceableObject in v11/v12/v13
+      ?? token?.actorId            // TokenDocument in v13
+      ?? token?.data?.actorId      // v11 fallback
+      ?? token?.actor?.id          // last resort (may be synthetic for unlinked tokens)
+      ?? null;
+}
+
 // Refresh targeted portrait ring when user targeting changes
 Hooks.on("targetToken", (user, token, targeted) => {
   if (user.id !== game.user.id) return;
   const d = getData();
   if (!d.showVN || !d.combatMode) return;
   // Refresh right-panel portrait target classes without full re-render
-  const targetedIds = new Set([...(game.user.targets ?? [])].map(t => t.actor?.id).filter(Boolean));
+  const targetedIds = new Set(
+    [...(game.user.targets ?? [])].map(t => _tokenActorId(t)).filter(Boolean)
+  );
   document.querySelectorAll(".vne-cast-portrait[data-side='right']").forEach(el => {
     el.classList.toggle("vne-targeted", targetedIds.has(el.dataset.id));
   });
   // Targeted actor goes "al frente" on their own side — persists until next turn or new target
-  if (targeted && token?.actor) {
-    const actorId = token.actor.id;
-    if (d.rightCast.some(p => p.id === actorId))      _updateVSOnTarget(actorId, "right");
-    else if (d.leftCast.some(p => p.id === actorId))  _updateVSOnTarget(actorId, "left");
+  if (targeted) {
+    const actorId = _tokenActorId(token);
+    if (actorId) {
+      if (d.rightCast.some(p => p.id === actorId))      _updateVSOnTarget(actorId, "right");
+      else if (d.leftCast.some(p => p.id === actorId))  _updateVSOnTarget(actorId, "left");
+    }
   }
 });
 
@@ -2003,26 +1998,21 @@ Hooks.on("updateCombat", (combat, changed) => {
   if (controls) controls.classList.remove("vne-hidden");
 });
 
-// Combat roll log — fires for all connected clients
-Hooks.on("createChatMessage", (message) => {
-  try {
-    if (!_shouldShowCombatLogMessage(message)) return;
-    setTimeout(() => {
-      if (_shouldShowCombatLogMessage(message)) _addCombatLogEntry(message);
-    }, 650);
-  } catch (e) { /* ignore */ }
-});
 
-// Catch rendered chat HTML — hook name varies by Foundry version
-function _onRenderChatMessage(message, html) {
+// Chat mirror — every message render/re-render goes into our combat log panel.
+// 200ms delay: lets PF2e finish post-hook DOM modifications on the element
+// before we clone it (degree-of-success coloring, trait tags, etc.).
+function _onChatRender(message, element) {
   try {
-    if (!_shouldShowCombatLogMessage(message)) return;
-    const node = html?.jquery ? html[0] : (html instanceof HTMLElement ? html : null);
-    if (node) _addCombatLogElement(message, node);
-  } catch (e) { /* ignore */ }
+    const d = getData();
+    if (!d.showVN || !d.combatMode || combatChatHidden) return;
+    const el = element instanceof HTMLElement ? element : element?.[0]; // jQuery compat
+    if (!el) return;
+    setTimeout(() => _addToCombatLog(message, el), 200);
+  } catch(e) { /* ignore */ }
 }
-Hooks.on("renderChatMessageHTML", _onRenderChatMessage); // v13+
-Hooks.on("renderChatMessage",     _onRenderChatMessage); // v11/v12
+Hooks.on("renderChatMessageHTML", _onChatRender); // v13+
+Hooks.on("renderChatMessage",     _onChatRender); // v11/v12 (jQuery html[0])
 
 Hooks.on("vnd-enhanced.actionImage", (data) => {
   try {

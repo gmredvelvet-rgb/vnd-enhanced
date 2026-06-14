@@ -23,7 +23,7 @@
     {{!-- ── TOP BAR ── --}}
     <div class="vne-top-bar{{#if combatMode}} vne-combat-mode{{/if}}">
 
-      {{!-- LEFT: location info + PC participants --}}
+      {{!-- LEFT: location info --}}
       <div class="vne-top-left-section">
         <div class="vne-location-info">
           {{#if locationParent}}
@@ -38,50 +38,10 @@
             <span class="vne-loc-time"><i class="fas fa-clock"></i> {{locationTime}}</span>
           {{/if}}
         </div>
-        <div id="vne-header-pcs" class="vne-header-participants"></div>
       </div>
 
-      {{!-- CENTER: combat controls (always rendered, hidden when not in combat mode) --}}
-      <div id="vne-combat-controls" class="vne-combat-controls{{#unless combatMode}} vne-hidden{{/unless}}">
-        {{#if isGM}}
-          <div id="vne-prev-turn-btn" class="vne-turn-nav-btn" title="Previous Turn">
-            <i class="fas fa-step-backward"></i> PREV
-          </div>
-        {{/if}}
-
-        <div class="vne-round-block">
-          <div class="vne-round-label">RONDA</div>
-          <div id="vne-round-num" class="vne-round-num">{{combatRound}}</div>
-          <div id="vne-turn-name" class="vne-turn-name">{{combatTurnName}}</div>
-        </div>
-
-        {{#if isGM}}
-          <div id="vne-next-turn-btn" class="vne-turn-nav-btn" title="Next Turn">
-            NEXT <i class="fas fa-step-forward"></i>
-          </div>
-
-          <div class="vne-timer-area">
-            <input id="vne-timer-input" class="vne-timer-input" type="number"
-              min="0" max="60" value="{{timerMinutes}}" title="Minutes per turn"/>
-            <span class="vne-timer-unit">min</span>
-            <div id="vne-timer-toggle-btn" class="vne-ctrl-btn vne-timer-toggle{{#if timerEnabled}} vne-active{{/if}}"
-                 title="{{#if timerEnabled}}Stop timer{{else}}Start turn timer{{/if}}">
-              <i class="fas fa-hourglass-{{#if timerEnabled}}half{{else}}start{{/if}}"></i>
-            </div>
-            <div id="vne-timer-display" class="vne-timer-display{{#if timerEnabled}} vne-timer-running{{/if}}{{#if timerLow}} vne-timer-low{{/if}}">
-              {{timerDisplay}}
-            </div>
-          </div>
-
-          <div id="vne-roll-all-init-btn" class="vne-ctrl-btn" title="Roll All Initiative">
-            <i class="fas fa-dice-d20"></i>
-          </div>
-        {{/if}}
-      </div>
-
-      {{!-- RIGHT: NPC participants + control buttons --}}
+      {{!-- RIGHT: control buttons --}}
       <div class="vne-top-right-section">
-        <div id="vne-header-npcs" class="vne-header-participants"></div>
         <div class="vne-top-controls">
           {{#if isGM}}
             <div id="vne-bg-btn" class="vne-ctrl-btn" title="Change Background (supports GIF/WebP)">
@@ -113,6 +73,47 @@
           </div>
         </div>
       </div>
+    </div>
+
+    {{!-- ── CAROUSEL ROW (below header, all combatants sorted by initiative) ── --}}
+    <div id="vne-unified-carousel" class="vne-unified-carousel{{#unless combatMode}} vne-hidden{{/unless}}"></div>
+
+    {{!-- ── COMBAT CONTROLS ROW (below carousel) ── --}}
+    <div id="vne-combat-controls" class="vne-combat-controls{{#unless combatMode}} vne-hidden{{/unless}}">
+      {{#if isGM}}
+        <div id="vne-prev-turn-btn" class="vne-turn-nav-btn" title="Previous Turn">
+          <i class="fas fa-step-backward"></i> PREV
+        </div>
+      {{/if}}
+
+      <div class="vne-round-block">
+        <div class="vne-round-label">RONDA</div>
+        <div id="vne-round-num" class="vne-round-num">{{combatRound}}</div>
+        <div id="vne-turn-name" class="vne-turn-name">{{combatTurnName}}</div>
+      </div>
+
+      {{#if isGM}}
+        <div class="vne-timer-area">
+          <input id="vne-timer-input" class="vne-timer-input" type="number"
+            min="0" max="60" value="{{timerMinutes}}" title="Minutes per turn"/>
+          <span class="vne-timer-unit">min</span>
+          <div id="vne-timer-toggle-btn" class="vne-ctrl-btn vne-timer-toggle{{#if timerEnabled}} vne-active{{/if}}"
+               title="{{#if timerEnabled}}Stop timer{{else}}Start turn timer{{/if}}">
+            <i class="fas fa-hourglass-{{#if timerEnabled}}half{{else}}start{{/if}}"></i>
+          </div>
+          <div id="vne-timer-display" class="vne-timer-display{{#if timerEnabled}} vne-timer-running{{/if}}{{#if timerLow}} vne-timer-low{{/if}}">
+            {{timerDisplay}}
+          </div>
+        </div>
+
+        <div id="vne-roll-all-init-btn" class="vne-ctrl-btn" title="Roll All Initiative">
+          <i class="fas fa-dice-d20"></i>
+        </div>
+
+        <div id="vne-next-turn-btn" class="vne-turn-nav-btn" title="Next Turn">
+          NEXT <i class="fas fa-step-forward"></i>
+        </div>
+      {{/if}}
     </div>
 
     {{!-- ── STAGE AREA ── --}}
