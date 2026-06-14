@@ -1,0 +1,23 @@
+{
+  "id": "vnd-enhanced",
+  "title": "VN Dialogues Enhanced",
+  "description": "Visual Novel style dialogue display for FoundryVTT. The active speaker always appears centered and large. Simple scene switching, easy actor image management, and clear visual feedback on who is speaking.",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "11",
+    "verified": "13"
+  },
+  "socket": true,
+  "authors": [{ "name": "Enhanced fork" }],
+  "esmodules": [
+    "scripts/settings.js",
+    "scripts/main.js"
+  ],
+  "styles": ["styles/module.css"],
+  "languages": [
+    { "lang": "en", "name": "English", "path": "language/en.json" }
+  ],
+  "url": "",
+  "manifest": "",
+  "download": ""
+}

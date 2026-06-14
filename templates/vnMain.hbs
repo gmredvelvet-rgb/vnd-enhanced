@@ -1,0 +1,274 @@
+{{!--
+  VND Enhanced – Main UI Template
+  Layout:
+    [TOP BAR]        location name (left) | combat controls (center) | buttons (right)
+    [LEFT PANEL]     player character portraits (auto-scaling, side cast)
+    [CENTER]         ACTIVE SPEAKER large portrait + nameplate + reactions bar
+    [RIGHT PANEL]    NPC portraits (auto-scaling, side cast)
+    [BOTTOM BAR]     scene quick-switcher + GM toolbar
+    [PLAYER PANEL]   GM: per-player visibility controls
+--}}
+<div id="vne-main" class="vne-main{{#unless visible}} vne-hidden{{/unless}}{{#if combatMode}} vne-combat-mode{{/if}}"
+  style="z-index: {{zIndex}}; display:{{#if visible}}grid{{else}}none{{/if}};">
+
+  {{!-- BACKGROUND (img tag — supports animated GIF and WebP) --}}
+  <div id="vne-bg-wrap" class="vne-background{{#if hideBack}} vne-hidden{{/if}}">
+    <img id="vne-background-img" class="vne-bg-img" src="{{backgroundImage}}" alt="" />
+  </div>
+  <div class="vne-background-overlay"></div>
+
+  {{!-- UI LAYER (hides with hideUI) --}}
+  <div id="vne-ui-layer" class="vne-ui-layer{{#if hideUI}} vne-ui-collapsed{{/if}}">
+
+    {{!-- ── TOP BAR ── --}}
+    <div class="vne-top-bar{{#if combatMode}} vne-combat-mode{{/if}}">
+
+      {{!-- LEFT: location info + PC participants --}}
+      <div class="vne-top-left-section">
+        <div class="vne-location-info">
+          {{#if locationParent}}
+            <span id="vne-loc-parent" class="vne-loc-parent">{{locationParent}}</span>
+            <span class="vne-loc-sep">›</span>
+          {{/if}}
+          <span id="vne-loc-name" class="vne-loc-name">{{#if locationName}}{{locationName}}{{else}}???{{/if}}</span>
+          {{#if locationWeather}}
+            <span class="vne-loc-weather"><i class="fas fa-cloud-sun"></i> {{locationWeather}}</span>
+          {{/if}}
+          {{#if locationTime}}
+            <span class="vne-loc-time"><i class="fas fa-clock"></i> {{locationTime}}</span>
+          {{/if}}
+        </div>
+        <div id="vne-header-pcs" class="vne-header-participants"></div>
+      </div>
+
+      {{!-- CENTER: combat controls (always rendered, hidden when not in combat mode) --}}
+      <div id="vne-combat-controls" class="vne-combat-controls{{#unless combatMode}} vne-hidden{{/unless}}">
+        {{#if isGM}}
+          <div id="vne-prev-turn-btn" class="vne-turn-nav-btn" title="Previous Turn">
+            <i class="fas fa-step-backward"></i> PREV
+          </div>
+        {{/if}}
+
+        <div class="vne-round-block">
+          <div class="vne-round-label">RONDA</div>
+          <div id="vne-round-num" class="vne-round-num">{{combatRound}}</div>
+          <div id="vne-turn-name" class="vne-turn-name">{{combatTurnName}}</div>
+        </div>
+
+        {{#if isGM}}
+          <div id="vne-next-turn-btn" class="vne-turn-nav-btn" title="Next Turn">
+            NEXT <i class="fas fa-step-forward"></i>
+          </div>
+
+          <div class="vne-timer-area">
+            <input id="vne-timer-input" class="vne-timer-input" type="number"
+              min="0" max="60" value="{{timerMinutes}}" title="Minutes per turn"/>
+            <span class="vne-timer-unit">min</span>
+            <div id="vne-timer-toggle-btn" class="vne-ctrl-btn vne-timer-toggle{{#if timerEnabled}} vne-active{{/if}}"
+                 title="{{#if timerEnabled}}Stop timer{{else}}Start turn timer{{/if}}">
+              <i class="fas fa-hourglass-{{#if timerEnabled}}half{{else}}start{{/if}}"></i>
+            </div>
+            <div id="vne-timer-display" class="vne-timer-display{{#if timerEnabled}} vne-timer-running{{/if}}{{#if timerLow}} vne-timer-low{{/if}}">
+              {{timerDisplay}}
+            </div>
+          </div>
+
+          <div id="vne-roll-all-init-btn" class="vne-ctrl-btn" title="Roll All Initiative">
+            <i class="fas fa-dice-d20"></i>
+          </div>
+        {{/if}}
+      </div>
+
+      {{!-- RIGHT: NPC participants + control buttons --}}
+      <div class="vne-top-right-section">
+        <div id="vne-header-npcs" class="vne-header-participants"></div>
+        <div class="vne-top-controls">
+          {{#if isGM}}
+            <div id="vne-bg-btn" class="vne-ctrl-btn" title="Change Background (supports GIF/WebP)">
+              <i class="fas fa-image"></i>
+            </div>
+            <div id="vne-edit-scene-btn" class="vne-ctrl-btn" title="Edit current scene">
+              <i class="fas fa-map-pin"></i>
+            </div>
+            <div id="vne-edit-btn" class="vne-ctrl-btn{{#if editMode}} vne-active{{/if}}" title="Edit Mode (right-click portrait to edit)">
+              <i class="fas fa-pencil"></i>
+            </div>
+            <div id="vne-combat-stage-btn" class="vne-ctrl-btn vne-combat-stage-toggle{{#if combatMode}} vne-active vne-combat-active{{/if}}" title="Combat Stage">
+              <i class="fas fa-crosshairs"></i>
+            </div>
+          {{/if}}
+          <div id="vne-hideback-btn" class="vne-ctrl-btn{{#if hideBack}} vne-active{{/if}}" title="Toggle Background">
+            <i class="fas fa-image"></i>
+          </div>
+          <div id="vne-chat-toggle-btn" class="vne-ctrl-btn vne-chat-toggle"
+               title="{{#if chatHidden}}Show combat chat{{else}}Hide combat chat{{/if}}">
+            <i class="fas fa-{{#if chatHidden}}comments{{else}}comment-slash{{/if}}"></i>
+          </div>
+          <div id="vne-hideUI-btn" class="vne-ctrl-btn vne-hideUI-toggle{{#if hideUI}} vne-active{{/if}}"
+               title="{{#if hideUI}}Show UI panels{{else}}Hide UI panels{{/if}}">
+            <i class="fas fa-{{#if hideUI}}eye{{else}}eye-slash{{/if}}"></i>
+          </div>
+          <div id="vne-close-btn" class="vne-ctrl-btn vne-close" title="Close VN">
+            <i class="fas fa-times"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {{!-- ── STAGE AREA ── --}}
+    <div class="vne-stage">
+
+      {{!-- LEFT CAST DROP ZONE --}}
+      <div class="vne-left-panel vne-side-panel vne-drop-zone" data-side="left">
+        <div class="vne-side-label">
+          {{#if isGM}}<div id="vne-add-left-btn" class="vne-add-cast-btn" title="Add actor to left side"><i class="fas fa-user-plus"></i></div>{{/if}}
+          <span>Players</span>
+        </div>
+        <div id="vne-left-portraits" class="vne-portraits-list">
+          {{#each leftCast as |p|}}
+            <div class="vne-cast-portrait{{#if p.isActive}} vne-speaking{{/if}}{{#if p.isOwned}} vne-owned{{/if}}{{#if p.isCombatTarget}} vne-combat-target{{/if}}{{#if p.isTargeted}} vne-targeted{{/if}}"
+                 data-id="{{p.id}}"
+                 title="{{p.name}}{{#if p.title}} – {{p.title}}{{/if}}"
+                 draggable="true" data-side="left">
+              <img src="{{p.img}}" class="vne-cast-img" style="{{p.imgStyle}}" />
+              {{#if p.isActive}}<div class="vne-speaking-ring"></div>{{/if}}
+              {{#if p.isOwned}}<div class="vne-owned-badge" title="Your character"><i class="fas fa-star"></i></div>{{/if}}
+              {{#if p.editMode}}<div class="vne-remove-cast-btn" data-id="{{p.id}}" data-side="left" title="Remove"><i class="fas fa-times"></i></div>{{/if}}
+            </div>
+          {{/each}}
+          {{#unless leftCast.length}}
+            <div class="vne-cast-empty">
+              <i class="fas fa-user-plus"></i>
+              <span>Drag actors here<br>or click +</span>
+            </div>
+          {{/unless}}
+        </div>
+      </div>
+
+      {{!-- CENTER SPEAKER --}}
+      <div class="vne-center-area">
+        <div id="vne-center-speaker" class="vne-center-speaker{{#if activeSpeaker}} vne-has-speaker{{/if}}">
+          {{#if activeSpeaker}}
+            <div class="vne-center-portrait-wrap">
+              <img class="vne-center-img" src="{{activeSpeaker.img}}" style="{{activeSpeaker.imgStyle}}" />
+            </div>
+            <div class="vne-nameplate">
+              <span class="vne-nameplate-name">{{activeSpeaker.name}}</span>
+              {{#if activeSpeaker.title}}
+                <span class="vne-nameplate-title">{{activeSpeaker.title}}</span>
+              {{/if}}
+              {{#if activeSpeaker.canControl}}
+                <div class="vne-nameplate-reactions">
+                  {{#each activeSpeaker.reactions as |r|}}
+                    <div class="vne-reaction-btn{{#if r.isActive}} vne-active{{/if}}"
+                         data-reaction="{{r.name}}"
+                         data-actor-id="{{../activeSpeaker.id}}"
+                         title="{{r.label}}">
+                      <img src="{{r.img}}" loading="lazy" />
+                      <span>{{r.label}}</span>
+                    </div>
+                  {{/each}}
+                  {{#if isGM}}
+                    <div class="vne-reaction-manage-btn" data-actor-id="{{activeSpeaker.id}}" title="Manage Reactions">
+                      <i class="fas fa-cog"></i>
+                    </div>
+                  {{/if}}
+                </div>
+              {{/if}}
+            </div>
+          {{else}}
+            <div class="vne-no-speaker">
+              <i class="fas fa-user-circle"></i>
+              <span>Click a portrait to set active speaker</span>
+            </div>
+          {{/if}}
+        </div>
+      </div>
+
+      {{!-- RIGHT CAST DROP ZONE --}}
+      <div class="vne-right-panel vne-side-panel vne-drop-zone" data-side="right">
+        <div class="vne-side-label">
+          <span>NPCs</span>
+          {{#if isGM}}<div id="vne-add-right-btn" class="vne-add-cast-btn" title="Add actor to right side"><i class="fas fa-user-plus"></i></div>{{/if}}
+        </div>
+        <div id="vne-right-portraits" class="vne-portraits-list">
+          {{#each rightCast as |p|}}
+            <div class="vne-cast-portrait{{#if p.isActive}} vne-speaking{{/if}}{{#if p.isOwned}} vne-owned{{/if}}{{#if p.isCombatTarget}} vne-combat-target{{/if}}{{#if p.isTargeted}} vne-targeted{{/if}}"
+                 data-id="{{p.id}}"
+                 title="{{p.name}}{{#if p.title}} – {{p.title}}{{/if}}"
+                 draggable="true" data-side="right">
+              <img src="{{p.img}}" class="vne-cast-img" style="{{p.imgStyle}}" />
+              {{#if p.isActive}}<div class="vne-speaking-ring"></div>{{/if}}
+              {{#if p.isOwned}}<div class="vne-owned-badge" title="Your character"><i class="fas fa-star"></i></div>{{/if}}
+              {{#if p.editMode}}<div class="vne-remove-cast-btn" data-id="{{p.id}}" data-side="right" title="Remove"><i class="fas fa-times"></i></div>{{/if}}
+            </div>
+          {{/each}}
+          {{#unless rightCast.length}}
+            <div class="vne-cast-empty">
+              <i class="fas fa-user-plus"></i>
+              <span>Drag actors here<br>or click +</span>
+            </div>
+          {{/unless}}
+        </div>
+      </div>
+
+    </div>{{!-- /stage --}}
+
+    {{!-- ── BOTTOM BAR: Scene Quick-Switcher ── --}}
+    <div class="vne-bottom-bar">
+      <div id="vne-scene-bar-inner" class="vne-scene-bar">
+        {{#each locationList as |loc|}}
+          <div class="vne-scene-thumb{{#if (eq ../location.id loc.id)}} vne-scene-active{{/if}}"
+               data-id="{{loc.id}}"
+               title="{{loc.name}}{{#if loc.parent}} – {{loc.parent}}{{/if}}">
+            <div class="vne-scene-thumb-img"
+              style="{{#if loc.backgroundImage}}background-image: url('{{loc.backgroundImage}}');{{/if}}">
+            </div>
+            <span class="vne-scene-thumb-name">{{loc.name}}</span>
+            {{#if ../editMode}}
+              <div class="vne-scene-delete-btn" data-id="{{loc.id}}" title="Delete scene">
+                <i class="fas fa-trash"></i>
+              </div>
+            {{/if}}
+          </div>
+        {{/each}}
+      </div>
+
+      {{#if isGM}}
+        <div class="vne-scene-bar-actions">
+          <div id="vne-add-scene-btn" class="vne-scene-action-btn" title="Add new scene">
+            <i class="fas fa-plus"></i> New Scene
+          </div>
+        </div>
+      {{/if}}
+    </div>
+
+    {{!-- ── PLAYER LIST (top-right collapsible) ── --}}
+    {{#if isGM}}
+      <div class="vne-player-panel">
+        <div class="vne-player-panel-title">Players</div>
+        {{#each players as |pl|}}
+          <div class="vne-player-row{{#unless pl.visible}} vne-player-hidden{{/unless}}"
+               data-user-id="{{pl.id}}"
+               title="{{pl.name}}">
+            <span class="vne-player-dot" style="background:{{pl.color}};"></span>
+            <span class="vne-player-name">{{pl.name}}</span>
+            <button type="button" class="vne-player-vis-btn" data-user-id="{{pl.id}}"
+              title="{{#if pl.visible}}Hide VN from {{pl.name}}{{else}}Show VN to {{pl.name}}{{/if}}">
+              <i class="fas fa-{{#if pl.visible}}eye{{else}}eye-slash{{/if}}"></i>
+            </button>
+          </div>
+        {{/each}}
+        <button type="button" id="vne-show-all-btn" class="vne-show-all-btn">
+          <i class="fas fa-users"></i> Show All
+        </button>
+      </div>
+    {{/if}}
+
+    {{!-- ── COMBAT LOG (visible in combat mode) ── --}}
+    <div id="vne-combat-log" class="vne-combat-log{{#unless combatMode}} vne-hidden{{/unless}}{{#if chatHidden}} vne-chat-collapsed{{/if}}"></div>
+
+
+  </div>{{!-- /ui-layer --}}
+
+</div>

@@ -1,0 +1,53 @@
+{
+  "vnd-enhanced": {
+    "title": "VN Dialogues Enhanced",
+    "toolbar": {
+      "openVN": "Open VN",
+      "hideVN": "Hide VN"
+    },
+    "ui": {
+      "addActor": "Add Actor",
+      "changeScene": "Change Scene",
+      "editMode": "Edit Mode",
+      "hideUI": "Hide UI",
+      "hideBackground": "Hide Background",
+      "closeSelf": "Close for me",
+      "settings": "Settings",
+      "noSpeaker": "Click a portrait to set active speaker",
+      "sceneName": "Scene",
+      "sceneParent": "Region",
+      "addScene": "Add Scene",
+      "editScene": "Edit Scene",
+      "deleteScene": "Delete Scene",
+      "setBackground": "Set Background Image",
+      "speakerLabel": "Speaking:",
+      "nameLabel": "Name",
+      "titleLabel": "Title",
+      "scaleLabel": "Scale",
+      "offsetXLabel": "Offset X",
+      "offsetYLabel": "Offset Y",
+      "mirrorLabel": "Mirror",
+      "applyBtn": "Apply",
+      "cancelBtn": "Cancel",
+      "resetBtn": "Reset",
+      "removeBtn": "Remove",
+      "saveScene": "Save",
+      "pickImage": "Pick Image",
+      "actors": "Actors",
+      "scenes": "Scenes",
+      "dragHint": "Drag actor here or click to place",
+      "leftSide": "Left (Players)",
+      "rightSide": "Right (NPCs)",
+      "centerSpeaker": "Center / Speaker",
+      "playerList": "Players",
+      "showAll": "Show for All",
+      "time": "Time",
+      "weather": "Weather"
+    },
+    "errors": {
+      "noImage": "No image set for this actor.",
+      "noScene": "No scene selected.",
+      "socketError": "Socket error - only GM can update."
+    }
+  }
+}
