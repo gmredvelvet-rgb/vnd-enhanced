@@ -65,4 +65,11 @@ export function registerSettings() {
     type: Number,
     default: 90
   });
+
+  game.settings.register(ID, "vnReactionTemplates", {
+    scope: "world",
+    type: Object,
+    config: false,
+    default: {}
+  });
 }

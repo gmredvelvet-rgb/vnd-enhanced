@@ -931,50 +931,88 @@ function openReactionManager(actorId) {
     </div>`;
   }
 
+  function getTpls() { return game.settings.get(ID, "vnReactionTemplates") ?? {}; }
+
+  function tplOptions(tpls) {
+    const keys = Object.keys(tpls).sort();
+    if (!keys.length) return `<option value="" disabled>Sin templates guardados</option>`;
+    return keys.map(k => `<option value="${k}">${k}</option>`).join("");
+  }
+
+  function collectRows(html) {
+    const map = {};
+    html.find(".vne-rm-row").each(function() {
+      const name = $(this).find(".vne-rm-name").val().trim().toLowerCase().replace(/\s+/g,"_");
+      const img  = $(this).find(".vne-rm-thumb").attr("src") || "";
+      if (name && img) map[name] = img;
+    });
+    return map;
+  }
+
   const initialRows = Object.entries(reactions).map(([n, i]) => buildRow(n, i)).join("");
 
   new Dialog({
     title: `Reactions: ${p.name}`,
     content: `<div class="vne-reaction-manager">
-      <p class="vne-rm-hint">Each row = one expression. Players who own this actor can switch between them during play.</p>
-      <p class="vne-rm-hint" style="color:rgba(200,155,60,0.75);margin-top:4px;">
-        <i class="fas fa-heart-broken"></i> <strong>Auto-HP reactions:</strong>
-        name a reaction <code>hurt</code> or <code>wounded</code> (≤50% HP) and <code>critical</code> or <code>ko</code> (≤25% HP) to activate automatically when HP drops.
+
+      <div class="vne-rm-section-label"><i class="fas fa-bookmark"></i> Templates</div>
+      <div class="vne-rm-tpl-bar">
+        <select id="vne-rm-tpl-select" class="vne-rm-tpl-select">
+          <option value="">— Seleccionar template —</option>
+          ${tplOptions(getTpls())}
+        </select>
+        <button type="button" id="vne-rm-tpl-apply" class="vne-rm-tpl-btn vne-rm-tpl-btn-apply" title="Aplicar template">
+          <i class="fas fa-check"></i>
+        </button>
+        <button type="button" id="vne-rm-tpl-del" class="vne-rm-tpl-btn vne-rm-tpl-btn-del" title="Eliminar template">
+          <i class="fas fa-trash"></i>
+        </button>
+      </div>
+
+      <div class="vne-rm-divider"></div>
+
+      <p class="vne-rm-hint">
+        <i class="fas fa-theater-masks"></i> Cada fila = una expresión. Los jugadores dueños del actor pueden cambiarla durante la sesión.<br>
+        <span style="color:#7a5e00"><i class="fas fa-heart-broken"></i> Auto-HP:</span>
+        nombra una reacción <code>hurt</code>/<code>wounded</code> (≤50%) o <code>critical</code>/<code>ko</code> (≤25%) para activación automática.
       </p>
       <div id="vne-rm-rows">${initialRows}</div>
       <button type="button" id="vne-rm-add" class="vne-rm-add-btn"><i class="fas fa-plus"></i> Add Reaction</button>
+
+      <div class="vne-rm-divider"></div>
+      <div class="vne-rm-section-label"><i class="fas fa-tag"></i> Guardar como template</div>
+      <div class="vne-rm-tpl-save-bar">
+        <input id="vne-rm-tpl-name-input" class="vne-rm-tpl-name" type="text"
+               placeholder="Nombre (ej: Bandido, Guardia, Elemental…)" autocomplete="off"/>
+        <button type="button" id="vne-rm-tpl-save" class="vne-rm-tpl-btn vne-rm-tpl-btn-save"
+                title="Guardar como template">
+          <i class="fas fa-bookmark"></i>
+        </button>
+      </div>
     </div>`,
     buttons: {
       save: {
         label: "<i class='fas fa-save'></i> Save",
         callback: async (html) => {
-          const newReactions = {};
-          html.find(".vne-rm-row").each(function() {
-            const name = $(this).find(".vne-rm-name").val().trim()
-              .toLowerCase().replace(/\s+/g, "_");
-            const img  = $(this).find(".vne-rm-thumb").attr("src") || "";
-            if (name && img) newReactions[name] = img;
-          });
+          const newReactions = collectRows(html);
           if (!Object.keys(newReactions).length) return;
           const d2 = getData();
           for (const side of ["leftCast", "rightCast"]) {
             const portrait = d2[side].find(x => x.id === actorId);
             if (portrait) {
               portrait.reactions = newReactions;
-              if (!newReactions[portrait.activeReaction]) {
+              if (!newReactions[portrait.activeReaction])
                 portrait.activeReaction = Object.keys(newReactions)[0];
-              }
             }
           }
-          if (d2.portraits[actorId]) {
-            d2.portraits[actorId].reactions = newReactions;
-          }
+          if (d2.portraits[actorId]) d2.portraits[actorId].reactions = newReactions;
           await saveData(d2, { change: "castChange" });
         }
       },
       cancel: { label: "Cancel" }
     },
     render: (html) => {
+      // Image picker per row
       html.on("click", ".vne-rm-pick", (e) => {
         const row = $(e.currentTarget).closest(".vne-rm-row");
         new FilePicker({
@@ -983,14 +1021,48 @@ function openReactionManager(actorId) {
           callback: (path) => row.find(".vne-rm-thumb").attr("src", path).show()
         }).render(true);
       });
-      html.on("click", ".vne-rm-remove", (e) => {
-        $(e.currentTarget).closest(".vne-rm-row").remove();
+      html.on("click", ".vne-rm-remove", (e) => $(e.currentTarget).closest(".vne-rm-row").remove());
+      html.find("#vne-rm-add").on("click", () => html.find("#vne-rm-rows").append(buildRow("new_reaction", "")));
+
+      // ── Apply template ──
+      html.find("#vne-rm-tpl-apply").on("click", () => {
+        const key = html.find("#vne-rm-tpl-select").val();
+        if (!key) { ui.notifications?.warn("VNE: Selecciona un template primero."); return; }
+        const tpl = getTpls()[key];
+        if (!tpl || !Object.keys(tpl).length) return;
+        html.find("#vne-rm-rows").html(Object.entries(tpl).map(([n,i]) => buildRow(n,i)).join(""));
+        ui.notifications?.info(`VNE: Template "${key}" aplicado. Pulsa Save para confirmar.`);
       });
-      html.find("#vne-rm-add").on("click", () => {
-        html.find("#vne-rm-rows").append(buildRow("new_reaction", ""));
+
+      // ── Delete template ──
+      html.find("#vne-rm-tpl-del").on("click", async () => {
+        const key = html.find("#vne-rm-tpl-select").val();
+        if (!key) { ui.notifications?.warn("VNE: Selecciona un template para eliminar."); return; }
+        const tpls = getTpls();
+        delete tpls[key];
+        await game.settings.set(ID, "vnReactionTemplates", tpls);
+        html.find("#vne-rm-tpl-select").html(`<option value="">— Cargar Template —</option>${tplOptions(tpls)}`);
+        ui.notifications?.info(`VNE: Template "${key}" eliminado.`);
+      });
+
+      // ── Save as template ──
+      html.find("#vne-rm-tpl-save").on("click", async () => {
+        const name = html.find("#vne-rm-tpl-name-input").val().trim();
+        if (!name) { ui.notifications?.warn("VNE: Escribe un nombre para el template."); return; }
+        const tplReactions = collectRows(html);
+        if (!Object.keys(tplReactions).length) {
+          ui.notifications?.warn("VNE: No hay reacciones con imagen para guardar."); return;
+        }
+        const tpls = getTpls();
+        const isOverwrite = !!tpls[name];
+        tpls[name] = tplReactions;
+        await game.settings.set(ID, "vnReactionTemplates", tpls);
+        html.find("#vne-rm-tpl-select").html(`<option value="">— Cargar Template —</option>${tplOptions(tpls)}`);
+        html.find("#vne-rm-tpl-name-input").val("");
+        ui.notifications?.info(`VNE: Template "${name}" ${isOverwrite ? "actualizado" : "guardado"} (${Object.keys(tplReactions).length} reacciones).`);
       });
     }
-  }).render(true, { width: 530, height: 560 });
+  }).render(true, { width: 520, height: "auto" });
 }
 
 // ── Main application ─────────────────────────────────────────────────────────
@@ -1307,51 +1379,13 @@ export class VNE extends FormApplication {
       });
     });
 
-    // Scene thumbnails
-    root.querySelectorAll(".vne-scene-thumb").forEach(thumb => {
-      thumb.addEventListener("click", async (e) => {
-        if (e.target.closest(".vne-scene-delete-btn")) return;
-        const locId = e.currentTarget.dataset.id;
-        const d = getData();
-        const loc = d.locationList.find(l => l.id === locId);
-        if (loc) { d.location = { ...loc }; await saveData(d, { change: "location" }); }
-      });
-      thumb.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        if (!game.user.isGM) return;
-        const locId = e.currentTarget.dataset.id;
-        const d = getData();
-        const loc = d.locationList.find(l => l.id === locId);
-        openSceneEditor(loc, async (updated) => {
-          const d2 = getData();
-          const idx = d2.locationList.findIndex(l => l.id === updated.id);
-          if (idx >= 0) d2.locationList[idx] = updated;
-          if (d2.location?.id === updated.id) d2.location = { ...updated };
-          await saveData(d2, { change: "location" });
-        });
-      });
-    });
-
-    // Delete scene buttons
-    root.querySelectorAll(".vne-scene-delete-btn").forEach(btn => {
-      btn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        const locId = e.currentTarget.dataset.id;
-        const d = getData();
-        d.locationList = d.locationList.filter(l => l.id !== locId);
-        await saveData(d, { change: "locationList" });
-      });
-    });
-
-    // Add new scene
-    root.querySelector("#vne-add-scene-btn")?.addEventListener("click", () => {
-      openSceneEditor(null, async (newLoc) => {
-        if (!newLoc.id) newLoc.id = foundry.utils.randomID();
-        const d = getData();
-        d.locationList.push(newLoc);
-        d.location = { ...newLoc };
-        await saveData(d, { change: "location" });
-      });
+    // Scenes pill → opens the manager popup
+    root.querySelector("#vne-scenes-pill")?.addEventListener("click", (e) => {
+      if (document.getElementById("vne-scenes-panel")) {
+        document.getElementById("vne-scenes-panel").remove();
+      } else {
+        openScenesPanel();
+      }
     });
 
     // Player visibility toggles
@@ -1587,68 +1621,237 @@ Hooks.on("updateSetting", (setting, _value, options) => {
 
 // ── DOM patch helpers ────────────────────────────────────────────────────────
 
-function _sceneThumbHTML(loc, editMode) {
-  const bgStyle = loc.backgroundImage ? `background-image:url("${loc.backgroundImage}")` : "";
-  const deleteBtn = editMode
-    ? `<div class="vne-scene-delete-btn" data-id="${loc.id}" title="Delete"><i class="fas fa-trash"></i></div>`
-    : "";
-  return `
-    <div class="vne-scene-thumb-img" style="${bgStyle}"></div>
-    <span class="vne-scene-thumb-name">${loc.name || "?"}</span>
-    ${deleteBtn}`;
+function _patchSceneBar(d) {
+  const nameEl  = document.getElementById("vne-scenes-current");
+  const sepEl   = nameEl?.previousElementSibling;
+  const countEl = document.querySelector(".vne-sp-pill-count");
+  const name    = d.location?.name || "";
+  if (nameEl)  { nameEl.textContent = name; nameEl.style.display = name ? "" : "none"; }
+  if (sepEl)   { sepEl.style.display = name ? "" : "none"; }
+  if (countEl) countEl.textContent = `(${d.locationList?.length ?? 0})`;
+  // Sync active state in open panel
+  document.querySelectorAll(".vne-sp-card").forEach(card => {
+    card.classList.toggle("vne-sp-card-active", card.dataset.id === d.location?.id);
+  });
 }
 
-async function _onSceneThumbClick(e, loc) {
-  if (e.target.closest(".vne-scene-delete-btn")) return;
+function openScenesPanel() {
+  document.getElementById("vne-scenes-panel")?.remove();
   const d = getData();
-  const found = d.locationList.find(l => l.id === loc.id);
-  if (!found) return;
-  d.location = { ...found };
-  await saveData(d, { change: "location" });
-}
 
-async function _onSceneThumbDelete(locId) {
-  const d = getData();
-  d.locationList = d.locationList.filter(l => l.id !== locId);
-  await saveData(d, { change: "locationList" });
-}
+  // Unique categories (from .parent field)
+  const categories = [...new Set(
+    d.locationList.map(l => (l.parent || "").trim()).filter(Boolean)
+  )].sort();
 
-function _bindSceneThumb(div, loc, editMode) {
-  div.addEventListener("click", (e) => _onSceneThumbClick(e, loc));
-  div.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    if (!game.user.isGM) return;
-    openSceneEditor(loc, async (updated) => {
-      const d = getData();
-      const idx = d.locationList.findIndex(l => l.id === updated.id);
-      if (idx >= 0) d.locationList[idx] = updated;
-      if (d.location?.id === updated.id) d.location = { ...updated };
-      await saveData(d, { change: "location" });
+  let activeFilter = "";
+  let searchQ      = "";
+
+  function esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+
+  function cardHtml(loc) {
+    const isActive = loc.id === d.location?.id;
+    const bgStyle  = loc.backgroundImage ? `background-image:url("${esc(loc.backgroundImage)}")` : "";
+    const tag      = loc.parent ? `<span class="vne-sp-card-tag">${esc(loc.parent)}</span>` : "";
+    const actions  = game.user.isGM ? `
+      <div class="vne-sp-card-actions">
+        <div class="vne-sp-card-edit" data-id="${esc(loc.id)}" title="Editar"><i class="fas fa-pencil"></i></div>
+        <div class="vne-sp-card-del"  data-id="${esc(loc.id)}" title="Eliminar"><i class="fas fa-trash"></i></div>
+      </div>` : "";
+    return `<div class="vne-sp-card${isActive ? " vne-sp-card-active" : ""}" data-id="${esc(loc.id)}" title="${esc(loc.name)}">
+      <div class="vne-sp-card-img" style="${bgStyle}">${actions}</div>
+      <div class="vne-sp-card-info">
+        <span class="vne-sp-card-name">${esc(loc.name || "?")}</span>${tag}
+      </div>
+    </div>`;
+  }
+
+  function getVisible() {
+    let locs = d.locationList;
+    if (activeFilter) locs = locs.filter(l => (l.parent || "").trim() === activeFilter);
+    if (searchQ)      locs = locs.filter(l =>
+      (l.name   || "").toLowerCase().includes(searchQ) ||
+      (l.parent || "").toLowerCase().includes(searchQ));
+    return locs;
+  }
+
+  function buildGrid() {
+    const locs = getVisible();
+    return locs.length
+      ? locs.map(cardHtml).join("")
+      : `<div class="vne-sp-empty"><i class="fas fa-map"></i><span>No hay escenas${activeFilter || searchQ ? " con ese filtro" : ""}</span></div>`;
+  }
+
+  function refreshGrid() {
+    const grid = document.getElementById("vne-sp-grid");
+    if (!grid) return;
+    grid.innerHTML = buildGrid();
+    bindGrid(grid);
+  }
+
+  const tabsHtml = [
+    `<div class="vne-sp-tab vne-sp-tab-active" data-filter="">Todas</div>`,
+    ...categories.map(c => `<div class="vne-sp-tab" data-filter="${esc(c)}">${esc(c)}</div>`)
+  ].join("");
+
+  const panel = document.createElement("div");
+  panel.id = "vne-scenes-panel";
+  panel.innerHTML = `
+    <div class="vne-sp-header">
+      <span class="vne-sp-title"><i class="fas fa-map-marked-alt"></i> Escenas</span>
+      <div class="vne-sp-header-btns">
+        ${game.user.isGM ? `<div id="vne-sp-import-btn" class="vne-sp-hbtn" title="Importar desde JSON"><i class="fas fa-file-import"></i></div>` : ""}
+        ${game.user.isGM ? `<div id="vne-sp-export-btn" class="vne-sp-hbtn" title="Exportar a JSON"><i class="fas fa-file-export"></i></div>` : ""}
+        <div id="vne-sp-close" class="vne-sp-hbtn" title="Cerrar"><i class="fas fa-times"></i></div>
+      </div>
+    </div>
+    <div class="vne-sp-controls">
+      <input id="vne-sp-search" class="vne-sp-search" type="text" placeholder="🔍 Buscar escena..." autocomplete="off"/>
+      <div class="vne-sp-tabs">${tabsHtml}</div>
+    </div>
+    <div class="vne-sp-grid" id="vne-sp-grid">${buildGrid()}</div>
+    ${game.user.isGM ? `<div class="vne-sp-footer">
+      <div id="vne-sp-new-btn" class="vne-sp-new-btn"><i class="fas fa-plus"></i> Nueva Escena</div>
+    </div>` : ""}
+    <input type="file" id="vne-sp-file" accept=".json" style="display:none"/>
+  `;
+
+  document.getElementById("vne-main")?.appendChild(panel);
+
+  function bindGrid(grid) {
+    // Click card → activate scene
+    grid.querySelectorAll(".vne-sp-card").forEach(card => {
+      card.addEventListener("click", async (e) => {
+        if (e.target.closest(".vne-sp-card-edit, .vne-sp-card-del")) return;
+        const d2  = getData();
+        const loc = d2.locationList.find(l => l.id === card.dataset.id);
+        if (!loc) return;
+        d2.location = { ...loc };
+        await saveData(d2, { change: "location" });
+        // Immediately reflect active state in grid without full rebuild
+        grid.querySelectorAll(".vne-sp-card").forEach(c => c.classList.remove("vne-sp-card-active"));
+        card.classList.add("vne-sp-card-active");
+      });
+    });
+
+    // Edit button → open scene editor dialog
+    grid.querySelectorAll(".vne-sp-card-edit").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const d2  = getData();
+        const loc = d2.locationList.find(l => l.id === btn.dataset.id);
+        if (!loc) return;
+        openSceneEditor(loc, async (updated) => {
+          const d3  = getData();
+          const idx = d3.locationList.findIndex(l => l.id === updated.id);
+          if (idx >= 0) d3.locationList[idx] = updated;
+          if (d3.location?.id === updated.id) d3.location = { ...updated };
+          await saveData(d3, { change: "location" });
+          // Sync local copy and rebuild
+          d.locationList = d3.locationList;
+          refreshGrid();
+        });
+      });
+    });
+
+    // Delete button
+    grid.querySelectorAll(".vne-sp-card-del").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const d2 = getData();
+        d2.locationList = d2.locationList.filter(l => l.id !== btn.dataset.id);
+        await saveData(d2, { change: "locationList" });
+        d.locationList = d2.locationList;
+        refreshGrid();
+      });
+    });
+  }
+
+  // Initial bind
+  bindGrid(document.getElementById("vne-sp-grid"));
+
+  // Filter tabs
+  panel.querySelectorAll(".vne-sp-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      panel.querySelectorAll(".vne-sp-tab").forEach(t => t.classList.remove("vne-sp-tab-active"));
+      tab.classList.add("vne-sp-tab-active");
+      activeFilter = tab.dataset.filter;
+      refreshGrid();
     });
   });
-  if (editMode) {
-    div.querySelector(".vne-scene-delete-btn")?.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      await _onSceneThumbDelete(loc.id);
-    });
-  }
-}
 
-function _patchSceneBar(d) {
-  const bar = document.getElementById("vne-scene-bar-inner");
-  if (!bar) return;
-  const editMode = getData().editMode && game.user.isGM;
-  bar.innerHTML = "";
-  for (const loc of d.locationList) {
-    const active = loc.id === d.location?.id;
-    const div = document.createElement("div");
-    div.className = `vne-scene-thumb${active ? " vne-scene-active" : ""}`;
-    div.dataset.id = loc.id;
-    div.title = `${loc.name}${loc.parent ? " – " + loc.parent : ""}`;
-    div.innerHTML = _sceneThumbHTML(loc, editMode);
-    _bindSceneThumb(div, loc, editMode);
-    bar.appendChild(div);
-  }
+  // Search
+  let _st = null;
+  panel.querySelector("#vne-sp-search")?.addEventListener("input", (e) => {
+    clearTimeout(_st);
+    _st = setTimeout(() => { searchQ = e.target.value.toLowerCase().trim(); refreshGrid(); }, 150);
+  });
+
+  // New scene
+  panel.querySelector("#vne-sp-new-btn")?.addEventListener("click", () => {
+    openSceneEditor(null, async (newLoc) => {
+      if (!newLoc.id) newLoc.id = foundry.utils.randomID();
+      const d2 = getData();
+      d2.locationList.push(newLoc);
+      d2.location = { ...newLoc };
+      await saveData(d2, { change: "location" });
+      d.locationList = d2.locationList;
+      refreshGrid();
+    });
+  });
+
+  // Export → download JSON
+  panel.querySelector("#vne-sp-export-btn")?.addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify({ scenes: getData().locationList }, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    Object.assign(document.createElement("a"), { href: url, download: "vne-scenes.json" }).click();
+    URL.revokeObjectURL(url);
+  });
+
+  // Import → read JSON file
+  panel.querySelector("#vne-sp-import-btn")?.addEventListener("click", () => {
+    panel.querySelector("#vne-sp-file")?.click();
+  });
+  panel.querySelector("#vne-sp-file")?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const parsed  = JSON.parse(await file.text());
+      const incoming = parsed.scenes ?? parsed.locationList ?? [];
+      if (!Array.isArray(incoming) || !incoming.length) {
+        ui.notifications?.warn("VNE: No se encontraron escenas en el archivo."); return;
+      }
+      const d2 = getData();
+      let added = 0;
+      for (const loc of incoming) {
+        if (!loc.name) continue;
+        if (!loc.id) loc.id = foundry.utils.randomID();
+        if (!d2.locationList.find(l => l.id === loc.id)) { d2.locationList.push(loc); added++; }
+      }
+      await saveData(d2, { change: "locationList" });
+      d.locationList = d2.locationList;
+      refreshGrid();
+      ui.notifications?.info(`VNE: ${added} escena(s) importada(s).`);
+    } catch { ui.notifications?.error("VNE: Error al leer el archivo JSON."); }
+    e.target.value = "";
+  });
+
+  // Close button
+  panel.querySelector("#vne-sp-close")?.addEventListener("click", () => panel.remove());
+
+  // Click outside to close
+  setTimeout(() => {
+    function onOutside(ev) {
+      const pill = document.getElementById("vne-scenes-pill");
+      if (!panel.contains(ev.target) && !pill?.contains(ev.target)) {
+        panel.remove();
+        document.removeEventListener("mousedown", onOutside, true);
+      }
+    }
+    document.addEventListener("mousedown", onOutside, true);
+  }, 60);
+
+  requestAnimationFrame(() => panel.querySelector("#vne-sp-search")?.focus());
 }
 
 function _buildCastPortraitEl(p, side, tp, editMode) {

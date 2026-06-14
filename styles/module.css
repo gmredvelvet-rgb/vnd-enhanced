@@ -319,10 +319,10 @@
   align-items: center;
   gap: 5px;
   padding: 5px 10px;
-  background: rgba(180,40,40,0.22);
-  border: 1px solid rgba(220,60,60,0.35);
+  background: #3a0c0c;
+  border: 1px solid #6a1e1e;
   border-radius: 4px;
-  color: #f0a0a0;
+  color: #ffcdd2;
   font-size: 0.78em;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -332,8 +332,8 @@
   white-space: nowrap;
 }
 .vne-turn-nav-btn:hover {
-  background: rgba(200,50,50,0.38);
-  color: #ffcccc;
+  background: #5a1414;
+  color: #ffcdd2;
 }
 
 .vne-round-block {
@@ -445,10 +445,10 @@
   box-shadow: 0 0 10px rgba(200,155,60,0.4);
 }
 .vne-ctrl-btn.vne-close:hover {
-  background: rgba(200, 60, 60, 0.3);
-  border-color: #e05555;
-  color: #ff8888;
-  box-shadow: 0 0 10px rgba(200,60,60,0.4);
+  background: #3a0c0c;
+  border-color: #6a1e1e;
+  color: #ffcdd2;
+  box-shadow: 0 0 10px rgba(180,30,30,0.6);
 }
 
 /* ── STAGE ──────────────────────────────────────────────────────────────── */
@@ -687,11 +687,11 @@
   justify-content: center;
   gap: 6px;
   height: 90px;
-  background: rgba(200,155,60,0.07);
-  border: 2px dashed rgba(200,155,60,0.3);
+  background: #0e0b04;
+  border: 2px dashed rgba(200,155,60,0.45);
   border-radius: 10px;
   cursor: pointer;
-  color: #5c4420;
+  color: #c89b3c;
   font-size: 0.8em;
   margin-bottom: 24px;
   align-self: center;
@@ -1031,118 +1031,252 @@
   font-style: italic;
 }
 
-/* ── BOTTOM BAR: Scene Switcher ─────────────────────────────────────────── */
+/* ── BOTTOM BAR: Scenes Pill ─────────────────────────────────────────────── */
 .vne-bottom-bar {
   grid-row: 5;
   display: flex;
-  align-items: stretch;
-  background: linear-gradient(to top, rgba(0,0,0,0.80) 0%, transparent 100%);
-  padding: 12px 16px 14px 16px;
-  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%);
+  padding: 10px 16px 14px;
   pointer-events: all;
-  min-height: 96px;
+  position: relative;
 }
 
-.vne-scene-bar {
+.vne-scenes-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 18px;
+  background: rgba(5,4,3,0.82);
+  border: 1px solid rgba(200,155,60,0.3);
+  border-radius: 24px;
+  cursor: pointer;
+  color: var(--vne-text);
+  font-size: 0.84em;
+  transition: border-color 0.2s, background 0.2s;
+  backdrop-filter: blur(10px);
+  user-select: none;
+  pointer-events: all;
+  letter-spacing: 0.02em;
+}
+.vne-scenes-pill:hover {
+  border-color: rgba(200,155,60,0.6);
+  background: rgba(12,9,5,0.92);
+}
+.vne-scenes-pill i { color: var(--vne-accent); font-size: 1em; }
+.vne-sp-pill-label { font-weight: 700; letter-spacing: 0.05em; }
+.vne-sp-pill-sep   { color: var(--vne-accent); opacity: 0.7; }
+.vne-sp-pill-current { color: var(--vne-accent); font-style: italic; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vne-sp-pill-count { color: rgba(200,185,160,0.4); font-size: 0.82em; }
+
+/* ── SCENES PANEL (popup) ────────────────────────────────────────────────── */
+#vne-scenes-panel {
+  position: absolute;
+  bottom: 62px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(840px, 90vw);
+  z-index: 160;
+  background: rgba(8,6,4,0.97);
+  border: 1px solid rgba(200,155,60,0.28);
+  border-radius: 14px;
+  backdrop-filter: blur(22px);
+  display: flex;
+  flex-direction: column;
+  animation: vne-sp-in 0.18s ease;
+  pointer-events: all;
+  overflow: hidden;
+  box-shadow: 0 -8px 40px rgba(0,0,0,0.7);
+}
+@keyframes vne-sp-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.vne-sp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 9px;
+  border-bottom: 1px solid rgba(200,155,60,0.13);
+  flex-shrink: 0;
+}
+.vne-sp-title {
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--vne-accent);
+}
+.vne-sp-header-btns { display: flex; gap: 5px; }
+.vne-sp-hbtn {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 7px;
+  cursor: pointer;
+  color: rgba(200,185,160,0.55);
+  border: 1px solid rgba(200,185,160,0.14);
+  transition: all 0.15s;
+  font-size: 0.78em;
+}
+.vne-sp-hbtn:hover { color: var(--vne-accent); border-color: rgba(200,155,60,0.45); background: rgba(200,155,60,0.09); }
+
+.vne-sp-controls {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: 1;
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--vne-border) transparent;
-  padding-bottom: 4px;
-}
-
-/* Individual scene thumbnail */
-.vne-scene-thumb {
-  position: relative;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
   flex-shrink: 0;
-  width: 120px;
-  cursor: pointer;
+  flex-wrap: wrap;
+}
+.vne-sp-search {
+  flex: 0 0 170px;
+  padding: 5px 10px;
   border-radius: 8px;
-  border: 2px solid rgba(200,155,60,0.25);
+  border: 1px solid rgba(200,155,60,0.2);
+  background: rgba(255,255,255,0.05);
+  color: var(--vne-text);
+  font-size: 0.8em;
+  font-family: inherit;
+}
+.vne-sp-search:focus { outline: none; border-color: rgba(200,155,60,0.5); }
+.vne-sp-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.vne-sp-tab {
+  padding: 3px 11px;
+  border-radius: 14px;
+  font-size: 0.74em;
+  cursor: pointer;
+  border: 1px solid rgba(200,185,160,0.18);
+  color: rgba(200,185,160,0.5);
+  transition: all 0.14s;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+.vne-sp-tab:hover { border-color: rgba(200,155,60,0.4); color: var(--vne-text); }
+.vne-sp-tab-active { background: rgba(200,155,60,0.16); border-color: rgba(200,155,60,0.55); color: var(--vne-accent); font-weight: 600; }
+
+.vne-sp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 10px;
+  padding: 12px 14px;
+  max-height: 310px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.vne-sp-grid::-webkit-scrollbar { width: 4px; }
+.vne-sp-grid::-webkit-scrollbar-thumb { background: rgba(200,155,60,0.28); border-radius: 2px; }
+
+.vne-sp-card {
+  border-radius: 9px;
+  border: 1.5px solid rgba(255,255,255,0.08);
   overflow: hidden;
-  transition: border-color var(--vne-transition), box-shadow var(--vne-transition), transform 0.2s;
-  background: rgba(0,0,0,0.5);
+  cursor: pointer;
+  transition: all 0.15s;
+  background: rgba(255,255,255,0.025);
 }
-.vne-scene-thumb:hover {
-  border-color: rgba(200,155,60,0.65);
-  box-shadow: 0 4px 16px rgba(200,155,60,0.3);
-  transform: translateY(-3px);
-}
-.vne-scene-thumb.vne-scene-active {
-  border-color: var(--vne-accent);
-  box-shadow: 0 0 16px rgba(200,155,60,0.5), 0 4px 16px rgba(0,0,0,0.5);
-}
-.vne-scene-thumb.vne-scene-active::after {
+.vne-sp-card:hover { border-color: rgba(200,155,60,0.5); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+.vne-sp-card-active { border-color: var(--vne-accent) !important; box-shadow: 0 0 12px rgba(200,155,60,0.4) !important; }
+.vne-sp-card-active::after {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: 6px;
-  box-shadow: inset 0 0 0 2px var(--vne-accent);
-  pointer-events: none;
+  bottom: 4px; right: 4px;
+  width: 8px; height: 8px;
+  background: var(--vne-accent);
+  border-radius: 50%;
 }
 
-.vne-scene-thumb-img {
+.vne-sp-card-img {
   width: 100%;
-  height: 62px;
-  background-size: cover;
-  background-position: center;
-  background-color: rgba(30,20,10,0.8);
+  aspect-ratio: 16/9;
+  background: rgba(20,15,8,0.8) center/cover no-repeat;
+  position: relative;
 }
-.vne-scene-thumb-name {
-  display: block;
-  font-size: 0.72em;
+.vne-sp-card-actions {
+  position: absolute;
+  top: 4px; right: 4px;
+  display: flex; gap: 3px;
+  opacity: 0;
+  transition: opacity 0.14s;
+}
+.vne-sp-card:hover .vne-sp-card-actions { opacity: 1; }
+.vne-sp-card-edit,
+.vne-sp-card-del {
+  width: 22px; height: 22px;
+  border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.68em;
+  cursor: pointer;
+  background: rgba(0,0,0,0.72);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255,255,255,0.12);
+  transition: all 0.12s;
+}
+.vne-sp-card-edit { color: rgba(200,185,160,0.8); }
+.vne-sp-card-edit:hover { color: var(--vne-accent); border-color: var(--vne-accent); }
+.vne-sp-card-del  { color: rgba(200,185,160,0.5); }
+.vne-sp-card-del:hover  { color: #ef5350; border-color: #ef5350; }
+
+.vne-sp-card-info {
+  padding: 6px 8px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.vne-sp-card-name {
+  font-size: 0.77em;
+  font-weight: 600;
   color: var(--vne-text);
-  text-align: center;
-  padding: 4px 4px 3px 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  background: rgba(0,0,0,0.5);
+}
+.vne-sp-card-tag {
+  font-size: 0.64em;
+  color: var(--vne-accent);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  opacity: 0.72;
 }
 
-.vne-scene-delete-btn {
-  position: absolute;
-  top: 3px; right: 3px;
-  width: 18px; height: 18px;
-  background: rgba(180,30,30,0.9);
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 0.65em;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.2s;
-  color: #fff;
-  pointer-events: all;
-}
-.vne-scene-thumb:hover .vne-scene-delete-btn { opacity: 1; }
-
-.vne-scene-bar-actions {
+.vne-sp-empty {
+  grid-column: 1 / -1;
   display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 36px;
+  color: rgba(200,185,160,0.3);
+  font-size: 0.84em;
+}
+.vne-sp-empty i { font-size: 2.2em; }
+
+.vne-sp-footer {
+  padding: 10px 14px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  display: flex;
+  justify-content: center;
   flex-shrink: 0;
 }
-
-.vne-scene-action-btn {
+.vne-sp-new-btn {
+  padding: 6px 22px;
+  border-radius: 9px;
+  border: 1px solid rgba(200,155,60,0.38);
+  background: rgba(200,155,60,0.1);
+  color: var(--vne-accent);
+  font-size: 0.82em;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.14s;
+  letter-spacing: 0.04em;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
-  background: rgba(200,155,60,0.18);
-  border: 1px solid var(--vne-accent);
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.82em;
-  color: var(--vne-accent);
-  white-space: nowrap;
-  transition: background var(--vne-transition);
-  pointer-events: all;
-  height: fit-content;
-  align-self: center;
 }
-.vne-scene-action-btn:hover { background: rgba(200,155,60,0.32); }
+.vne-sp-new-btn:hover { background: rgba(200,155,60,0.22); border-color: rgba(200,155,60,0.65); }
 
 /* ── PLAYER PANEL ───────────────────────────────────────────────────────── */
 .vne-player-panel {
@@ -1554,88 +1688,172 @@
 }
 
 /* ── REACTION MANAGER DIALOG ─────────────────────────────────────────────── */
-.vne-reaction-manager { padding: 4px; }
+.vne-reaction-manager { padding: 2px 0; }
 
 .vne-rm-hint {
-  margin: 0 0 10px;
-  font-size: 0.82em;
-  color: rgba(232, 220, 200, 0.6);
+  margin: 0 0 8px;
+  font-size: 0.78em;
+  color: #c8b896;
   line-height: 1.4;
 }
 
 #vne-rm-rows {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  margin-bottom: 12px;
-  max-height: 340px;
+  gap: 5px;
+  margin-bottom: 8px;
+  max-height: 300px;
   overflow-y: auto;
   padding-right: 2px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(200,155,60,0.3) transparent;
 }
 
 .vne-rm-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(0, 0, 0, 0.15);
-  border-radius: 8px;
-  padding: 6px 8px;
-  border: 1px solid rgba(200, 155, 60, 0.15);
+  gap: 6px;
+  background: rgba(0,0,0,0.06);
+  border-radius: 5px;
+  padding: 4px 6px;
+  border: 1px solid rgba(0,0,0,0.12);
 }
 .vne-rm-preview {
-  width: 48px; height: 52px;
+  width: 40px; height: 44px;
   flex-shrink: 0;
-  background: rgba(0, 0, 0, 0.25);
-  border-radius: 6px;
+  background: rgba(0,0,0,0.1);
+  border-radius: 4px;
   overflow: hidden;
   display: flex; align-items: center; justify-content: center;
-  border: 1px solid rgba(200,155,60,0.2);
+  border: 1px solid rgba(0,0,0,0.15);
 }
 .vne-rm-thumb {
-  width: 48px; height: 52px;
+  width: 40px; height: 44px;
   object-fit: cover;
   object-position: top;
 }
 .vne-rm-name {
   flex: 1;
-  padding: 5px 8px;
-  border-radius: 5px;
-  border: 1px solid rgba(200, 155, 60, 0.3);
-  background: rgba(0, 0, 0, 0.3);
-  color: #e8dcc8;
-  font-size: 0.88em;
   min-width: 0;
+  padding: 4px 7px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  color: #e8dcc8;
 }
+
+/* Icon buttons (pick image / delete) */
 .vne-icon-btn {
-  width: 30px; height: 30px;
+  width: 26px; height: 26px;
   display: flex; align-items: center; justify-content: center;
-  border-radius: 6px;
-  border: 1px solid rgba(200, 155, 60, 0.3);
-  background: rgba(200, 155, 60, 0.1);
-  color: #c89b3c;
+  border-radius: 4px;
+  border: 1px solid rgba(0,0,0,0.22);
+  background: #e8e2d6;
+  color: #3a3020;
   cursor: pointer;
-  font-size: 0.82em;
-  transition: background 0.2s;
+  font-size: 0.76em;
+  transition: background 0.15s;
   padding: 0;
   flex-shrink: 0;
 }
-.vne-icon-btn:hover { background: rgba(200, 155, 60, 0.25); }
+.vne-icon-btn:hover { background: #d4ccc0; }
+
+/* Add reaction button — slim, subtle */
 .vne-rm-add-btn {
   width: 100%;
-  padding: 8px 0;
-  border-radius: 7px;
-  border: 1px dashed rgba(200, 155, 60, 0.4);
-  background: rgba(200, 155, 60, 0.07);
-  color: #c89b3c;
+  padding: 5px 0;
+  border-radius: 4px;
+  border: 1px dashed rgba(200,155,60,0.4);
+  background: transparent;
+  color: #c8a060;
   cursor: pointer;
-  font-size: 0.82em;
+  font-size: 0.78em;
   text-align: center;
-  transition: background 0.2s;
-  display: flex; align-items: center; justify-content: center; gap: 6px;
+  transition: background 0.15s;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  margin-bottom: 2px;
 }
-.vne-rm-add-btn:hover { background: rgba(200, 155, 60, 0.18); }
+.vne-rm-add-btn:hover { background: rgba(200,155,60,0.08); }
+
+/* Template section divider + label */
+.vne-rm-divider {
+  height: 1px;
+  background: rgba(200,155,60,0.2);
+  margin: 8px 0 5px;
+}
+.vne-rm-section-label {
+  font-size: 0.67em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #c89b3c;
+  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Template load bar */
+.vne-rm-tpl-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.vne-rm-tpl-select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  cursor: pointer;
+  color: #e8dcc8;
+  /* override Foundry width constraints */
+  width: auto !important;
+  max-width: none !important;
+}
+
+/* Template save bar */
+.vne-rm-tpl-save-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.vne-rm-tpl-name {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-family: inherit;
+  color: #e8dcc8;
+  /* override Foundry width constraints */
+  width: auto !important;
+  max-width: none !important;
+}
+
+/* Template action buttons — square icon-only */
+.vne-rm-tpl-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 4px;
+  font-size: 0.82em;
+  cursor: pointer;
+  border: 1px solid #6a5020;
+  background: #1e1808;
+  color: #e8c870;
+  transition: background 0.15s;
+}
+.vne-rm-tpl-btn:hover { background: #2e2410; }
+.vne-rm-tpl-btn-del {
+  background: #1e0808;
+  border-color: #5a1a1a;
+  color: #f09090;
+}
+.vne-rm-tpl-btn-del:hover { background: #2e1010; }
 
 /* ── COMBAT STAGE ────────────────────────────────────────────────────────── */
 
@@ -1663,10 +1881,10 @@
 
 /* Combat stage toggle button */
 .vne-ctrl-btn.vne-combat-active {
-  background: rgba(200, 40, 30, 0.3);
-  border-color: rgba(220, 80, 60, 0.7);
-  color: #e07060;
-  box-shadow: 0 0 14px rgba(220, 60, 40, 0.45);
+  background: #3a0c0c;
+  border-color: #8a2020;
+  color: #ffcdd2;
+  box-shadow: 0 0 14px rgba(180, 40, 30, 0.6);
 }
 
 /* Targetable NPC portrait (right side in combat mode) */

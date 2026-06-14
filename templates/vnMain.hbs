@@ -227,33 +227,15 @@
 
     </div>{{!-- /stage --}}
 
-    {{!-- ── BOTTOM BAR: Scene Quick-Switcher ── --}}
+    {{!-- ── BOTTOM BAR: Scenes Pill ── --}}
     <div class="vne-bottom-bar">
-      <div id="vne-scene-bar-inner" class="vne-scene-bar">
-        {{#each locationList as |loc|}}
-          <div class="vne-scene-thumb{{#if (eq ../location.id loc.id)}} vne-scene-active{{/if}}"
-               data-id="{{loc.id}}"
-               title="{{loc.name}}{{#if loc.parent}} – {{loc.parent}}{{/if}}">
-            <div class="vne-scene-thumb-img"
-              style="{{#if loc.backgroundImage}}background-image: url('{{loc.backgroundImage}}');{{/if}}">
-            </div>
-            <span class="vne-scene-thumb-name">{{loc.name}}</span>
-            {{#if ../editMode}}
-              <div class="vne-scene-delete-btn" data-id="{{loc.id}}" title="Delete scene">
-                <i class="fas fa-trash"></i>
-              </div>
-            {{/if}}
-          </div>
-        {{/each}}
+      <div id="vne-scenes-pill" class="vne-scenes-pill" title="Gestionar Escenas ({{locationList.length}} guardadas)">
+        <i class="fas fa-map-marked-alt"></i>
+        <span class="vne-sp-pill-label">Escenas</span>
+        <span class="vne-sp-pill-sep" style="{{#unless locationName}}display:none{{/unless}}">›</span>
+        <span id="vne-scenes-current" class="vne-sp-pill-current" style="{{#unless locationName}}display:none{{/unless}}">{{locationName}}</span>
+        <span class="vne-sp-pill-count">({{locationList.length}})</span>
       </div>
-
-      {{#if isGM}}
-        <div class="vne-scene-bar-actions">
-          <div id="vne-add-scene-btn" class="vne-scene-action-btn" title="Add new scene">
-            <i class="fas fa-plus"></i> New Scene
-          </div>
-        </div>
-      {{/if}}
     </div>
 
     {{!-- ── PLAYER LIST (top-right collapsible) ── --}}
