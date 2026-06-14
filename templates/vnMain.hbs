@@ -60,9 +60,8 @@
           <div id="vne-hideback-btn" class="vne-ctrl-btn{{#if hideBack}} vne-active{{/if}}" title="Toggle Background">
             <i class="fas fa-image"></i>
           </div>
-          <div id="vne-chat-toggle-btn" class="vne-ctrl-btn vne-chat-toggle"
-               title="{{#if chatHidden}}Show combat chat{{else}}Hide combat chat{{/if}}">
-            <i class="fas fa-{{#if chatHidden}}comments{{else}}comment-slash{{/if}}"></i>
+          <div id="vne-chat-toggle-btn" class="vne-ctrl-btn vne-chat-toggle" title="Toggle sidebar">
+            <i class="fas fa-bars"></i>
           </div>
           <div id="vne-hideUI-btn" class="vne-ctrl-btn vne-hideUI-toggle{{#if hideUI}} vne-active{{/if}}"
                title="{{#if hideUI}}Show UI panels{{else}}Hide UI panels{{/if}}">
@@ -265,10 +264,6 @@
         </button>
       </div>
     {{/if}}
-
-    {{!-- ── COMBAT LOG (visible in combat mode) ── --}}
-    <div id="vne-combat-log" class="vne-combat-log{{#unless combatMode}} vne-hidden{{/unless}}{{#if chatHidden}} vne-chat-collapsed{{/if}}"></div>
-
 
   </div>{{!-- /ui-layer --}}
 

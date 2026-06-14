@@ -1357,41 +1357,8 @@
   text-shadow: 0 0 18px rgba(230,80,50,0.8);
 }
 
-/* ── COMBAT LOG (mirrors Foundry's #chat-log via MutationObserver) ──────── */
-.vne-combat-log {
-  position: absolute;
-  top: 190px;
-  bottom: 14px;
-  right: 250px;
-  width: 340px;
-  z-index: 20;
-  pointer-events: all;
-  overflow-y: auto;
-  background: rgba(0,0,0,0.88);
-  backdrop-filter: blur(10px);
-  border-radius: 8px 0 0 8px;
-  border: 1px solid rgba(200,155,60,0.22);
-  border-right: none;
-  padding: 6px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(200,155,60,0.3) transparent;
-}
-.vne-combat-log::-webkit-scrollbar { width: 4px; }
-.vne-combat-log::-webkit-scrollbar-thumb { background: rgba(200,155,60,0.3); border-radius: 2px; }
-.vne-combat-log::-webkit-scrollbar-track { background: transparent; }
-.vne-combat-log.vne-chat-collapsed {
-  display: none !important;
-}
-/* Cloned chat message elements get full width */
-.vne-combat-log > .chat-message,
-.vne-combat-log > li {
-  width: 100%;
-  box-sizing: border-box;
-  list-style: none;
-}
+/* ── FOUNDRY NATIVE SIDEBAR (raised above VNE via JS, appears at right edge) */
+/* No custom CSS needed — sidebar keeps its own Foundry styles.               */
 
 /* ── ACTION IMAGE OVERLAY ────────────────────────────────────────────────── */
 .vne-action-overlay {
