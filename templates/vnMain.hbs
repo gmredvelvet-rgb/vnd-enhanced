@@ -11,9 +11,16 @@
 <div id="vne-main" class="vne-main{{#unless visible}} vne-hidden{{/unless}}{{#if combatMode}} vne-combat-mode{{/if}}"
   style="z-index: {{zIndex}}; display:{{#if visible}}grid{{else}}none{{/if}};">
 
-  {{!-- BACKGROUND (img tag — supports animated GIF and WebP) --}}
+  {{!-- BACKGROUND — img for stills/GIF/WebP, video for MP4/WebM --}}
   <div id="vne-bg-wrap" class="vne-background{{#if hideBack}} vne-hidden{{/if}}">
-    <img id="vne-background-img" class="vne-bg-img" src="{{backgroundImage}}" alt="" />
+    <img   id="vne-background-img" class="vne-bg-img"
+           src="{{#unless backgroundIsVideo}}{{backgroundImage}}{{/unless}}" alt=""
+           style="{{#if backgroundIsVideo}}display:none;{{/if}}"/>
+    <video id="vne-background-vid" class="vne-bg-img"
+           autoplay loop muted playsinline
+           style="{{#unless backgroundIsVideo}}display:none;{{/unless}}">
+      {{#if backgroundIsVideo}}<source src="{{backgroundImage}}"/>{{/if}}
+    </video>
   </div>
   <div class="vne-background-overlay"></div>
 
@@ -114,7 +121,7 @@
       {{/if}}
     </div>
 
-    {{!-- ── STAGE AREA ── --}}
+    {{!-- ── STAGE AREA (always visible; column 2 switches between rp-stage / center-speaker) ── --}}
     <div class="vne-stage">
 
       {{!-- LEFT CAST DROP ZONE --}}
@@ -144,7 +151,10 @@
         </div>
       </div>
 
-      {{!-- CENTER SPEAKER --}}
+      {{!-- ROLEPLAY STAGE — column 2 in VN/RP mode (hidden in combat) --}}
+      <div id="vne-rp-stage" class="vne-rp-stage vne-drop-zone" data-side="left"></div>
+
+      {{!-- CENTER SPEAKER — column 2 in combat mode (hidden in RP) --}}
       <div class="vne-center-area">
         <div id="vne-center-speaker" class="vne-center-speaker{{#if activeSpeaker}} vne-has-speaker{{/if}}">
           {{#if activeSpeaker}}

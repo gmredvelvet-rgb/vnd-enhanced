@@ -533,70 +533,92 @@ function _escapeHTML(value) {
 // ── Small sub-dialogs ────────────────────────────────────────────────────────
 
 function openActorPicker(callback) {
-  const actorFolders = [...(game.folders?.filter(f => f.type === "Actor") ?? [])];
-  const validActors  = game.actors.contents.filter(a => a.img && !a.img.includes("mystery-man"));
+  document.getElementById("vne-actor-picker")?.remove();
 
-  function actorCard(actor) {
-    return `<div class="vne-ap-item" data-id="${actor.id}" title="${actor.name}">
-      <img src="${actor.img}"/><span>${actor.name}</span>
-    </div>`;
+  const allActors = game.actors.contents.filter(a => a.img && !a.img.includes("mystery-man"));
+
+  function buildCards(actors) {
+    return actors.map(a =>
+      `<div class="vne-qap-card" data-id="${a.id}" title="${a.name}">
+        <img src="${a.img}" loading="lazy"/>
+        <span>${a.name}</span>
+      </div>`
+    ).join("") || `<span style="color:rgba(200,185,160,0.5);font-size:0.8em;padding:8px;">Sin resultados</span>`;
   }
 
-  function folderBlock(folder, depth = 0) {
-    const childFolders = actorFolders.filter(f => f.folder?.id === folder.id);
-    const childActors  = validActors.filter(a => a.folder?.id === folder.id);
-    if (!childActors.length && !childFolders.length) return "";
-    const inner = childActors.map(actorCard).join("") +
-                  childFolders.map(f => folderBlock(f, depth + 1)).join("");
-    return `
-      <div class="vne-ap-folder-section">
-        <div class="vne-ap-folder-header" style="padding-left:${8 + depth * 14}px">
-          <i class="fas fa-folder" style="color:${folder.color || "var(--vne-accent)"}"></i>
-          <span class="vne-ap-folder-name">${folder.name}</span>
-          <i class="fas fa-chevron-down vne-ap-chevron"></i>
-        </div>
-        <div class="vne-ap-folder-body">
-          <div class="vne-actor-picker-grid vne-ap-grid-inner">${inner}</div>
-        </div>
-      </div>`;
-  }
-
-  const rootFolders = actorFolders.filter(f => !f.folder);
-  const rootActors  = validActors.filter(a => !a.folder);
-
-  let content = `<div class="vne-actor-picker-tree">`;
-  content += rootFolders.map(f => folderBlock(f)).join("");
-  if (rootActors.length) {
-    content += `
-      <div class="vne-ap-folder-section">
-        <div class="vne-ap-folder-header" style="padding-left:8px">
-          <i class="fas fa-users"></i>
-          <span class="vne-ap-folder-name">Sin carpeta</span>
-          <i class="fas fa-chevron-down vne-ap-chevron"></i>
-        </div>
-        <div class="vne-ap-folder-body">
-          <div class="vne-actor-picker-grid vne-ap-grid-inner">${rootActors.map(actorCard).join("")}</div>
-        </div>
-      </div>`;
-  }
-  content += `</div>`;
-
-  const d = new Dialog({
-    title: "Choose Actor",
-    content,
-    buttons: {}
-  });
-  d.render(true, { width: 640, height: 520 });
-
-  Hooks.once(`render${d.constructor.name}`, (_app, html) => {
-    html.find(".vne-ap-item").on("click", (e) => {
-      callback(e.currentTarget.dataset.id);
-      d.close();
+  function bindCards(container) {
+    container.querySelectorAll(".vne-qap-card").forEach(card => {
+      card.addEventListener("click", e => {
+        e.stopPropagation();
+        callback(card.dataset.id);
+        picker.remove();
+      });
     });
-    html.find(".vne-ap-folder-header").on("click", function() {
-      $(this).parent().toggleClass("vne-ap-collapsed");
-    });
+  }
+
+  const picker = document.createElement("div");
+  picker.id = "vne-actor-picker";
+  picker.innerHTML = `
+    <div class="vne-qap-label"><i class="fas fa-user-plus"></i> Personaje</div>
+    <input class="vne-qap-search" placeholder="Buscar..." type="text" autocomplete="off"/>
+    <div class="vne-qap-scroll">${buildCards(allActors)}</div>
+    <div class="vne-qap-close" id="vne-qap-close-btn" title="Cerrar"><i class="fas fa-times"></i></div>
+  `;
+
+  document.getElementById("vne-main")?.appendChild(picker);
+
+  const scrollEl  = picker.querySelector(".vne-qap-scroll");
+  const searchEl  = picker.querySelector(".vne-qap-search");
+
+  bindCards(scrollEl);
+
+  searchEl?.addEventListener("input", () => {
+    const q = searchEl.value.toLowerCase().trim();
+    scrollEl.innerHTML = buildCards(q ? allActors.filter(a => a.name.toLowerCase().includes(q)) : allActors);
+    bindCards(scrollEl);
   });
+  // Focus search so user can type immediately
+  requestAnimationFrame(() => searchEl?.focus());
+
+  picker.querySelector("#vne-qap-close-btn")?.addEventListener("click", e => {
+    e.stopPropagation(); picker.remove();
+  });
+
+  function onOutside(e) {
+    if (!picker.contains(e.target)) {
+      picker.remove();
+      document.removeEventListener("mousedown", onOutside, true);
+    }
+  }
+  setTimeout(() => document.addEventListener("mousedown", onOutside, true), 60);
+}
+
+function _isVideoBg(src) { return /\.(mp4|webm)$/i.test(src || ""); }
+
+function _scenePreviewHtml(src) {
+  if (!src) return `<img id="se-preview" style="display:none;max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;"/>`;
+  if (_isVideoBg(src)) {
+    return `<video id="se-preview" src="${src}" autoplay loop muted playsinline
+      style="max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;display:block;"></video>`;
+  }
+  return `<img id="se-preview" src="${src}" style="max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;display:block;"/>`;
+}
+
+function _updateScenePreview(html, src) {
+  const prev = html.find("#se-preview");
+  if (!src) { prev.hide(); return; }
+  const isVid = _isVideoBg(src);
+  const tag = isVid ? "video" : "img";
+  if (prev.prop("tagName")?.toLowerCase() !== tag) {
+    // Replace element type
+    const newEl = isVid
+      ? `<video id="se-preview" src="${src}" autoplay loop muted playsinline style="max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;display:block;"></video>`
+      : `<img id="se-preview" src="${src}" style="max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;display:block;"/>`;
+    prev.replaceWith(newEl);
+  } else {
+    prev.attr("src", src).show();
+    if (isVid) prev[0].load?.();
+  }
 }
 
 function openSceneEditor(existing, callback) {
@@ -609,13 +631,12 @@ function openSceneEditor(existing, callback) {
       <input id="se-name" type="text" value="${loc.name}" placeholder="Tavern, Forest..."/></div>
     <div class="vne-se-row"><label>Region / Parent</label>
       <input id="se-parent" type="text" value="${loc.parent}" placeholder="Neverwinter..."/></div>
-    <div class="vne-se-row"><label>Background Image</label>
+    <div class="vne-se-row"><label>Background (image / GIF / WebP / MP4 / WebM)</label>
       <div style="display:flex;gap:6px;align-items:center;">
-        <input id="se-bg" type="text" value="${loc.backgroundImage}" placeholder="Path to image..."/>
+        <input id="se-bg" type="text" value="${loc.backgroundImage}" placeholder="Path to file..."/>
         <button type="button" id="se-bg-pick"><i class="fas fa-folder-open"></i></button>
       </div>
-      <img id="se-preview" src="${loc.backgroundImage}"
-        style="max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;${loc.backgroundImage ? "" : "display:none;"}"/>
+      ${_scenePreviewHtml(loc.backgroundImage)}
     </div>
     <div class="vne-se-row"><label>Weather</label>
       <input id="se-weather" type="text" value="${loc.weather}" placeholder="Sunny, Rainy..."/></div>
@@ -645,18 +666,16 @@ function openSceneEditor(existing, callback) {
     render: (html) => {
       html.find("#se-bg-pick").on("click", () => {
         new FilePicker({
-          type: "image",
+          type: "any",
           current: game.settings.get(ID, "bgFolderPath") || "",
           callback: (path) => {
             html.find("#se-bg").val(path);
-            html.find("#se-preview").attr("src", path).show();
+            _updateScenePreview(html, path);
           }
         }).render(true);
       });
       html.find("#se-bg").on("input", function() {
-        const prev = html.find("#se-preview");
-        if (this.value) { prev.attr("src", this.value).show(); }
-        else prev.hide();
+        _updateScenePreview(html, this.value);
       });
     }
   }).render(true, { width: 500 });
@@ -901,6 +920,30 @@ export class VNE extends FormApplication {
     const rightCast = d.rightCast.map(p => templatePortrait(p, "right", d.activeSpeakerId, worldOffsetY, editMode, combatMode));
     const activeSpeaker = templateCenterSpeaker(d, worldOffsetY);
 
+    // Roleplay cast: merged left+right, max 4, each with reactions for their owner
+    const rpRaw = [...d.leftCast, ...d.rightCast].slice(0, 4);
+    const roleplayCastCount = Math.max(1, rpRaw.length);
+    const roleplayCast = rpRaw.map(p => {
+      const reactionMap    = p.reactions || { default: p.img };
+      const activeReaction = p.activeReaction || "default";
+      const scaleVal = (p.scale || 100) / 100;
+      const scaleX   = p.mirrorX ? -1 : 1;
+      const oy = (p.offsetY || 0) - worldOffsetY;
+      const ox = p.offsetX || 0;
+      return {
+        id: p.id, name: p.name, title: p.title || "",
+        img:      getPortraitImg(p),
+        imgStyle: `transform: scale(${scaleVal}) scaleX(${scaleX}); margin-top: ${oy}px; margin-left: ${ox}px;`,
+        isActive:   p.id === d.activeSpeakerId,
+        canControl: canControlActor(p.id),
+        editMode,
+        reactions: Object.entries(reactionMap).map(([name, img]) => ({
+          name, img, isActive: name === activeReaction,
+          label: name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ")
+        }))
+      };
+    });
+
     const combat        = game.combat;
     const combatRound   = combat?.round ?? 0;
     const combatTurnName = combat?.combatant?.name ?? "";
@@ -914,7 +957,8 @@ export class VNE extends FormApplication {
       editMode,
       combatMode,
       isGM:            game.user.isGM,
-      backgroundImage: d.location?.backgroundImage || "",
+      backgroundImage:   d.location?.backgroundImage || "",
+      backgroundIsVideo: /\.(mp4|webm)$/i.test(d.location?.backgroundImage || ""),
       locationName:    d.location?.name || "",
       locationParent:  d.location?.parent || "",
       locationWeather: d.location?.weather || "",
@@ -922,6 +966,8 @@ export class VNE extends FormApplication {
       activeSpeaker,
       leftCast,
       rightCast,
+      roleplayCast,
+      roleplayCastCount,
       locationList:    d.locationList,
       currentLocationId: d.location?.id || "",
       players,
@@ -975,7 +1021,7 @@ export class VNE extends FormApplication {
     // Quick background pick
     root.querySelector("#vne-bg-btn")?.addEventListener("click", () => {
       new FilePicker({
-        type: "image",
+        type: "any",
         current: game.settings.get(ID, "bgFolderPath") || "",
         callback: async (img) => {
           const d = getData();
@@ -1180,6 +1226,9 @@ export class VNE extends FormApplication {
       zone.addEventListener("dragleave", () => zone.classList.remove("vne-drag-over"));
       zone.addEventListener("drop", () => zone.classList.remove("vne-drag-over"));
     });
+
+    // Initial bind for roleplay stage
+    _bindRPStage(getData(), game.settings.get(ID, "worldOffsetY") || 0);
   }
 
   _addActor(side) {
@@ -1222,8 +1271,9 @@ export class VNE extends FormApplication {
     let raw;
     try { raw = JSON.parse(event.dataTransfer.getData("text/plain")); } catch { return; }
 
-    const dropZone = event.target.closest(".vne-drop-zone");
-    const toSide   = dropZone?.dataset?.side;
+    const dropZone  = event.target.closest(".vne-drop-zone");
+    const toSide    = dropZone?.dataset?.side;
+    const isRPStage = dropZone?.id === "vne-rp-stage";
 
     // Actor dropped from Foundry sidebar
     if (raw.type === "Actor" && raw.uuid) {
@@ -1232,9 +1282,13 @@ export class VNE extends FormApplication {
       const d = getData();
       const key = `${toSide}Cast`;
       if (!d[key].some(p => p.id === actor.id)) {
+        if (isRPStage && d.leftCast.length + d.rightCast.length >= 4) {
+          ui.notifications?.warn("Máximo 4 personajes en modo roleplay.");
+          return;
+        }
         const saved = d.portraits[actor.id];
         const portrait = saved ? { ...saved } : defaultPortrait(actor);
-        if (d[key].length >= 5) d[key].shift();
+        if (!isRPStage && d[key].length >= 5) d[key].shift();
         d[key].push(portrait);
         d.portraits[actor.id] = portrait;
       }
@@ -1292,8 +1346,15 @@ Hooks.on("updateSetting", (setting, _value, options) => {
 
   // Partial DOM updates for performance
   if (change === "location") {
-    const bgEl = document.getElementById("vne-background-img");
-    if (bgEl) bgEl.src = d.location?.backgroundImage || "";
+    const bgSrc = d.location?.backgroundImage || "";
+    const isVid = /\.(mp4|webm)$/i.test(bgSrc);
+    const imgEl = document.getElementById("vne-background-img");
+    const vidEl = document.getElementById("vne-background-vid");
+    if (imgEl) { imgEl.src = isVid ? "" : bgSrc; imgEl.style.display = isVid ? "none" : ""; }
+    if (vidEl) {
+      if (isVid) { vidEl.innerHTML = `<source src="${bgSrc}"/>`; vidEl.load(); vidEl.style.display = ""; }
+      else { vidEl.style.display = "none"; vidEl.innerHTML = ""; }
+    }
     const nameEl = document.getElementById("vne-loc-name");
     const parEl  = document.getElementById("vne-loc-parent");
     if (nameEl) nameEl.textContent = d.location?.name || "";
@@ -1527,6 +1588,128 @@ function _patchCast(d) {
   _patchCenterSpeaker(d, worldOffsetY);
   _patchSidePanel("left",  d, worldOffsetY, editMode);
   _patchSidePanel("right", d, worldOffsetY, editMode);
+  _patchRPStage(d, worldOffsetY, editMode);
+}
+
+function _bindRPStage(d, worldOffsetY, editMode) {
+  _patchRPStage(d, worldOffsetY ?? game.settings.get(ID, "worldOffsetY") ?? 0, editMode ?? (d.editMode && game.user.isGM));
+}
+
+function _patchRPStage(d, worldOffsetY, editMode) {
+  const stage = document.getElementById("vne-rp-stage");
+  if (!stage) return;
+
+  const rpRaw = [...(d.leftCast || []), ...(d.rightCast || [])].slice(0, 4);
+  const count  = rpRaw.length;
+
+  let html = "";
+
+  for (const p of rpRaw) {
+    const reactionMap    = p.reactions || { default: p.img };
+    const activeReaction = p.activeReaction || "default";
+    const scaleVal = (p.scale || 100) / 100;
+    const scaleX   = p.mirrorX ? -1 : 1;
+    const oy = (p.offsetY || 0) - worldOffsetY;
+    const ox = p.offsetX || 0;
+    const img      = getPortraitImg(p);
+    const imgStyle = `transform: scale(${scaleVal}) scaleX(${scaleX}); margin-top: ${oy}px; margin-left: ${ox}px;`;
+    const isActive  = p.id === d.activeSpeakerId;
+    const canCtrl   = canControlActor(p.id);
+
+    let reactionsHtml = "";
+    if (canCtrl) {
+      const btns = Object.entries(reactionMap).map(([name, rImg]) => {
+        const label  = name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ");
+        const active = name === activeReaction ? " vne-active" : "";
+        return `<div class="vne-reaction-btn${active}" data-reaction="${name}" data-actor-id="${p.id}" title="${label}"><img src="${rImg}" loading="lazy"/><span>${label}</span></div>`;
+      }).join("");
+      const manageBtnHtml = game.user.isGM
+        ? `<div class="vne-reaction-manage-btn" data-actor-id="${p.id}" title="Gestionar reacciones"><i class="fas fa-cog"></i></div>` : "";
+      reactionsHtml = `<div class="vne-rp-reactions">${btns}${manageBtnHtml}</div>`;
+    }
+
+    const removeBtn  = editMode ? `<div class="vne-rp-remove-btn" data-id="${p.id}" title="Quitar"><i class="fas fa-times"></i></div>` : "";
+    const titleHtml  = p.title ? `<span class="vne-rp-title">${p.title}</span>` : "";
+
+    html += `<div class="vne-rp-slot${isActive ? " vne-rp-speaking" : ""}" data-id="${p.id}" data-slot-count="${count}">
+      <div class="vne-rp-portrait-wrap">
+        ${removeBtn}
+        <img class="vne-rp-img" src="${img}" style="${imgStyle}"/>
+      </div>
+      <div class="vne-rp-nameplate"><span class="vne-rp-name">${p.name}</span>${titleHtml}</div>
+      ${reactionsHtml}
+    </div>`;
+  }
+
+  if (count === 0) {
+    html += `<div class="vne-rp-empty"><i class="fas fa-users fa-2x"></i><span>${game.user.isGM ? "Arrastra actores aquí o usa +" : "No hay personajes en escena"}</span></div>`;
+  }
+
+  if (game.user.isGM && count < 4) {
+    html += `<div id="vne-rp-add-btn" class="vne-rp-add-slot" title="Añadir personaje"><i class="fas fa-user-plus"></i><span>Añadir</span></div>`;
+  }
+
+  stage.innerHTML = html;
+
+  // Bind slot interactions
+  stage.querySelectorAll(".vne-rp-slot").forEach(slot => {
+    slot.addEventListener("click", async (e) => {
+      if (e.target.closest(".vne-reaction-btn, .vne-rp-remove-btn, .vne-reaction-manage-btn")) return;
+      const id = slot.dataset.id;
+      const d2 = getData();
+      d2.activeSpeakerId = d2.activeSpeakerId === id ? null : id;
+      await saveData(d2, { change: "activeSpeaker" });
+    });
+
+    slot.querySelectorAll(".vne-reaction-btn").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const d2 = getData();
+        const actorId  = btn.dataset.actorId;
+        const reaction = btn.dataset.reaction;
+        const allCast  = [...d2.leftCast, ...d2.rightCast];
+        const p2 = allCast.find(p => p.id === actorId);
+        if (p2) { p2.activeReaction = reaction; if (d2.portraits[actorId]) d2.portraits[actorId].activeReaction = reaction; }
+        await saveData(d2, { change: "castChange" });
+      });
+    });
+
+    slot.querySelector(".vne-reaction-manage-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openReactionManager(e.currentTarget.dataset.actorId);
+    });
+
+    slot.querySelector(".vne-rp-remove-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const actorId = e.currentTarget.dataset.id;
+      const d2 = getData();
+      d2.leftCast  = d2.leftCast.filter(p => p.id !== actorId);
+      d2.rightCast = d2.rightCast.filter(p => p.id !== actorId);
+      if (d2.activeSpeakerId === actorId) d2.activeSpeakerId = null;
+      await saveData(d2, { change: "castChange" });
+    });
+  });
+
+  stage.querySelector("#vne-rp-add-btn")?.addEventListener("click", () => {
+    if (!game.user.isGM) return;
+    openActorPicker(async (actorId) => {
+      const d2 = getData();
+      if (d2.leftCast.length + d2.rightCast.length >= 4) {
+        ui.notifications?.warn("Máximo 4 personajes en modo roleplay.");
+        return;
+      }
+      if (!d2.leftCast.some(p => p.id === actorId) && !d2.rightCast.some(p => p.id === actorId)) {
+        const actor = game.actors.get(actorId);
+        if (!actor) return;
+        const saved    = d2.portraits[actorId];
+        const portrait = saved ? { ...saved } : defaultPortrait(actor);
+        d2.leftCast.push(portrait);
+        d2.portraits[actorId] = portrait;
+      }
+      d2.activeSpeakerId = actorId;
+      await saveData(d2, { change: "castChange" });
+    });
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

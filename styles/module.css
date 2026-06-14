@@ -43,7 +43,7 @@
 }
 .vne-background.vne-hidden { display: none !important; }
 
-/* img tag — supports animated GIF, WebP, and external URLs */
+/* img / video tag — supports GIF, WebP, MP4, WebM */
 .vne-bg-img {
   width: 100%;
   height: 100%;
@@ -398,6 +398,7 @@
   color: var(--vne-accent, #c89b3c);
 }
 
+/* Combat stage (hidden in VN/roleplay mode) */
 .vne-stage {
   grid-row: 4;
   display: grid;
@@ -405,6 +406,231 @@
   gap: 0;
   overflow: hidden;
   position: relative;
+}
+/* rp-stage and center-area share column 2 of .vne-stage, one hidden at a time */
+#vne-rp-stage                                     { grid-column: 2; grid-row: 1; }
+/* In RP mode: show rp-stage, hide center speaker */
+#vne-main:not(.vne-combat-mode) .vne-center-area  { display: none !important; }
+/* In combat mode: hide rp-stage, show center speaker */
+#vne-main.vne-combat-mode .vne-rp-stage           { display: none !important; }
+
+/* ── ROLEPLAY STAGE (VN mode, non-combat) — occupies grid-column 2 of .vne-stage ── */
+.vne-rp-stage {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: space-evenly;
+  overflow: hidden;
+  position: relative;
+  pointer-events: all;
+}
+
+.vne-rp-slot {
+  flex: 1;
+  pointer-events: all;  /* slots intercept clicks even though parent has pointer-events: none */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  position: relative;
+  cursor: pointer;
+}
+
+.vne-rp-portrait-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  overflow: hidden;
+}
+
+.vne-rp-img {
+  max-height: 78vh;
+  max-width: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  object-position: bottom center;
+  filter: drop-shadow(0 0 24px rgba(0,0,0,0.6));
+  transition: filter 0.35s, transform 0.35s;
+  display: block;
+  pointer-events: none;
+}
+
+.vne-rp-slot:hover .vne-rp-img {
+  filter: drop-shadow(0 0 30px rgba(200,155,60,0.4)) brightness(1.05);
+  transform: scale(1.01) translateY(-2px);
+}
+
+.vne-rp-slot.vne-rp-speaking .vne-rp-img {
+  filter: drop-shadow(0 0 40px rgba(200,155,60,0.75)) drop-shadow(0 0 80px rgba(200,120,0,0.35));
+}
+
+.vne-rp-slot[data-slot-count="1"] .vne-rp-img { max-height: 90vh; }
+.vne-rp-slot[data-slot-count="2"] .vne-rp-img { max-height: 83vh; }
+.vne-rp-slot[data-slot-count="3"] .vne-rp-img { max-height: 76vh; }
+.vne-rp-slot[data-slot-count="4"] .vne-rp-img { max-height: 68vh; }
+
+.vne-rp-slot.vne-rp-speaking::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 15%;
+  right: 15%;
+  height: 3px;
+  background: var(--vne-accent, #c89b3c);
+  border-radius: 2px 2px 0 0;
+  box-shadow: 0 0 18px rgba(200,155,60,0.7), 0 0 36px rgba(200,155,60,0.35);
+  animation: vne-pulse 2s ease-in-out infinite;
+}
+
+.vne-rp-nameplate {
+  text-align: center;
+  padding: 5px 12px;
+  background: rgba(0,0,0,0.65);
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(200,155,60,0.2);
+  margin-bottom: 6px;
+  flex-shrink: 0;
+  max-width: 90%;
+}
+
+.vne-rp-speaking .vne-rp-nameplate {
+  border-color: rgba(200,155,60,0.55);
+  box-shadow: 0 0 16px rgba(200,155,60,0.25);
+}
+
+.vne-rp-name {
+  display: block;
+  font-size: 0.95em;
+  font-weight: 700;
+  color: #f0e8d8;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+
+.vne-rp-speaking .vne-rp-name { color: var(--vne-accent, #c89b3c); }
+
+.vne-rp-title {
+  display: block;
+  font-size: 0.72em;
+  color: rgba(200,185,160,0.7);
+  white-space: nowrap;
+}
+
+/* Per-character reaction bar in RP mode */
+.vne-rp-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  padding: 5px 6px;
+  background: rgba(0,0,0,0.55);
+  border-radius: 8px;
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(200,155,60,0.15);
+  margin-bottom: 8px;
+  flex-shrink: 0;
+  max-width: 90%;
+  pointer-events: all;
+}
+
+/* Compact reaction buttons — icon only, label on hover */
+.vne-rp-reactions .vne-reaction-btn {
+  width: 36px;
+  height: 36px;
+  padding: 3px;
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: width 0.2s;
+}
+.vne-rp-reactions .vne-reaction-btn span { display: none; }
+.vne-rp-reactions .vne-reaction-btn:hover {
+  width: auto;
+  min-width: 36px;
+  padding: 3px 8px;
+  overflow: visible;
+}
+.vne-rp-reactions .vne-reaction-btn:hover span {
+  display: inline;
+  font-size: 0.7em;
+  white-space: nowrap;
+}
+
+/* Remove button (edit mode) */
+.vne-rp-remove-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  width: 26px;
+  height: 26px;
+  background: rgba(180,30,30,0.85);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78em;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+  color: #fff;
+  border: 1px solid rgba(255,100,100,0.5);
+  pointer-events: all;
+}
+.vne-rp-slot:hover .vne-rp-remove-btn { opacity: 1; }
+.vne-rp-remove-btn:hover { background: rgba(220,40,40,1); }
+
+/* Add slot button */
+.vne-rp-add-slot {
+  flex: 0 0 80px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 90px;
+  background: rgba(200,155,60,0.07);
+  border: 2px dashed rgba(200,155,60,0.3);
+  border-radius: 10px;
+  cursor: pointer;
+  color: #5c4420;
+  font-size: 0.8em;
+  margin-bottom: 24px;
+  align-self: center;
+  pointer-events: all;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+.vne-rp-add-slot:hover {
+  background: rgba(200,155,60,0.18);
+  border-color: var(--vne-accent, #c89b3c);
+  color: var(--vne-accent, #c89b3c);
+}
+.vne-rp-add-slot i { font-size: 1.4em; }
+
+/* Empty state */
+.vne-rp-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: rgba(200,185,160,0.4);
+  font-size: 0.9em;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Drag-over highlight */
+.vne-rp-stage.vne-drag-over {
+  outline: 2px dashed rgba(200,155,60,0.5);
+  outline-offset: -4px;
 }
 
 /* ── SIDE PANELS ────────────────────────────────────────────────────────── */
@@ -420,9 +646,13 @@
 }
 
 .vne-left-panel {
+  grid-column: 1;
+  grid-row: 1;
   background: linear-gradient(to right, rgba(0,0,0,0.55) 0%, transparent 100%);
 }
 .vne-right-panel {
+  grid-column: 3;
+  grid-row: 1;
   background: linear-gradient(to left, rgba(0,0,0,0.55) 0%, transparent 100%);
 }
 
@@ -575,6 +805,8 @@
 
 /* ── CENTER SPEAKER ─────────────────────────────────────────────────────── */
 .vne-center-area {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -894,101 +1126,118 @@
    DIALOG STYLES
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Actor Picker */
-.vne-actor-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+/* ── Quick Actor Picker (compact top-bar strip) ──────────────────────────── */
+#vne-actor-picker {
+  position: absolute;
+  top: 50px;
+  left: 0;
+  right: 0;
+  z-index: 150;
+  pointer-events: all;
+  display: flex;
+  align-items: center;
   gap: 10px;
-  padding: 8px;
-  max-height: 360px;
-  overflow-y: auto;
+  padding: 8px 14px;
+  background: rgba(5,4,3,0.93);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(200,155,60,0.3);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.6);
+  animation: vne-qap-in 0.18s ease;
 }
-
-/* Folder tree wrapper */
-.vne-actor-picker-tree {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 4px;
-  max-height: 430px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--vne-border) transparent;
+@keyframes vne-qap-in {
+  from { transform: translateY(-8px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
 }
-.vne-actor-picker-tree::-webkit-scrollbar { width: 4px; }
-.vne-actor-picker-tree::-webkit-scrollbar-thumb { background: var(--vne-border); border-radius: 4px; }
-
-.vne-ap-folder-section { border-radius: 6px; }
-
-.vne-ap-folder-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  background: rgba(200,155,60,0.1);
-  border: 1px solid rgba(200,155,60,0.22);
-  border-radius: 6px;
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.15s;
-}
-.vne-ap-folder-header:hover { background: rgba(200,155,60,0.22); }
-
-.vne-ap-folder-name {
-  flex: 1;
-  font-weight: 600;
-  font-size: 0.88em;
-  color: var(--vne-accent);
-}
-
-.vne-ap-chevron {
-  font-size: 0.75em;
-  color: var(--vne-text-dim);
-  transition: transform 0.2s;
+.vne-qap-label {
   flex-shrink: 0;
+  font-size: 0.70em;
+  color: var(--vne-accent);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
-
-.vne-ap-collapsed > .vne-ap-folder-body { display: none; }
-.vne-ap-collapsed > .vne-ap-folder-header .vne-ap-chevron { transform: rotate(-90deg); }
-
-.vne-ap-folder-body { padding: 4px 0 2px 0; }
-
-/* Inside tree: remove fixed height so the tree scroll handles it */
-.vne-ap-grid-inner {
-  max-height: none !important;
-  overflow-y: visible !important;
+.vne-qap-search {
+  flex-shrink: 0;
+  width: 120px;
+  height: 26px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(200,155,60,0.3);
+  border-radius: 6px;
+  color: var(--vne-text);
+  font-size: 0.78em;
+  padding: 0 8px;
+  outline: none;
+  pointer-events: all;
 }
-.vne-ap-item {
+.vne-qap-search:focus { border-color: var(--vne-accent); }
+.vne-qap-scroll {
+  display: flex;
+  flex-direction: row;
+  gap: 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: 1;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(200,155,60,0.35) transparent;
+}
+.vne-qap-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  padding: 8px 4px;
-  border-radius: 8px;
+  gap: 3px;
+  width: 56px;
+  flex-shrink: 0;
   cursor: pointer;
-  border: 2px solid transparent;
-  transition: border-color 0.2s, background 0.2s;
-  background: rgba(0,0,0,0.15);
-}
-.vne-ap-item:hover {
-  border-color: var(--vne-accent);
-  background: rgba(200,155,60,0.1);
-}
-.vne-ap-item img {
-  width: 72px;
-  height: 72px;
-  object-fit: cover;
+  padding: 4px 3px;
   border-radius: 6px;
-  border: 1px solid rgba(200,155,60,0.2);
+  border: 1px solid rgba(200,155,60,0.12);
+  background: rgba(255,255,255,0.04);
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+  pointer-events: all;
 }
-.vne-ap-item span {
-  font-size: 0.75em;
+.vne-qap-card:hover {
+  background: rgba(200,155,60,0.2);
+  border-color: var(--vne-accent);
+  transform: translateY(-2px);
+}
+.vne-qap-card img {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 4px;
+  display: block;
+  pointer-events: none;
+}
+.vne-qap-card span {
+  font-size: 0.58em;
+  color: #c8b99a;
   text-align: center;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  width: 92px;
+  max-width: 52px;
+  line-height: 1.2;
+  pointer-events: none;
 }
+.vne-qap-close {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  cursor: pointer;
+  color: rgba(200,185,160,0.6);
+  border: 1px solid rgba(200,155,60,0.2);
+  font-size: 0.8em;
+  transition: background 0.15s, color 0.15s;
+  pointer-events: all;
+}
+.vne-qap-close:hover { background: rgba(200,50,50,0.4); color: #fff; border-color: transparent; }
 
 /* Scene Editor */
 .vne-scene-editor {
