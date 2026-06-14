@@ -24,11 +24,17 @@ let _vsLeft  = null;  // { img, name, hp, hpMax } — PC shown on left (leftCast
 let _vsRight = null;  // { img, name, hp, hpMax } — NPC shown on right (rightCast)
 
 // ── Turn timer state ─────────────────────────────────────────────────────────
-let _timerInterval   = null;
+let _timerInterval    = null;
 let _timerSecondsLeft = 0;
-let _timerEnabled    = false;
-let _timerMinutes    = 2;
-let _timerAutoReset  = false;  // if true, timer restarts automatically on each turn change
+let _timerEnabled     = false;
+let _timerMinutes     = 2;
+let _timerAutoReset   = false;   // if true, timer restarts automatically on each turn change
+let _timerStartedAt   = 0;       // Date.now() at timer start — for drift-free countdown
+let _timerDurationMs  = 0;       // total duration in ms
+
+// ── Combat state ─────────────────────────────────────────────────────────────
+let _lastCombatTurns = [];       // snapshot { actorId, defeated }[] for deleteCombat victory check
+let _autoReactionDebounceTimer = null;
 
 function _timerDisplayStr() {
   if (!_timerEnabled && _timerSecondsLeft === 0) return "--:--";
@@ -66,19 +72,23 @@ function _patchTimerAutoBtn() {
 function _startTurnTimer(minutes) {
   _stopTurnTimer();
   _timerMinutes     = minutes;
+  _timerDurationMs  = minutes * 60 * 1000;
+  _timerStartedAt   = Date.now();
   _timerSecondsLeft = minutes * 60;
   _timerEnabled     = true;
   _patchTimerDisplay();
   const btn = document.getElementById("vne-timer-toggle-btn");
   if (btn) { btn.classList.add("vne-active"); btn.title = "Stop timer"; btn.querySelector("i").className = "fas fa-hourglass-half"; }
+  // 250ms tick with Date.now() — immune to tab throttling drift
   _timerInterval = setInterval(() => {
-    _timerSecondsLeft = Math.max(0, _timerSecondsLeft - 1);
+    const elapsed = Date.now() - _timerStartedAt;
+    _timerSecondsLeft = Math.max(0, Math.ceil((_timerDurationMs - elapsed) / 1000));
     _patchTimerDisplay();
     if (_timerSecondsLeft === 0) {
       _stopTurnTimer();
       game.combat?.nextTurn().catch(() => {});
     }
-  }, 1000);
+  }, 250);
 }
 
 function _getRoundTier(round) {
@@ -218,7 +228,7 @@ const _AUTO_REACTION_TIERS = [
   { maxPct: 0.50, keys: ["hurt",     "wounded", "injured", "damaged"] },
 ];
 
-function _applyAutoReaction(actorId) {
+async function _applyAutoReaction(actorId) {
   if (!game.user.isGM) return;
   const d = getData();
   let portrait = null;
@@ -250,7 +260,7 @@ function _applyAutoReaction(actorId) {
   if (portrait.activeReaction === finalKey) return;       // already set, no save needed
 
   _applyReaction(d, actorId, finalKey);
-  saveData(d, { change: "castChange" });
+  await saveData(d, { change: "castChange" });
 }
 
 async function setReaction(actorId, reactionName) {
@@ -262,6 +272,21 @@ async function setReaction(actorId, reactionName) {
     const actor = game.actors.get(actorId);
     if (!actor?.isOwner) return;
     game.socket.emit(`module.${ID}`, { type: "vnReaction", actorId, reactionName, senderId: game.user.id });
+  }
+}
+
+async function setSpeaker(actorId) {
+  const newId = actorId ?? null;
+  if (game.user.isGM) {
+    const d = getData();
+    d.activeSpeakerId = d.activeSpeakerId === newId ? null : newId;
+    await saveData(d, { change: "activeSpeaker" });
+  } else {
+    if (newId) {
+      const actor = game.actors.get(newId);
+      if (!actor?.isOwner) return;
+    }
+    game.socket.emit(`module.${ID}`, { type: "vnSpeaker", actorId: newId, senderId: game.user.id });
   }
 }
 
@@ -550,22 +575,25 @@ function _showVictoryOverlay() {
 }
 
 // Determine victory: called when deleteCombat fires or all enemies are defeated.
-// Only triggers if VNE is open in combat mode.
-function _checkVictoryCondition(combat) {
+// Only triggers if VNE is open in combat mode. Broadcasts to all clients via socket.
+function _checkVictoryCondition(turnsSnapshot) {
   if (!game.user.isGM) return;
   const d = getData();
   if (!d.showVN || !d.combatMode) return;
 
-  // At least one left-side (player) combatant still active AND all right-side defeated
-  const turns = combat?.turns ?? [];
+  const turns    = turnsSnapshot ?? [];
   const leftIds  = new Set(d.leftCast.map(p => p.id));
   const rightIds = new Set(d.rightCast.map(p => p.id));
 
-  const leftAlive  = turns.some(c => leftIds.has(c.actorId)  && !c.defeated);
-  const rightAll   = turns.filter(c => rightIds.has(c.actorId));
+  const leftAlive        = turns.some(c => leftIds.has(c.actorId)  && !c.defeated);
+  const rightAll         = turns.filter(c => rightIds.has(c.actorId));
   const rightAllDefeated = rightAll.length > 0 && rightAll.every(c => c.defeated);
 
-  if (leftAlive && rightAllDefeated) _showVictoryOverlay();
+  if (leftAlive && rightAllDefeated) {
+    // Broadcast to all clients — they each show the overlay locally
+    game.socket.emit(`module.${ID}`, { type: "vnVictory", senderId: game.user.id });
+    _showVictoryOverlay(); // also show for GM (socket doesn't loop back to sender)
+  }
 }
 
 // ── VS Combat Display ─────────────────────────────────────────────────────────
@@ -650,7 +678,7 @@ function _updateVSOnTarget(actorId, side) {
     ? d.rightCast.find(p => p.id === actorId)
     : d.leftCast.find(p => p.id === actorId);
   if (!castP) return;
-  const portrait = { img: getPortraitImg(castP), name: castP.name };
+  const portrait = _vsDataFromPortrait(castP);  // preserves hp/hpMax for HP bars
   if (side === "right") _vsRight = portrait;
   else                  _vsLeft  = portrait;
   _renderVSDisplay();
@@ -704,10 +732,14 @@ function openActorPicker(callback) {
 
   bindCards(scrollEl);
 
+  let _searchDebounce = null;
   searchEl?.addEventListener("input", () => {
-    const q = searchEl.value.toLowerCase().trim();
-    scrollEl.innerHTML = buildCards(q ? allActors.filter(a => a.name.toLowerCase().includes(q)) : allActors);
-    bindCards(scrollEl);
+    clearTimeout(_searchDebounce);
+    _searchDebounce = setTimeout(() => {
+      const q = searchEl.value.toLowerCase().trim();
+      scrollEl.innerHTML = buildCards(q ? allActors.filter(a => a.name.toLowerCase().includes(q)) : allActors);
+      bindCards(scrollEl);
+    }, 150);
   });
   // Focus search so user can type immediately
   requestAnimationFrame(() => searchEl?.focus());
@@ -1224,6 +1256,7 @@ export class VNE extends FormApplication {
     root.querySelector("#vne-timer-auto-btn")?.addEventListener("click", () => {
       if (!game.user.isGM) return;
       _timerAutoReset = !_timerAutoReset;
+      localStorage.setItem("vne-timerAutoReset", _timerAutoReset ? "1" : "0");
       _patchTimerAutoBtn();
     });
 
@@ -1232,6 +1265,7 @@ export class VNE extends FormApplication {
       if (!game.user.isGM) return;
       const minutes = parseInt(e.target.value) || 2;
       _timerMinutes = minutes;
+      localStorage.setItem("vne-timerMinutes", String(minutes));
       if (_timerEnabled) _startTurnTimer(minutes);
     });
 
@@ -1247,8 +1281,7 @@ export class VNE extends FormApplication {
           showPortraitActionMenu(e.currentTarget, id, side);
           return;
         }
-        d.activeSpeakerId = d.activeSpeakerId === id ? null : id;
-        await saveData(d, { change: "activeSpeaker" });
+        await setSpeaker(id);
       });
       // Right-click → edit portrait (edit mode)
       el.addEventListener("contextmenu", (e) => {
@@ -1370,6 +1403,9 @@ export class VNE extends FormApplication {
       zone.addEventListener("dragleave", () => zone.classList.remove("vne-drag-over"));
       zone.addEventListener("drop", () => zone.classList.remove("vne-drag-over"));
     });
+
+    // Sync AUTO button state in case of re-render without full template reload
+    _patchTimerAutoBtn();
 
     // Initial bind for roleplay stage
     _bindRPStage(getData(), game.settings.get(ID, "worldOffsetY") || 0);
@@ -1640,8 +1676,7 @@ function _bindCastPortrait(div, p, side, editMode) {
       showPortraitActionMenu(e.currentTarget, p.id, side);
       return;
     }
-    d.activeSpeakerId = d.activeSpeakerId === p.id ? null : p.id;
-    await saveData(d, { change: "activeSpeaker" });
+    await setSpeaker(p.id);
   });
 
   div.addEventListener("contextmenu", (e) => {
@@ -1801,22 +1836,13 @@ function _patchRPStage(d, worldOffsetY, editMode) {
   stage.querySelectorAll(".vne-rp-slot").forEach(slot => {
     slot.addEventListener("click", async (e) => {
       if (e.target.closest(".vne-reaction-btn, .vne-rp-remove-btn, .vne-reaction-manage-btn")) return;
-      const id = slot.dataset.id;
-      const d2 = getData();
-      d2.activeSpeakerId = d2.activeSpeakerId === id ? null : id;
-      await saveData(d2, { change: "activeSpeaker" });
+      await setSpeaker(slot.dataset.id);
     });
 
     slot.querySelectorAll(".vne-reaction-btn").forEach(btn => {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
-        const d2 = getData();
-        const actorId  = btn.dataset.actorId;
-        const reaction = btn.dataset.reaction;
-        const allCast  = [...d2.leftCast, ...d2.rightCast];
-        const p2 = allCast.find(p => p.id === actorId);
-        if (p2) { p2.activeReaction = reaction; if (d2.portraits[actorId]) d2.portraits[actorId].activeReaction = reaction; }
-        await saveData(d2, { change: "castChange" });
+        await setReaction(btn.dataset.actorId, btn.dataset.reaction);
       });
     });
 
@@ -2133,7 +2159,15 @@ function _onVNECarouselContextMenu(event) {
       await saveData(d2, { change: "castChange" });
     } else if (action === "removeCombat") {
       const combatant = game.combat?.combatants?.find(c => c.actorId === actorId);
-      if (combatant) await game.combat.deleteEmbeddedDocuments("Combatant", [combatant.id]);
+      if (combatant) {
+        await game.combat.deleteEmbeddedDocuments("Combatant", [combatant.id]);
+        // Clear active speaker if they were the one removed
+        const d2 = getData();
+        if (d2.activeSpeakerId === actorId) {
+          d2.activeSpeakerId = null;
+          await saveData(d2, { change: "activeSpeaker" });
+        }
+      }
     }
   });
 
@@ -2145,18 +2179,25 @@ function _onVNECarouselContextMenu(event) {
 }
 
 // Carousel combat hooks
-Hooks.on("updateCombat",     renderVNECombatCarousel);
 Hooks.on("createCombatant",  renderVNECombatCarousel);
 Hooks.on("deleteCombatant",  renderVNECombatCarousel);
 Hooks.on("updateCombatant",  (combatant, changes) => {
+  // Save snapshot before potential deleteCombat wipes turns
+  if (combatant.combat?.turns) {
+    _lastCombatTurns = combatant.combat.turns.map(c => ({ actorId: c.actorId, defeated: c.defeated }));
+  }
   renderVNECombatCarousel();
-  if (changes.defeated === true) _checkVictoryCondition(combatant.combat);
+  if (changes.defeated === true) _checkVictoryCondition(_lastCombatTurns);
 });
-Hooks.on("deleteCombat",     (combat) => {
+Hooks.on("deleteCombat",     () => {
   renderVNECombatCarousel();
-  _checkVictoryCondition(combat);
+  _checkVictoryCondition(_lastCombatTurns); // use pre-delete snapshot
+  _lastCombatTurns = [];                    // clear after use
 });
-Hooks.on("createCombat",     renderVNECombatCarousel);
+Hooks.on("createCombat",     () => {
+  _lastCombatTurns = [];
+  renderVNECombatCarousel();
+});
 
 // Live HP / status effect updates (debounced 80 ms)
 let _vneCarouselTimer = null;
@@ -2175,8 +2216,9 @@ Hooks.on("updateActor", (actor, changes) => {
     if (_vsLeft  && d.leftCast.some(p => p.id === actor.id))  { _vsLeft  = { ..._vsLeft,  hp, hpMax }; changed = true; }
     if (_vsRight && d.rightCast.some(p => p.id === actor.id)) { _vsRight = { ..._vsRight, hp, hpMax }; changed = true; }
     if (changed) _renderVSDisplay();
-    // Auto-switch reaction portrait based on HP threshold
-    _applyAutoReaction(actor.id);
+    // Auto-switch reaction portrait based on HP threshold (debounced for AoE damage)
+    clearTimeout(_autoReactionDebounceTimer);
+    _autoReactionDebounceTimer = setTimeout(() => _applyAutoReaction(actor.id), 150);
   }
 });
 Hooks.on("updateToken",       _scheduleCarousel);
@@ -2214,15 +2256,26 @@ Hooks.once("init", () => {
 });
 
 Hooks.on("setup", () => {
+  // Restore timer preferences from localStorage (per-client, per-browser)
+  const savedMinutes = parseInt(localStorage.getItem("vne-timerMinutes") ?? "") || 2;
+  const savedAuto    = localStorage.getItem("vne-timerAutoReset") === "1";
+  _timerMinutes   = savedMinutes;
+  _timerAutoReset = savedAuto;
+
   // Socket handler (lets players trigger GM-side saves)
   game.socket.on(`module.${ID}`, async (msg) => {
-    if (!game.user.isGM) return;
-    if (msg.type === "vnDataSet") {
-      await game.settings.set(ID, "vnData", msg.data, msg.options ?? {});
+    // vnVictory — broadcast to all clients, no GM restriction
+    if (msg.type === "vnVictory") {
+      const senderUser = game.users.get(msg.senderId);
+      if (!senderUser?.isGM) return;             // only trust GM-originated victories
+      _showVictoryOverlay();
       return;
     }
+
+    // All other message types are GM-side operations
+    if (!game.user.isGM) return;
+
     if (msg.type === "vnReaction") {
-      // Validate: the user who sent this must own the actor
       const actor  = game.actors.get(msg.actorId);
       const sender = game.users.get(msg.senderId);
       if (!actor || !sender) return;
@@ -2231,7 +2284,23 @@ Hooks.on("setup", () => {
       const d = getData();
       _applyReaction(d, msg.actorId, msg.reactionName);
       await game.settings.set(ID, "vnData", d, { change: "castChange" });
+      return;
     }
+
+    if (msg.type === "vnSpeaker") {
+      const sender = game.users.get(msg.senderId);
+      if (!sender) return;
+      if (msg.actorId) {
+        const actor = game.actors.get(msg.actorId);
+        if (!actor) return;
+        if (!actor.testUserPermission(sender, "OWNER")) return;
+      }
+      const d = getData();
+      d.activeSpeakerId = d.activeSpeakerId === msg.actorId ? null : (msg.actorId ?? null);
+      await game.settings.set(ID, "vnData", d, { change: "activeSpeaker" });
+      return;
+    }
+    // vnDataSet removed — direct data injection is no longer permitted
   });
 
   VNE.activate();
@@ -2348,21 +2417,27 @@ Hooks.on("targetToken", (user, token, targeted) => {
   }
 });
 
-// Update round/turn display and restart timer when Foundry combat advances
-Hooks.on("updateCombat", (combat, changed) => {
+// Consolidated updateCombat hook — carousel + display + timer + speaker + whisper
+Hooks.on("updateCombat", async (combat, changed) => {
+  // Always update snapshot and carousel
+  if (combat?.turns) {
+    _lastCombatTurns = combat.turns.map(c => ({ actorId: c.actorId, defeated: c.defeated }));
+  }
+  renderVNECombatCarousel();
+
   const d = getData();
   if (!d.showVN || !d.combatMode) return;
   _patchCombatDisplay();
+
+  const turnChanged = changed.turn !== undefined || changed.round !== undefined;
+
   // Auto-restart timer on new turn
-  if (changed.turn !== undefined || changed.round !== undefined) {
-    if (_timerAutoReset) {
-      _startTurnTimer(_timerMinutes);          // auto-reset: always restart
-    } else if (_timerEnabled) {
-      _startTurnTimer(_timerMinutes);          // timer running: restart for new turn
-    }
+  if (turnChanged) {
+    if (_timerAutoReset || _timerEnabled) _startTurnTimer(_timerMinutes);
   }
-  // Auto-set active speaker + refresh VS display when turn advances
-  if (changed.turn !== undefined || changed.round !== undefined) {
+
+  // Auto-set active speaker + VS display
+  if (turnChanged) {
     _updateVSFromCombat();
     if (game.user.isGM) {
       const currentActorId = combat.combatant?.actorId;
@@ -2372,29 +2447,33 @@ Hooks.on("updateCombat", (combat, changed) => {
                        d2.rightCast.some(p => p.id === currentActorId);
         if (inCast && d2.activeSpeakerId !== currentActorId) {
           d2.activeSpeakerId = currentActorId;
-          saveData(d2, { change: "activeSpeaker" });
+          await saveData(d2, { change: "activeSpeaker" });  // await: was missing
         }
       }
     }
   }
-  // Spotlight: notify player it's their turn
-  if (game.user.isGM && (changed.turn !== undefined || changed.round !== undefined)) {
+
+  // Spotlight whisper — notify player it's their turn
+  if (game.user.isGM && turnChanged) {
     const combatant = combat.combatant;
     if (combatant?.actorId) {
       const actor = game.actors.get(combatant.actorId);
       const owner = game.users.find(u => !u.isGM && actor?.testUserPermission(u, "OWNER"));
       if (owner && actor) {
-        const portrait = actor.img ? `<img src="${actor.img}" style="width:48px;height:48px;border-radius:4px;vertical-align:middle;margin-right:8px;" />` : "";
+        const portrait = actor.img
+          ? `<img src="${actor.img}" style="width:48px;height:48px;border-radius:4px;vertical-align:middle;margin-right:8px;" />`
+          : "";
         ChatMessage.create({
           content: `${portrait}<strong>${actor.name}</strong>, ¡es tu turno!`,
           whisper: [owner.id],
           speaker: { alias: "VND Enhanced" },
           flags: { "vnd-enhanced": { type: "turn-notification" } }
         });
+        ui.notifications?.info(`VNE: Turno notificado a ${owner.name}`);
       }
     }
   }
-  // Patch combat controls visibility after render
+
   const controls = document.getElementById("vne-combat-controls");
   if (controls) controls.classList.remove("vne-hidden");
 });
