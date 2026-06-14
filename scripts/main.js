@@ -304,14 +304,57 @@ function _addToCombatLog(message, element) {
   container.scrollTop = container.scrollHeight;
 }
 
+// Forwards clicks on cloned chat elements to their counterparts in the real #chat-log,
+// which carry PF2e's event listeners (Damage dialog, Critical, saves, etc.)
+function _onCombatLogClick(event) {
+  // Walk up from the click target to find an interactive element
+  const target = event.target.closest("button, a, [data-action], [data-roll], .chat-button");
+  if (!target) return;
+
+  // Find the cloned message root (has data-message-id)
+  const cloneMsg = target.closest("[data-message-id]");
+  if (!cloneMsg) return;
+
+  // Find the original rendered message in the real #chat-log
+  const msgId = cloneMsg.dataset.messageId;
+  const original = document.querySelector(`#chat-log [data-message-id="${msgId}"]`);
+  if (!original) return;
+
+  // Locate the matching element in the original by data-action, then by nth-index
+  const action = target.dataset.action;
+  let origTarget = null;
+
+  if (action) {
+    const cloneGroup = [...cloneMsg.querySelectorAll(`[data-action="${CSS.escape(action)}"]`)];
+    const idx        = cloneGroup.indexOf(target);
+    const origGroup  = [...original.querySelectorAll(`[data-action="${CSS.escape(action)}"]`)];
+    origTarget = origGroup[idx] ?? null;
+  }
+
+  if (!origTarget) {
+    // Fallback: match by position among all interactive elements
+    const allClone = [...cloneMsg.querySelectorAll("button, a, [data-action], [data-roll], .chat-button")];
+    const idx      = allClone.indexOf(target);
+    const allOrig  = [...original.querySelectorAll("button, a, [data-action], [data-roll], .chat-button")];
+    origTarget = allOrig[idx] ?? null;
+  }
+
+  if (origTarget) {
+    event.preventDefault();
+    event.stopPropagation();
+    origTarget.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  }
+}
+
 async function toggleCombatChat() {
   combatChatHidden = !combatChatHidden;
   const log = document.getElementById("vne-combat-log");
   if (log) log.classList.toggle("vne-chat-collapsed", combatChatHidden);
-  if (combatChatHidden) {
-    _teardownChatMirror();
-  } else if (getData().combatMode) {
-    _setupChatMirror();
+  // Don't teardown when hiding — content stays in container (hidden by CSS).
+  // When showing, seed from #chat-log only if container ended up empty.
+  if (!combatChatHidden && getData().combatMode) {
+    const container = document.getElementById("vne-combat-log");
+    if (container && container.children.length === 0) _setupChatMirror();
   }
   document.querySelectorAll(".vne-chat-toggle").forEach(btn => {
     btn.title = combatChatHidden ? "Show combat chat" : "Hide combat chat";
@@ -870,11 +913,6 @@ export class VNE extends FormApplication {
     await saveData(d, { change: "showVN" });
   }
 
-  async render(force, options) {
-    _teardownChatMirror();
-    return super.render(force, options);
-  }
-
   async close(options) {
     _teardownChatMirror();
     return super.close(options);
@@ -1173,8 +1211,13 @@ export class VNE extends FormApplication {
     renderVNECombatCarousel();
     _updateVSFromCombat();
 
-    // Mirror Foundry's #chat-log into our panel when in combat + chat visible
-    if (getData().combatMode && !combatChatHidden) _setupChatMirror();
+    // Mirror Foundry's #chat-log into our panel whenever in combat mode.
+    // Content stays in the container even when combatChatHidden — CSS hides it.
+    if (getData().combatMode) _setupChatMirror();
+
+    // Delegate clicks in the VNE chat panel to the original elements in #chat-log,
+    // which hold the real PF2e event listeners (dialogs, damage rolls, saves, etc.)
+    root.querySelector("#vne-combat-log")?.addEventListener("click", _onCombatLogClick);
 
     // Drag-over styling for drop zones
     root.querySelectorAll(".vne-drop-zone").forEach(zone => {
@@ -2005,7 +2048,9 @@ Hooks.on("updateCombat", (combat, changed) => {
 function _onChatRender(message, element) {
   try {
     const d = getData();
-    if (!d.showVN || !d.combatMode || combatChatHidden) return;
+    // Keep container populated even when chat is visually hidden (combatChatHidden).
+    // CSS handles the visibility; content must stay fresh so show-chat is instant.
+    if (!d.showVN || !d.combatMode) return;
     const el = element instanceof HTMLElement ? element : element?.[0]; // jQuery compat
     if (!el) return;
     setTimeout(() => _addToCombatLog(message, el), 200);
