@@ -269,28 +269,41 @@ async function toggleHideUI() {
   await saveData(d, { change: "hideUI" });
 }
 
-// Moves #sidebar to body level so it lives in the same stacking context as #vne-main,
-// then raises its z-index above VNE. Required because #sidebar is usually inside
-// #interface which has its own stacking context and would otherwise stay behind VNE.
-let _sidebarOriginalParent   = null;
-let _sidebarOriginalNextSib  = null;
+// Sidebar lift strategy:
+//   1. Move #sidebar to document.body so it escapes #interface's stacking context.
+//   2. Force position:fixed so it's not pushed off-screen by body's flex layout.
+//   3. Expand content so it's immediately visible.
+// Inline styles survive Foundry's re-renders of the sidebar's *content* because
+// Foundry only updates innerHTML, not the element's own style attribute.
+let _sidebarOriginalParent  = null;
+let _sidebarOriginalNextSib = null;
 
 function _mountSidebar() {
   const sidebar = document.getElementById("sidebar");
   if (!sidebar) return;
   const zIndex = (game.settings.get(ID, "zIndex") || 90) + 5;
-  // Only move if not already at body level
   if (sidebar.parentElement !== document.body) {
     _sidebarOriginalParent  = sidebar.parentElement;
     _sidebarOriginalNextSib = sidebar.nextElementSibling;
     document.body.appendChild(sidebar);
   }
-  sidebar.style.setProperty("z-index", `${zIndex}`, "important");
+  // body.game is display:flex — without position:fixed sidebar would be pushed off-screen.
+  sidebar.style.setProperty("position", "fixed",    "important");
+  sidebar.style.setProperty("right",    "0",         "important");
+  sidebar.style.setProperty("top",      "0",         "important");
+  sidebar.style.setProperty("height",   "100%",      "important");
+  sidebar.style.setProperty("z-index",  `${zIndex}`, "important");
+  // Expand content so the panel is visible right away
+  ui.sidebar?.expand?.();
 }
 
 function _unmountSidebar() {
   const sidebar = document.getElementById("sidebar");
   if (!sidebar) return;
+  sidebar.style.removeProperty("position");
+  sidebar.style.removeProperty("right");
+  sidebar.style.removeProperty("top");
+  sidebar.style.removeProperty("height");
   sidebar.style.removeProperty("z-index");
   if (_sidebarOriginalParent) {
     _sidebarOriginalParent.insertBefore(sidebar, _sidebarOriginalNextSib);
@@ -299,13 +312,13 @@ function _unmountSidebar() {
   }
 }
 
+// In Foundry v13, sidebar state is ui.sidebar.expanded (boolean), not a CSS class.
 function _toggleFoundrySidebar() {
-  const sidebar = document.getElementById("sidebar");
-  if (!sidebar) return;
-  if (sidebar.classList.contains("collapsed")) {
-    ui.sidebar?.expand?.();
+  if (!ui.sidebar) return;
+  if (ui.sidebar.expanded) {
+    ui.sidebar.collapse();
   } else {
-    ui.sidebar?.collapse?.();
+    ui.sidebar.expand();
   }
 }
 

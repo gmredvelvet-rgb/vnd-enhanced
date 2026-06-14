@@ -23,25 +23,8 @@
     {{!-- ── TOP BAR ── --}}
     <div class="vne-top-bar{{#if combatMode}} vne-combat-mode{{/if}}">
 
-      {{!-- LEFT: location info --}}
+      {{!-- LEFT: module controls + location info --}}
       <div class="vne-top-left-section">
-        <div class="vne-location-info">
-          {{#if locationParent}}
-            <span id="vne-loc-parent" class="vne-loc-parent">{{locationParent}}</span>
-            <span class="vne-loc-sep">›</span>
-          {{/if}}
-          <span id="vne-loc-name" class="vne-loc-name">{{#if locationName}}{{locationName}}{{else}}???{{/if}}</span>
-          {{#if locationWeather}}
-            <span class="vne-loc-weather"><i class="fas fa-cloud-sun"></i> {{locationWeather}}</span>
-          {{/if}}
-          {{#if locationTime}}
-            <span class="vne-loc-time"><i class="fas fa-clock"></i> {{locationTime}}</span>
-          {{/if}}
-        </div>
-      </div>
-
-      {{!-- RIGHT: control buttons --}}
-      <div class="vne-top-right-section">
         <div class="vne-top-controls">
           {{#if isGM}}
             <div id="vne-bg-btn" class="vne-ctrl-btn" title="Change Background (supports GIF/WebP)">
@@ -71,7 +54,23 @@
             <i class="fas fa-times"></i>
           </div>
         </div>
+        <div class="vne-location-info">
+          {{#if locationParent}}
+            <span id="vne-loc-parent" class="vne-loc-parent">{{locationParent}}</span>
+            <span class="vne-loc-sep">›</span>
+          {{/if}}
+          <span id="vne-loc-name" class="vne-loc-name">{{#if locationName}}{{locationName}}{{else}}???{{/if}}</span>
+          {{#if locationWeather}}
+            <span class="vne-loc-weather"><i class="fas fa-cloud-sun"></i> {{locationWeather}}</span>
+          {{/if}}
+          {{#if locationTime}}
+            <span class="vne-loc-time"><i class="fas fa-clock"></i> {{locationTime}}</span>
+          {{/if}}
+        </div>
       </div>
+
+      {{!-- RIGHT: empty (sidebar is native Foundry, floats above VNE) --}}
+      <div class="vne-top-right-section"></div>
     </div>
 
     {{!-- ── CAROUSEL ROW (below header, all combatants sorted by initiative) ── --}}

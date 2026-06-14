@@ -92,11 +92,11 @@
   background: transparent;
   pointer-events: none !important;
 }
-.vne-ui-layer.vne-ui-collapsed .vne-top-bar > :not(.vne-top-right-section) {
+.vne-ui-layer.vne-ui-collapsed .vne-top-bar > :not(.vne-top-left-section) {
   opacity: 0;
   pointer-events: none !important;
 }
-.vne-ui-layer.vne-ui-collapsed .vne-top-right-section > :not(.vne-top-controls) {
+.vne-ui-layer.vne-ui-collapsed .vne-top-left-section > :not(.vne-top-controls) {
   opacity: 0;
   pointer-events: none !important;
 }
