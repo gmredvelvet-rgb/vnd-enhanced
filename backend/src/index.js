@@ -10,6 +10,8 @@ import { Hono }        from 'hono';
 import { cors }        from 'hono/cors';
 import authRouter      from './routes/auth.js';
 import licenseRouter   from './routes/license.js';
+import aiRouter        from './routes/ai.js';
+import shopsRouter     from './routes/shops.js';
 
 const app = new Hono();
 
@@ -27,9 +29,11 @@ app.options('*', (c) => c.text('', 204));
 app.get('/', (c) => c.json({ status: 'ok', service: 'vnd-license', v: '1.0' }));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.route('/oauth',   authRouter);
-app.route('/token',   licenseRouter);
+app.route('/oauth',     authRouter);
+app.route('/token',     licenseRouter);
 app.route('/heartbeat', licenseRouter);
+app.route('/ai',        aiRouter);
+app.route('/shops',     shopsRouter);
 app.route('/',          licenseRouter);
 
 // ── Error handler ─────────────────────────────────────────────────────────────

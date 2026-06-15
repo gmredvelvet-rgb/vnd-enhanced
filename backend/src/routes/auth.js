@@ -12,14 +12,24 @@ import { rateLimiter }   from '../middleware.js';
 
 const router = new Hono();
 
-// ── GET /oauth/start ──────────────────────────────────────────────────────────
+// ── POST /oauth/start ─────────────────────────────────────────────────────────
+// Client sends its own window.location.origin so the callback page can target
+// the postMessage precisely (instead of broadcasting to '*').
 
-router.get('/start',
+router.post('/start',
   rateLimiter({ max: 20, windowSec: 60 }),
   async (c) => {
-    const state   = crypto.randomUUID();
-    // Store state in KV with 10-minute TTL (CSRF protection)
-    await c.env.KV.put(`oauth:state:${state}`, '1', { expirationTtl: 600 });
+    const body   = await c.req.json().catch(() => ({}));
+    const origin = typeof body.origin === 'string' && body.origin.startsWith('http')
+      ? body.origin
+      : null;
+
+    const state = crypto.randomUUID();
+    await c.env.KV.put(
+      `oauth:state:${state}`,
+      JSON.stringify({ origin, createdAt: Date.now() }),
+      { expirationTtl: 600 }
+    );
 
     const patreon = new PatreonClient(c.env);
     const url     = patreon.buildAuthUrl(state);
@@ -36,10 +46,11 @@ router.get('/callback', async (c) => {
   if (error) return serveErrorPage(c, 'Patreon authorization was denied.');
   if (!code || !state) return serveErrorPage(c, 'Missing OAuth parameters.');
 
-  // Validate CSRF state
-  const stateValid = await c.env.KV.get(`oauth:state:${state}`);
-  if (!stateValid) return serveErrorPage(c, 'Invalid or expired OAuth state.');
+  // Validate CSRF state and recover stored origin
+  const stateRaw = await c.env.KV.get(`oauth:state:${state}`);
+  if (!stateRaw) return serveErrorPage(c, 'Invalid or expired OAuth state.');
   await c.env.KV.delete(`oauth:state:${state}`);
+  const allowedOrigin = (() => { try { return JSON.parse(stateRaw).origin ?? null; } catch { return null; } })();
 
   try {
     const patreon = new PatreonClient(c.env);
@@ -49,9 +60,8 @@ router.get('/callback', async (c) => {
     const tokens = await patreon.exchangeCode(code);
     const { user: patreonUser, membership } = await patreon.getIdentity(tokens.access_token);
 
-    const email    = patreonUser.attributes?.email ?? null;
-    const tier     = PatreonClient.isOwner(email, c.env) ? 'premium' : PatreonClient.resolveTier(membership);
-    const features = PatreonClient.featuresForTier(tier);
+    const email = patreonUser.attributes?.email ?? null;
+    const tier  = PatreonClient.isOwner(email, c.env) ? 'premium' : PatreonClient.resolveTier(membership);
 
     // Upsert user in Supabase
     const user = await db.upsert('vnd_users', {
@@ -68,19 +78,13 @@ router.get('/callback', async (c) => {
 
     if (user.status !== 'active') return serveErrorPage(c, 'Your account has been suspended.');
 
-    // Generate a short-lived auth code (user pastes this into Foundry)
-    // The code embeds user_id so the activation endpoint can find the user
-    const authCode = btoa(JSON.stringify({
-      u: user.id,
-      t: tier,
-      f: features,
-      exp: Date.now() + 5 * 60 * 1000  // 5-minute code
-    }));
+    // Opaque random auth code — does NOT embed user data (avoids info leak via base64 decode)
+    const authCode = crypto.randomUUID().replaceAll('-', '') + crypto.randomUUID().replaceAll('-', '');
 
-    // Store auth code in KV (5-minute TTL)
+    // Store auth code → user_id mapping in KV (5-minute TTL, single-use)
     await c.env.KV.put(`authcode:${authCode}`, user.id, { expirationTtl: 300 });
 
-    return serveSuccessPage(c, { authCode, tier, username: user.username });
+    return serveSuccessPage(c, { authCode, tier, username: user.username, allowedOrigin });
   } catch (err) {
     console.error('OAuth callback error:', err);
     return serveErrorPage(c, 'An error occurred during authentication. Please try again.');
@@ -173,7 +177,7 @@ router.post('/exchange', async (c) => {
 async function issueRefreshToken(db, userId, installationId, fingerprintHash) {
   const raw       = crypto.randomUUID() + crypto.randomUUID(); // 72 chars
   const hashBuf   = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
-  const tokenHash = btoa(String.fromCharCode(...new Uint8Array(hashBuf)));
+  const tokenHash = btoa(String.fromCodePoint(...new Uint8Array(hashBuf)));
 
   const rt = await db.insert('vnd_refresh_tokens', {
     token_hash:       tokenHash,
@@ -192,7 +196,7 @@ export { issueRefreshToken };
 
 // ── HTML pages ────────────────────────────────────────────────────────────────
 
-function serveSuccessPage(c, { authCode, tier, username }) {
+function serveSuccessPage(c, { authCode, tier, username, allowedOrigin }) {
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -244,10 +248,9 @@ function serveSuccessPage(c, { authCode, tier, username }) {
     document.getElementById('copied').style.display='block';
     setTimeout(()=>document.getElementById('copied').style.display='none',3000);
   }
-  // Also attempt postMessage to opener window (if Foundry opened this in a popup)
-  try{
-    window.opener?.postMessage({ type:'vnd-auth-code', authCode:'${escJs(authCode)}' }, '*');
-  }catch(e){}
+  // postMessage only to the stored Foundry origin (never to '*')
+  const _target = ${allowedOrigin ? `'${escJs(allowedOrigin)}'` : `window.location.origin`};
+  try{ window.opener?.postMessage({ type:'vnd-auth-code', authCode:'${escJs(authCode)}' }, _target); }catch(e){}
 </script>
 </body>
 </html>`;
@@ -282,10 +285,10 @@ function serveErrorPage(c, message) {
 }
 
 function escHtml(str) {
-  return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 }
 function escJs(str) {
-  return String(str ?? '').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"');
+  return String(str ?? '').split('\\').join('\\\\').split("'").join("\\'").split('"').join('\\"');
 }
 
 export default router;

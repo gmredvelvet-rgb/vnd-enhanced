@@ -31,9 +31,12 @@ export class Supabase {
     return rows[0] ?? null;
   }
 
-  async findMany(table, filters) {
-    const url  = this.#buildUrl(table, filters);
-    const resp = await fetch(url, { headers: this.#headers() });
+  async findMany(table, filters, { order, limit, offset } = {}) {
+    const base = new URL(this.#buildUrl(table, filters));
+    if (order)  base.searchParams.set('order',  order);
+    if (limit)  base.searchParams.set('limit',  String(limit));
+    if (offset) base.searchParams.set('offset', String(offset));
+    const resp = await fetch(base.toString(), { headers: this.#headers() });
     if (!resp.ok) throw new DbError(await resp.text(), resp.status);
     return resp.json();
   }
@@ -46,7 +49,7 @@ export class Supabase {
     if (!resp.ok) throw new DbError(await resp.text(), resp.status);
     const countHeader = resp.headers.get('content-range');
     // content-range: 0-N/TOTAL  or  */TOTAL
-    return countHeader ? parseInt(countHeader.split('/')[1] ?? '0', 10) : 0;
+    return countHeader ? Number.parseInt(countHeader.split('/')[1] ?? '0', 10) : 0;
   }
 
   // ── INSERT ────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
  * Hono middleware: auth, rate limiting, nonce validation, response signing.
  */
 
-import { verifyJWT } from './jwt.js';
+import { verifyJWT, signJWT } from './jwt.js';
 
 // ── Auth middleware ───────────────────────────────────────────────────────────
 
@@ -93,22 +93,22 @@ export function cors(c, next) {
   return next();
 }
 
-// ── Response signing (HMAC-SHA256) ────────────────────────────────────────────
-// Signs the response body so the client can detect MITM-injected responses.
+// ── Response signing (RS256 asymmetric) ───────────────────────────────────────
+// Server signs with RSA private key. Client verifies with embedded public key.
+// Unlike HMAC, the public key is safe to embed in client JS — forging is impossible
+// without the private key (which never leaves the server).
 
 export async function signedJson(c, data, status = 200) {
-  const ts      = Date.now();
-  const payload = JSON.stringify(data);
+  const ts         = Math.floor(Date.now() / 1000);
+  const payloadStr = JSON.stringify(data);
 
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(c.env.RESPONSE_SIGN_SECRET),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const sigBuffer = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload + ts));
-  const signature = btoa(String.fromCharCode(...new Uint8Array(sigBuffer)));
+  // Hash the payload so the signature binds to exact response content
+  const hashBuf     = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payloadStr));
+  const payloadHash = btoa(String.fromCodePoint(...new Uint8Array(hashBuf)))
+    .replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 
-  return c.json({ payload: data, timestamp: ts, signature }, status);
+  // Sign a compact JWT: type=res, ph=payload-hash, short 60s TTL
+  const sig = await signJWT({ type: 'res', ph: payloadHash, iat: ts, exp: ts + 60 }, c.env);
+
+  return c.json({ payload: data, sig }, status);
 }

@@ -121,7 +121,7 @@ export class PatreonClient {
     if (status !== 'active_patron') return 'none';
 
     if (cents >= 1000) return 'premium'; // $10+/month
-    if (cents >= 500)  return 'basic';   // $5+/month
+    if (cents >= 600)  return 'basic';   // $6+/month
     return 'none';
   }
 
@@ -130,8 +130,8 @@ export class PatreonClient {
   static featuresForTier(tier) {
     const map = {
       none:    [],
-      basic:   ['vn-core', 'combat-stage', 'reactions'],
-      premium: ['vn-core', 'combat-stage', 'reactions', 'vs-display', 'victory-overlay',
+      basic:   ['dnd-shops', 'vn-core', 'combat-stage', 'reactions'],
+      premium: ['dnd-shops', 'vn-core', 'combat-stage', 'reactions', 'vs-display', 'victory-overlay',
                 'action-overlay', 'rp-stage', 'timer-auto']
     };
     return map[tier] ?? [];

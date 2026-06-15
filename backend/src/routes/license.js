@@ -125,8 +125,9 @@ router.post('/heartbeat',
       return c.json({ error: 'Installation not found', code: 'INSTALL_NOT_FOUND' }, 404);
     }
 
-    // Verify fingerprint
-    if (!fingerprintHash.startsWith(installation.fingerprint_hash.substring(0, 16))) {
+    // Verify fingerprint — constant-time full comparison (prevents prefix-guessing & timing attacks)
+    const fingerprintMatch = await timingSafeEqual(fingerprintHash, installation.fingerprint_hash);
+    if (!fingerprintMatch) {
       await db.insert('vnd_anomalies', {
         user_id:         payload.sub,
         installation_id: installation.id,
@@ -134,8 +135,8 @@ router.post('/heartbeat',
         severity:        'medium',
         details:         {}
       });
-      // Soft failure — don't block, fingerprints can drift slightly with browser updates
-      // Just log it. After 5 occurrences, auto-revoke (manual review trigger).
+      // Soft failure — fingerprints can drift slightly with browser/OS updates.
+      // Logged and counted; after 5 occurrences triggers manual review.
     }
 
     // Update heartbeat
@@ -247,6 +248,21 @@ router.post('/license/release',
 );
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Constant-time string comparison — prevents timing-based enumeration attacks.
+// Signs both strings with a one-shot ephemeral HMAC key, then XOR-compares the MACs.
+async function timingSafeEqual(a, b) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.generateKey({ name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const [sa, sb] = await Promise.all([
+    crypto.subtle.sign('HMAC', key, enc.encode(a)),
+    crypto.subtle.sign('HMAC', key, enc.encode(b))
+  ]);
+  const ua = new Uint8Array(sa), ub = new Uint8Array(sb);
+  let diff = ua.length ^ ub.length;
+  for (let i = 0; i < ua.length; i++) diff |= ua[i] ^ ub[i];
+  return diff === 0;
+}
 
 async function revokeFamily(db, familyId, reason) {
   const tokens = await db.findMany('vnd_refresh_tokens', { family_id: familyId, is_revoked: false });

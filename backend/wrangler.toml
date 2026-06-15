@@ -27,8 +27,20 @@ ALLOWED_ORIGINS = "*"
 # Developer accounts — always granted premium regardless of Patreon subscription
 OWNER_EMAILS    = "gmredvelvet@gmail.com"
 
+# ── AI Studio ─────────────────────────────────────────────────────────────────
+# Generation limits per Patreon tier (per billing cycle)
+# Each successful image generation consumes exactly 1 generation.
+AI_TIER_TOKENS  = '{"none":0,"basic":10,"premium":20}'
+
 # ── Secrets — set via CLI, NOT here (never commit secrets) ────────────────────
 # wrangler secret put PATREON_CLIENT_SECRET
 # wrangler secret put SUPABASE_SERVICE_KEY
 # wrangler secret put JWT_PRIVATE_KEY   (base64url PKCS8 from generate-keys.js)
-# wrangler secret put RESPONSE_SIGN_SECRET  (32 random bytes base64, for HMAC)
+# wrangler secret put OPENAI_API_KEY        (solo para expandSceneIdea — gpt-4o-mini)
+# wrangler secret put BFL_API_KEY           (Black Forest Labs — Flux image generation)
+# wrangler secret put REPLICATE_API_TOKEN   (Replicate — background removal rembg, opcional)
+
+# ── Nota sobre timeouts ────────────────────────────────────────────────────────
+# Flux tarda 10-30s por imagen. Si ves errores de timeout, agrega:
+# [limits]
+# cpu_ms = 30000

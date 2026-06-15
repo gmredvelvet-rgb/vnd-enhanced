@@ -1,11 +1,13 @@
 /**
  * Run with: node scripts/generate-keys.js
- * Generates an RSA-2048 key pair for JWT RS256 signing.
+ * Generates an RSA-2048 key pair for JWT RS256 signing AND response signing.
  *
  * Output:
- *   - JWT_PRIVATE_KEY: set as Worker secret (wrangler secret put JWT_PRIVATE_KEY)
- *   - JWT_PUBLIC_KEY:  set as Worker var in wrangler.toml
- *   - public_key.pem:  embed in license-client.js (client-side verification)
+ *   - JWT_PRIVATE_KEY: set as Worker secret  (wrangler secret put JWT_PRIVATE_KEY)
+ *   - JWT_PUBLIC_KEY:  set as Worker var in wrangler.toml AND embed in client JS (RSA_PUBLIC_KEY)
+ *
+ * The same RSA key pair covers both access-token JWTs and signed API responses.
+ * No separate RESPONSE_SIGN_SECRET is needed.
  */
 
 import { webcrypto } from 'node:crypto';
@@ -34,9 +36,5 @@ console.log(toBase64url(privateKeyBuffer));
 console.log('\n=== JWT_PUBLIC_KEY (wrangler.toml [vars]) ===');
 console.log(toBase64url(publicKeyBuffer));
 
-console.log('\n=== PUBLIC KEY PEM (embed in license-client.js) ===');
-console.log(toPem(publicKeyBuffer, 'PUBLIC KEY'));
-
-console.log('\n=== RESPONSE_SIGN_SECRET (wrangler secret put RESPONSE_SIGN_SECRET) ===');
-const randomBytes = webcrypto.getRandomValues(new Uint8Array(32));
-console.log(Buffer.from(randomBytes).toString('base64url'));
+console.log('\n=== RSA_PUBLIC_KEY (embed in license-client.js AND ai-generator.js) ===');
+console.log(toBase64url(publicKeyBuffer));

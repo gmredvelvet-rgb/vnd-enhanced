@@ -1,11 +1,15 @@
-# Backend — Cloudflare Worker (deployed separately via wrangler)
-backend/
+# Backend dependencies only — source files ARE committed, node_modules are not
+backend/node_modules/
 
-# Generated images (local only)
+# Local generated images
 generated/
 
 # DB migrations (server-side only)
 sql/
 
-# Node
+# OS / editor
 node_modules/
+*.log
+.DS_Store
+Thumbs.db
+*.zip
