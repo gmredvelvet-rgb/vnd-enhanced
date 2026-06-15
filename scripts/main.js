@@ -10,6 +10,7 @@
  */
 
 import { registerSettings } from "./settings.js";
+import { VndLicenseClient, VndLicenseUI } from "./license-client.js";
 
 const ID = "vnd-enhanced";
 
@@ -1252,40 +1253,6 @@ export class VNE extends FormApplication {
       await saveData(d, { change: "hideBack" });
     });
 
-    // Edit mode (GM only)
-    root.querySelector("#vne-edit-btn")?.addEventListener("click", async () => {
-      if (!game.user.isGM) return;
-      const d = getData(); d.editMode = !d.editMode;
-      await saveData(d, { change: "editMode" });
-    });
-
-    // Quick background pick
-    root.querySelector("#vne-bg-btn")?.addEventListener("click", () => {
-      new FilePicker({
-        type: "any",
-        current: game.settings.get(ID, "bgFolderPath") || "",
-        callback: async (img) => {
-          const d = getData();
-          d.location.backgroundImage = img;
-          const idx = d.locationList.findIndex(l => l.id === d.location.id);
-          if (idx >= 0) d.locationList[idx].backgroundImage = img;
-          await saveData(d, { change: "location" });
-        }
-      }).render(true);
-    });
-
-    // Edit current scene
-    root.querySelector("#vne-edit-scene-btn")?.addEventListener("click", () => {
-      const d = getData();
-      openSceneEditor(d.location, async (updated) => {
-        const d2 = getData();
-        d2.location = updated;
-        const idx = d2.locationList.findIndex(l => l.id === updated.id);
-        if (idx >= 0) d2.locationList[idx] = updated;
-        await saveData(d2, { change: "location" });
-      });
-    });
-
     // Add actor buttons
     root.querySelector("#vne-add-left-btn")?.addEventListener("click", () => this._addActor("left"));
     root.querySelector("#vne-add-right-btn")?.addEventListener("click", () => this._addActor("right"));
@@ -2458,6 +2425,15 @@ Hooks.once("init", () => {
   }
 });
 
+// ── License initialization (runs after init, before ready) ───────────────────
+Hooks.once("setup", async () => {
+  const licensed = await VndLicenseClient.instance.initialize();
+  if (!licensed && game.user?.isGM) {
+    // Defer UI prompt until Foundry UI is fully rendered
+    Hooks.once("ready", () => VndLicenseUI.show());
+  }
+});
+
 Hooks.on("setup", () => {
   // Restore timer preferences from localStorage (per-client, per-browser)
   const savedMinutes = parseInt(localStorage.getItem("vne-timerMinutes") ?? "") || 2;
@@ -2512,6 +2488,9 @@ Hooks.on("setup", () => {
 Hooks.on("ready", () => {
   // Rich API for macros and Active Tile Triggers
   globalThis.VNEnhanced = {
+    // License
+    license: VndLicenseClient.instance,
+    hasFeature: (f) => VndLicenseClient.instance.hasFeature(f),
     // Open/close
     toggle:       (showForIds = null) => VNE.toggle(showForIds),
     show:         async (userIds = null) => {

@@ -1,0 +1,18 @@
+{
+  "name": "vnd-license-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker — VND Enhanced license server",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "keygen": "node scripts/generate-keys.js"
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.80.0"
+  },
+  "type": "module"
+}

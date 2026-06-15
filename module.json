@@ -11,6 +11,7 @@
   "authors": [{ "name": "Enhanced fork" }],
   "esmodules": [
     "scripts/settings.js",
+    "scripts/license-client.js",
     "scripts/main.js"
   ],
   "styles": ["styles/module.css"],

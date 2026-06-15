@@ -1,0 +1,34 @@
+name = "vnd-license"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# KV namespace for rate limiting and nonces
+# Create it with: wrangler kv:namespace create "VND_KV"
+# Then paste the ID below
+[[kv_namespaces]]
+binding = "KV"
+id = "ff62152fbefb4acbb1b3579b87019d3c"
+
+[vars]
+SUPABASE_URL         = "https://vtogmvfwpmmjomjcwzsy.supabase.co"
+
+# The public key is not secret — used by the client to verify responses
+# Format: base64url-encoded SPKI (from scripts/generate-keys.js)
+JWT_PUBLIC_KEY       = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3-hTzuHo9lgENNQiA4-Fm7VIdalqisZ5NhqrBioXmIXSMbEhYpy1TnPkCBAdAzXAsyX1YdTYLcMADETPnERvceLsDoAWHFZzHGxoXBkOGw0ukAyHJyrwBZxCf_bY_FSbip_-XQuTS4YuyhLPVNjbGMZdVarkegh7BKwW4CR9MDb1DMtf_NxtfNqJ3MxhfAiTxIod4AWer8esisr0IekQlPLmMPA2KggzQw9rFj61B4DAVk2F_TAXPMOKyEcX_zVGpp00JTurTsfwK2023UHKO9t98R0rG17oX0rK_x2EOBiW2Nla3NChZyR4yi8zHe0vjYhprqcwozv9wN0wbANnzwIDAQAB"
+
+# After activating Patreon: redirect to this page (your Worker URL)
+PATREON_REDIRECT_URI = "https://vnd-license.gmredvelvet.workers.dev/oauth/callback"
+
+# Allowed origins for CORS (comma-separated, or * for any Foundry instance)
+# Since Foundry is self-hosted, * is acceptable here — auth is token-based
+ALLOWED_ORIGINS = "*"
+
+# Developer accounts — always granted premium regardless of Patreon subscription
+OWNER_EMAILS    = "gmredvelvet@gmail.com"
+
+# ── Secrets — set via CLI, NOT here (never commit secrets) ────────────────────
+# wrangler secret put PATREON_CLIENT_SECRET
+# wrangler secret put SUPABASE_SERVICE_KEY
+# wrangler secret put JWT_PRIVATE_KEY   (base64url PKCS8 from generate-keys.js)
+# wrangler secret put RESPONSE_SIGN_SECRET  (32 random bytes base64, for HMAC)
