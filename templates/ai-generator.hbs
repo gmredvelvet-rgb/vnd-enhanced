@@ -1,0 +1,352 @@
+{{!-- VND Enhanced — AI Studio --}}
+<div class="vnd-ai-root">
+
+  {{!-- ══ HEADER PREMIUM ════════════════════════════════════════════════════ --}}
+  <header class="vnd-ai-header">
+    <div class="vnd-ai-hdr-tier">
+      <i class="fas fa-star vnd-ai-hdr-star"></i>
+      <span class="vnd-ai-hdr-tier-name" id="vnd-ai-tier-badge">…</span>
+    </div>
+    <div class="vnd-ai-hdr-divider"></div>
+    <div class="vnd-ai-hdr-credits">
+      <span class="vnd-ai-hdr-credits-lbl">Generaciones</span>
+      <div class="vnd-ai-hdr-credits-count">
+        <span id="vnd-ai-gens-remaining">—</span>
+        <span class="vnd-ai-hdr-sep">/</span>
+        <span id="vnd-ai-gens-total">—</span>
+      </div>
+    </div>
+    <div class="vnd-ai-hdr-bar-col">
+      <div class="vnd-ai-bar-wrap">
+        <div class="vnd-ai-bar-fill" id="vnd-ai-bar-fill" style="width:0%"></div>
+      </div>
+      <span class="vnd-ai-renewal" id="vnd-ai-renewal">Renovación: —</span>
+    </div>
+  </header>
+
+  {{!-- ══ TABS ════════════════════════════════════════════════════════════ --}}
+  <nav class="vnd-ai-tabs">
+    <button type="button" class="vnd-ai-tab active" data-tab="scene">
+      <i class="fas fa-mountain-sun"></i> Escenas
+    </button>
+    <button type="button" class="vnd-ai-tab" data-tab="character">
+      <i class="fas fa-person-rays"></i> Personajes
+    </button>
+    <button type="button" class="vnd-ai-tab" data-tab="history">
+      <i class="fas fa-clock-rotate-left"></i> Historial
+    </button>
+  </nav>
+
+  {{!-- ══════════════════════════════════════════════════════════════════════
+       SCENE STUDIO
+  ══════════════════════════════════════════════════════════════════════════ --}}
+  <div class="vnd-ai-panel active" id="vnd-ai-panel-scene">
+    <div class="vnd-ai-studio-layout">
+
+      <div class="vnd-ai-ref-column">
+
+        <div class="vnd-ai-section-label"><i class="fas fa-lightbulb"></i> Idea de escena</div>
+        <div class="vnd-ai-idea-block">
+          <textarea id="vnd-ai-scene-idea" class="vnd-ai-idea-input"
+            placeholder="Cueva pirata, Templo abandonado, Taberna medieval…"
+            maxlength="300" rows="2"></textarea>
+          <button type="button" id="vnd-ai-expand-btn" class="vnd-ai-expand-btn">
+            <i class="fas fa-wand-sparkles"></i>
+            <span>Expandir con IA</span>
+            <span class="vnd-ai-free-badge">GRATIS</span>
+          </button>
+        </div>
+
+        <div class="vnd-ai-divider"></div>
+        <div class="vnd-ai-section-label"><i class="fas fa-map"></i> Tipo de escena</div>
+        <div class="vnd-ai-scene-type-grid">
+          <button type="button" class="vnd-ai-scene-type-btn" data-type="battlemap">
+            <i class="fas fa-th"></i><span>Cenital</span><em>Battlemap VTT</em>
+          </button>
+          <button type="button" class="vnd-ai-scene-type-btn" data-type="isometric">
+            <i class="fas fa-cube"></i><span>Isométrico</span><em>Exploración</em>
+          </button>
+          <button type="button" class="vnd-ai-scene-type-btn active" data-type="narrative">
+            <i class="fas fa-panorama"></i><span>Narrativo</span><em>Fondo / Diálogo</em>
+          </button>
+          <button type="button" class="vnd-ai-scene-type-btn" data-type="concept">
+            <i class="fas fa-palette"></i><span>Concept Art</span><em>Ilustración</em>
+          </button>
+        </div>
+
+        <div class="vnd-ai-divider"></div>
+        <div class="vnd-ai-section-label"><i class="fas fa-signal"></i> Complejidad</div>
+        <div class="vnd-ai-toggle-group">
+          <button type="button" class="vnd-ai-scene-tier-btn active" data-tier="standard">Estándar</button>
+          <button type="button" class="vnd-ai-scene-tier-btn" data-tier="detailed">Detallado</button>
+          <button type="button" class="vnd-ai-scene-tier-btn" data-tier="epic">Épico</button>
+        </div>
+
+        <div class="vnd-ai-divider"></div>
+        <div class="vnd-ai-section-label"><i class="fas fa-brush"></i> Estilo</div>
+        <div class="vnd-ai-style-grid">
+          <button type="button" class="vnd-ai-style-chip active" data-style="fantasy-painting">Fantasy Painting</button>
+          <button type="button" class="vnd-ai-style-chip" data-style="dark-fantasy">Dark Fantasy</button>
+          <button type="button" class="vnd-ai-style-chip" data-style="realistic">Realistic</button>
+          <button type="button" class="vnd-ai-style-chip" data-style="semi-realistic">Semi Realistic</button>
+          <button type="button" class="vnd-ai-style-chip" data-style="anime">Anime</button>
+          <button type="button" class="vnd-ai-style-chip" data-style="visual-novel">Visual Novel</button>
+          <button type="button" class="vnd-ai-style-chip" data-style="concept-art">Concept Art</button>
+          <button type="button" class="vnd-ai-style-chip" data-style="battlemap-drawn">BM Dibujado</button>
+          <button type="button" class="vnd-ai-style-chip" data-style="battlemap-inked">BM Entintado</button>
+          <button type="button" class="vnd-ai-style-chip" data-style="battlemap-colored">BM Color</button>
+        </div>
+
+        <div class="vnd-ai-divider"></div>
+        <div class="vnd-ai-section-label">
+          <i class="fas fa-images"></i> Referencias
+          <span class="vnd-ai-optional-tag">opcional</span>
+        </div>
+        <div class="vnd-ai-refs-grid">
+          <div class="vnd-ai-mini-slot" data-slot="0">
+            <input type="file" class="vnd-ai-slot-input" accept="image/png,image/jpeg,image/webp" />
+            <div class="vnd-ai-slot-empty"><i class="fas fa-plus"></i><span>Composición</span></div>
+            <div class="vnd-ai-slot-filled" style="display:none">
+              <img class="vnd-ai-slot-img" alt="" />
+              <button type="button" class="vnd-ai-slot-remove"><i class="fas fa-xmark"></i></button>
+              <span class="vnd-ai-slot-label">Composición</span>
+            </div>
+          </div>
+          <div class="vnd-ai-mini-slot" data-slot="1">
+            <input type="file" class="vnd-ai-slot-input" accept="image/png,image/jpeg,image/webp" />
+            <div class="vnd-ai-slot-empty"><i class="fas fa-plus"></i><span>Estilo</span></div>
+            <div class="vnd-ai-slot-filled" style="display:none">
+              <img class="vnd-ai-slot-img" alt="" />
+              <button type="button" class="vnd-ai-slot-remove"><i class="fas fa-xmark"></i></button>
+              <span class="vnd-ai-slot-label">Estilo</span>
+            </div>
+          </div>
+          <div class="vnd-ai-mini-slot" data-slot="2">
+            <input type="file" class="vnd-ai-slot-input" accept="image/png,image/jpeg,image/webp" />
+            <div class="vnd-ai-slot-empty"><i class="fas fa-plus"></i><span>Arquitectura</span></div>
+            <div class="vnd-ai-slot-filled" style="display:none">
+              <img class="vnd-ai-slot-img" alt="" />
+              <button type="button" class="vnd-ai-slot-remove"><i class="fas fa-xmark"></i></button>
+              <span class="vnd-ai-slot-label">Arquitectura</span>
+            </div>
+          </div>
+          <div class="vnd-ai-mini-slot" data-slot="3">
+            <input type="file" class="vnd-ai-slot-input" accept="image/png,image/jpeg,image/webp" />
+            <div class="vnd-ai-slot-empty"><i class="fas fa-plus"></i><span>Paleta</span></div>
+            <div class="vnd-ai-slot-filled" style="display:none">
+              <img class="vnd-ai-slot-img" alt="" />
+              <button type="button" class="vnd-ai-slot-remove"><i class="fas fa-xmark"></i></button>
+              <span class="vnd-ai-slot-label">Paleta</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="vnd-ai-cta">
+          <div class="vnd-ai-section-label"><i class="fas fa-sliders"></i> Configuración</div>
+          <div class="vnd-ai-cfg-group">
+            <span class="vnd-ai-cfg-lbl">Calidad</span>
+            <div class="vnd-ai-toggle-group">
+              <button type="button" class="vnd-ai-scene-quality-btn active" data-quality="standard">Estándar</button>
+              <button type="button" class="vnd-ai-scene-quality-btn" data-quality="hd">HD</button>
+            </div>
+          </div>
+          <div class="vnd-ai-hint vnd-ai-limit-msg" id="vnd-ai-scene-limit-msg" style="display:none">
+            <i class="fas fa-ban"></i> Has alcanzado tu límite de generaciones para este ciclo.
+          </div>
+          <button type="button" id="vnd-ai-scene-gen-btn" class="vnd-ai-primary-btn" disabled>
+            <i class="fas fa-wand-sparkles"></i> <span>Generar escena</span>
+          </button>
+          <div class="vnd-ai-hint" id="vnd-ai-scene-gen-hint">
+            <i class="fas fa-arrow-up"></i> Expande una idea primero
+          </div>
+        </div>
+      </div>
+
+      <div class="vnd-ai-action-column">
+        <div class="vnd-ai-scene-empty" id="vnd-ai-scene-empty">
+          <div class="vnd-ai-scene-empty-icon"><i class="fas fa-mountain-sun"></i></div>
+          <p>Introduce una idea y pulsa <strong>Expandir con IA</strong></p>
+          <p class="vnd-ai-scene-empty-sub">La IA construirá un brief completo que puedes editar antes de generar.</p>
+        </div>
+        <div class="vnd-ai-scene-editor" id="vnd-ai-scene-editor" style="display:none">
+          <div class="vnd-ai-editor-title-row">
+            <div contenteditable="true" id="vnd-ai-scene-title" class="vnd-ai-editor-title" spellcheck="false" data-placeholder="Título de la escena…"></div>
+          </div>
+          <div class="vnd-ai-editor-section">
+            <div class="vnd-ai-section-label"><i class="fas fa-align-left"></i> Descripción</div>
+            <textarea id="vnd-ai-scene-desc" class="vnd-ai-textarea vnd-ai-desc-textarea" rows="3" placeholder="Descripción visual…"></textarea>
+          </div>
+          <div class="vnd-ai-editor-section">
+            <div class="vnd-ai-section-label">
+              <i class="fas fa-list-ul"></i> Elementos
+              <button type="button" class="vnd-ai-tag-add-trigger" data-target="vnd-ai-scene-elements"><i class="fas fa-plus"></i></button>
+            </div>
+            <div class="vnd-ai-tag-cloud" id="vnd-ai-scene-elements"></div>
+          </div>
+          <div class="vnd-ai-editor-section">
+            <div class="vnd-ai-section-label">
+              <i class="fas fa-cloud"></i> Atmósfera
+              <button type="button" class="vnd-ai-tag-add-trigger" data-target="vnd-ai-scene-atmosphere"><i class="fas fa-plus"></i></button>
+            </div>
+            <div class="vnd-ai-tag-cloud" id="vnd-ai-scene-atmosphere"></div>
+          </div>
+          <div class="vnd-ai-editor-section">
+            <div class="vnd-ai-section-label">
+              <i class="fas fa-droplet"></i> Paleta
+              <button type="button" class="vnd-ai-tag-add-trigger" data-target="vnd-ai-scene-palette"><i class="fas fa-plus"></i></button>
+            </div>
+            <div class="vnd-ai-tag-cloud" id="vnd-ai-scene-palette"></div>
+          </div>
+          <div class="vnd-ai-editor-section vnd-ai-prompt-section">
+            <div class="vnd-ai-section-label">
+              <i class="fas fa-code"></i> Prompt final
+              <button type="button" id="vnd-ai-rebuild-prompt" class="vnd-ai-rebuild-btn">
+                <i class="fas fa-rotate"></i> Reconstruir
+              </button>
+            </div>
+            <textarea id="vnd-ai-scene-prompt" class="vnd-ai-textarea vnd-ai-prompt-textarea" rows="5" placeholder="El prompt se generará automáticamente…"></textarea>
+          </div>
+        </div>
+        <div id="vnd-ai-scene-results" class="vnd-ai-results"></div>
+      </div>
+
+    </div>
+  </div>
+
+  {{!-- ══════════════════════════════════════════════════════════════════════
+       CHARACTER STUDIO  —  PREMIUM
+  ══════════════════════════════════════════════════════════════════════════ --}}
+  <div class="vnd-ai-panel" id="vnd-ai-panel-character">
+    <div class="vnd-ai-studio-layout">
+
+      {{!-- LEFT: Reference · Config · Generate ──────────────────────────── --}}
+      <div class="vnd-ai-char-left">
+
+        <div class="vnd-ai-card">
+          <div class="vnd-ai-card-hdr">
+            <i class="fas fa-image"></i>
+            <span>Imagen de referencia</span>
+            <span class="vnd-ai-required">requerida</span>
+          </div>
+          <div class="vnd-ai-dropzone" id="vnd-ai-dropzone">
+            <input type="file" id="vnd-ai-file-input" accept="image/png,image/jpeg,image/webp" />
+            <div id="vnd-ai-drop-placeholder" class="vnd-ai-drop-idle">
+              <div class="vnd-ai-drop-ring"><i class="fas fa-cloud-arrow-up"></i></div>
+              <p class="vnd-ai-drop-title">Arrastra tu personaje aquí</p>
+              <p class="vnd-ai-drop-sub">PNG · JPG · WEBP · máx 4 MB</p>
+              <div class="vnd-ai-drop-btns">
+                <button type="button" id="vnd-ai-upload-btn" class="vnd-ai-pick-btn">
+                  <i class="fas fa-folder-open"></i> Examinar
+                </button>
+                <button type="button" id="vnd-ai-foundry-btn" class="vnd-ai-pick-btn vnd-ai-pick-btn--alt">
+                  <i class="fas fa-server"></i> Foundry
+                </button>
+              </div>
+            </div>
+            <div id="vnd-ai-ref-preview" style="display:none">
+              <img id="vnd-ai-ref-img" alt="Referencia del personaje" />
+              <button type="button" id="vnd-ai-remove-ref" class="vnd-ai-remove-img" title="Cambiar imagen">
+                <i class="fas fa-xmark"></i>
+              </button>
+            </div>
+          </div>
+          <p class="vnd-ai-hint" id="vnd-ai-ref-hint">
+            <i class="fas fa-circle-info"></i> Sube la imagen de tu personaje para comenzar
+          </p>
+        </div>
+
+        <div class="vnd-ai-card">
+          <div class="vnd-ai-card-hdr">
+            <i class="fas fa-sliders"></i>
+            <span>Configuración</span>
+          </div>
+          <div class="vnd-ai-cfg-block">
+            <div class="vnd-ai-cfg-row">
+              <span class="vnd-ai-cfg-lbl">Calidad</span>
+              <div class="vnd-ai-toggle-group">
+                <button type="button" class="vnd-ai-quality-btn active" data-quality="standard">
+                  Estándar
+                </button>
+                <button type="button" class="vnd-ai-quality-btn" data-quality="hd">
+                  HD
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="vnd-ai-cta-card">
+          <div class="vnd-ai-hint vnd-ai-limit-msg" id="vnd-ai-char-limit-msg" style="display:none">
+            <i class="fas fa-ban"></i> Has alcanzado tu límite de generaciones para este ciclo.
+          </div>
+          <button type="button" id="vnd-ai-generate-btn" class="vnd-ai-generate-btn" disabled>
+            <i class="fas fa-wand-sparkles"></i>
+            <span>Generar imagen</span>
+          </button>
+          <p class="vnd-ai-hint" id="vnd-ai-action-hint" style="display:none">
+            <i class="fas fa-arrow-right"></i> Selecciona una acción a la derecha
+          </p>
+        </div>
+
+      </div>
+
+      {{!-- RIGHT: Category tabs · Actions · Results ──────────────────────── --}}
+      <div class="vnd-ai-char-right">
+
+        <div class="vnd-ai-cat-bar">
+          <button type="button" class="vnd-ai-cat-btn active" data-cat="poses">
+            <i class="fas fa-person"></i> Poses
+          </button>
+          <button type="button" class="vnd-ai-cat-btn" data-cat="expressions">
+            <i class="fas fa-face-smile"></i> Expresiones
+          </button>
+          <button type="button" class="vnd-ai-cat-btn" data-cat="combat">
+            <i class="fas fa-swords"></i> Combate
+          </button>
+          <button type="button" class="vnd-ai-cat-btn" data-cat="vn">
+            <i class="fas fa-comment-dots"></i> VN
+          </button>
+          <button type="button" class="vnd-ai-cat-btn" data-cat="injury">
+            <i class="fas fa-heart-crack"></i> Daño
+          </button>
+          <button type="button" class="vnd-ai-cat-btn" data-cat="custom">
+            <i class="fas fa-pen-to-square"></i> Custom
+          </button>
+        </div>
+
+        <div class="vnd-ai-selected-action" id="vnd-ai-selected-display" style="display:none">
+          <div class="vnd-ai-selected-ico"><i class="fas fa-check-circle"></i></div>
+          <div class="vnd-ai-selected-text">
+            <div class="vnd-ai-selected-name" id="vnd-ai-selected-name">—</div>
+            <div class="vnd-ai-selected-desc" id="vnd-ai-selected-desc"></div>
+          </div>
+        </div>
+
+        <div id="vnd-ai-preset-grid" class="vnd-ai-preset-grid"></div>
+
+        <div id="vnd-ai-custom-action" class="vnd-ai-custom-action hidden">
+          <label class="vnd-ai-custom-lbl">Describe la acción del personaje</label>
+          <p class="vnd-ai-custom-sub">Solo la acción cambia — el personaje, estilo y fondo se mantienen automáticamente.</p>
+          <textarea id="vnd-ai-custom-textarea" class="vnd-ai-textarea"
+            placeholder="Ej: Sitting at a tavern table, holding a tankard of ale, relaxed smile."
+            maxlength="500"></textarea>
+        </div>
+
+        <div id="vnd-ai-results" class="vnd-ai-results"></div>
+
+      </div>
+    </div>
+  </div>
+
+  {{!-- ══════════════════════════════════════════════════════════════════════
+       HISTORY
+  ══════════════════════════════════════════════════════════════════════════ --}}
+  <div class="vnd-ai-panel" id="vnd-ai-panel-history">
+    <div id="vnd-ai-history-list" class="vnd-ai-history-list">
+      <div class="vnd-ai-progress">
+        <i class="fas fa-spinner fa-spin"></i> Cargando historial…
+      </div>
+    </div>
+  </div>
+
+</div>

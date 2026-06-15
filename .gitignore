@@ -1,0 +1,11 @@
+# Backend — Cloudflare Worker (deployed separately via wrangler)
+backend/
+
+# Generated images (local only)
+generated/
+
+# DB migrations (server-side only)
+sql/
+
+# Node
+node_modules/

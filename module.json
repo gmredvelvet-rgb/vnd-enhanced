@@ -12,9 +12,10 @@
   "esmodules": [
     "scripts/settings.js",
     "scripts/license-client.js",
+    "scripts/ai-generator.js",
     "scripts/main.js"
   ],
-  "styles": ["styles/module.css"],
+  "styles": ["styles/module.css", "styles/ai-generator.css"],
   "languages": [
     { "lang": "en", "name": "English", "path": "language/en.json" }
   ],

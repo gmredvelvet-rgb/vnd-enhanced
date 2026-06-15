@@ -11,6 +11,7 @@
 
 import { registerSettings } from "./settings.js";
 import { VndLicenseClient, VndLicenseUI } from "./license-client.js";
+import { VNDAIGenerator } from "./ai-generator.js";
 
 const ID = "vnd-enhanced";
 
@@ -1260,6 +1261,11 @@ export class VNE extends FormApplication {
     // Combat stage toggle (GM only)
     root.querySelectorAll(".vne-combat-stage-toggle").forEach(btn => {
       btn.addEventListener("click", toggleCombatStage);
+    });
+
+    // AI Image Generator (GM only)
+    root.querySelector("#vne-ai-btn")?.addEventListener("click", () => {
+      if (game.user.isGM) VNDAIGenerator.open();
     });
 
     // Previous / Next turn (GM only)
@@ -2704,4 +2710,26 @@ Hooks.on("getSceneControlButtons", (controls) => {
     // Toolbar registration failed — Alt+V keybinding still works
     console.warn(`vnd-enhanced | toolbar registration failed:`, e);
   }
+});
+
+// ── Token state swap on HP change ─────────────────────────────────────────────
+// When an actor's HP changes, swap their token image to the matching assigned state.
+// States are stored as actor flags: flags['vnd-enhanced'].tokenStates = { normal, hurt, wounded, crit }
+// Thresholds: normal >75%, hurt 51-75%, wounded 26-50%, crit ≤25%
+
+Hooks.on('updateActor', (actor, changes) => {
+  const newHp = changes?.system?.attributes?.hp?.value;
+  if (newHp === undefined) return;
+
+  const states = actor.getFlag(ID, 'tokenStates');
+  if (!states) return;
+
+  const max     = actor.system?.attributes?.hp?.max ?? 1;
+  const pct     = (newHp / max) * 100;
+  const key     = pct > 75 ? 'normal' : pct > 50 ? 'hurt' : pct > 25 ? 'wounded' : 'crit';
+  const img     = states[key];
+  if (!img) return;
+
+  const tokens = canvas.tokens?.placeables?.filter(t => t.actor?.id === actor.id) ?? [];
+  tokens.forEach(t => t.document.update({ 'texture.src': img }));
 });

@@ -72,4 +72,14 @@ export function registerSettings() {
     config: false,
     default: {}
   });
+
+  // AI Image Generator — folder where generated images are saved
+  game.settings.register(ID, "aiImageFolder", {
+    name:    "AI Images Folder",
+    hint:    "Carpeta donde se guardan las imágenes generadas con IA. Relativa al almacenamiento de Foundry.",
+    scope:   "world",
+    type:    String,
+    config:  true,
+    default: "vnd-enhanced/ai-generated"
+  });
 }

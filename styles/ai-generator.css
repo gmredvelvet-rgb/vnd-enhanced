@@ -1,0 +1,1553 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   VND Enhanced — AI Studio
+   Tema visual integrado con VND: oro #c89b3c · oscuro #0a0914 · Signika
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Tokens locales + layout base ───────────────────────────────────────── */
+.vnd-ai-root {
+  --ai-gold:        #c89b3c;
+  --ai-gold-dim:    rgba(200,155,60,0.55);
+  --ai-gold-border: rgba(200,155,60,0.30);
+  --ai-gold-hover:  rgba(200,155,60,0.14);
+  --ai-gold-active: rgba(200,155,60,0.22);
+  --ai-bg:          #080612;
+  --ai-panel:       rgba(8,5,2,0.96);
+  --ai-card:        rgba(12,9,4,0.92);
+  --ai-text:        #e8dcc8;
+  --ai-text-dim:    rgba(232,220,200,0.60);
+  --ai-radius:      10px;
+  --ai-shadow:      0 4px 28px rgba(0,0,0,0.65);
+  display:          flex !important;
+  flex-direction:   column !important;
+  flex:             1 !important;
+  min-height:       0 !important;
+  height:           100% !important;
+  overflow:         hidden !important;
+  background:       #080612 !important;
+  color:            #e8dcc8 !important;
+}
+
+/* ── 1. Foundry reset ────────────────────────────────────────────────────── */
+
+.vnd-ai-window .window-content {
+  padding:        0 !important;
+  overflow:       hidden !important;
+  background:     #080612 !important;
+  color:          #e8dcc8 !important;
+  font-family:    "Signika", "Palatino Linotype", serif !important;
+  display:        flex !important;
+  flex-direction: column !important;
+}
+
+.vnd-ai-root button,
+.vnd-ai-root input,
+.vnd-ai-root textarea,
+.vnd-ai-root select {
+  font-family:  inherit !important;
+  font-size:    inherit !important;
+  box-sizing:   border-box !important;
+  margin:       0 !important;
+  text-shadow:  none !important;
+  box-shadow:   none !important;
+  line-height:  normal !important;
+}
+
+.vnd-ai-root button {
+  display:    inline-flex !important;
+  width:      auto !important;
+  padding:    0 !important;
+  background: none !important;
+  border:     none !important;
+  cursor:     pointer !important;
+  color:      inherit !important;
+}
+
+/* ── 3. HEADER PREMIUM ───────────────────────────────────────────────────── */
+
+.vnd-ai-header {
+  display:        flex !important;
+  align-items:    center !important;
+  gap:            14px !important;
+  padding:        10px 18px !important;
+  background:     linear-gradient(135deg, rgba(6,4,1,0.98) 0%, rgba(14,10,3,0.98) 100%) !important;
+  border-bottom:  1px solid var(--ai-gold-border) !important;
+  flex-shrink:    0 !important;
+  position:       relative !important;
+}
+
+/* top gold line */
+.vnd-ai-header::before {
+  content:    "" !important;
+  position:   absolute !important;
+  top:        0 !important;
+  left:       0 !important;
+  right:      0 !important;
+  height:     2px !important;
+  background: linear-gradient(to right, transparent, var(--ai-gold), transparent) !important;
+}
+
+.vnd-ai-hdr-tier {
+  display:     flex !important;
+  align-items: center !important;
+  gap:         7px !important;
+  flex-shrink: 0 !important;
+}
+
+.vnd-ai-hdr-star {
+  color:     var(--ai-gold) !important;
+  font-size: 14px !important;
+  filter:    drop-shadow(0 0 6px rgba(200,155,60,0.6)) !important;
+}
+
+.vnd-ai-hdr-tier-name {
+  font-size:      11px !important;
+  font-weight:    800 !important;
+  letter-spacing: 0.14em;
+  color:          var(--ai-gold) !important;
+  text-transform: uppercase !important;
+  text-shadow:    0 0 14px rgba(200,155,60,0.5) !important;
+  white-space:    nowrap !important;
+}
+
+.vnd-ai-hdr-divider {
+  width:      1px !important;
+  height:     28px !important;
+  background: var(--ai-gold-border) !important;
+  flex-shrink: 0 !important;
+}
+
+.vnd-ai-hdr-credits {
+  display:        flex !important;
+  flex-direction: column !important;
+  align-items:    center !important;
+  flex-shrink:    0 !important;
+  gap:            1px !important;
+}
+
+.vnd-ai-hdr-credits-lbl {
+  font-size:      9px !important;
+  font-weight:    700 !important;
+  letter-spacing: 0.1em;
+  color:          var(--ai-text-dim) !important;
+  text-transform: uppercase !important;
+}
+
+.vnd-ai-hdr-credits-count {
+  display:     flex !important;
+  align-items: baseline !important;
+  gap:         3px !important;
+  font-size:   15px !important;
+  font-weight: 700 !important;
+  color:       var(--ai-gold) !important;
+  white-space: nowrap !important;
+}
+
+.vnd-ai-hdr-sep {
+  color:     var(--ai-text-dim) !important;
+  font-size: 12px !important;
+}
+
+.vnd-ai-hdr-bar-col {
+  flex:           1 !important;
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            4px !important;
+  min-width:      80px !important;
+}
+
+.vnd-ai-bar-wrap {
+  height:        5px !important;
+  background:    rgba(200,155,60,0.12) !important;
+  border-radius: 3px !important;
+  overflow:      hidden !important;
+  border:        1px solid rgba(200,155,60,0.15) !important;
+}
+
+.vnd-ai-bar-fill {
+  height:        100% !important;
+  background:    linear-gradient(90deg, #6b4f10, #c89b3c) !important;
+  border-radius: 3px !important;
+  transition:    width 0.5s ease !important;
+}
+.vnd-ai-bar-fill.low      { background: linear-gradient(90deg, #7a4a10, #d97706) !important; }
+.vnd-ai-bar-fill.critical { background: linear-gradient(90deg, #7a1010, #dc2626) !important; }
+
+.vnd-ai-renewal {
+  font-size:   10px !important;
+  color:       var(--ai-text-dim) !important;
+  white-space: nowrap !important;
+  letter-spacing: 0.03em;
+}
+
+.vnd-ai-bar-error { color: #fca5a5 !important; font-size: 12px !important; }
+
+/* ── 4. Tabs ─────────────────────────────────────────────────────────────── */
+
+.vnd-ai-tabs {
+  display:       flex !important;
+  background:    rgba(5,3,1,0.96) !important;
+  border-bottom: 2px solid var(--ai-gold-border) !important;
+  flex-shrink:   0 !important;
+  padding:       0 14px !important;
+  gap:           4px !important;
+}
+
+.vnd-ai-tab {
+  flex:            0 0 auto !important;
+  padding:         10px 20px !important;
+  background:      transparent !important;
+  border:          none !important;
+  border-bottom:   2px solid transparent !important;
+  margin-bottom:   -2px !important;
+  color:           var(--ai-text-dim) !important;
+  font-size:       11px !important;
+  font-weight:     700 !important;
+  cursor:          pointer !important;
+  display:         flex !important;
+  align-items:     center !important;
+  gap:             6px !important;
+  letter-spacing:  0.06em;
+  text-transform:  uppercase !important;
+  white-space:     nowrap !important;
+  transition:      color 0.2s, border-color 0.2s !important;
+}
+.vnd-ai-tab:hover  { color: var(--ai-text) !important; }
+.vnd-ai-tab.active {
+  color:             var(--ai-gold) !important;
+  border-bottom-color: var(--ai-gold) !important;
+  text-shadow:       0 0 12px rgba(200,155,60,0.45) !important;
+}
+
+/* ── 5. Panels ───────────────────────────────────────────────────────────── */
+
+.vnd-ai-panel {
+  display:  none !important;
+  flex:     1 !important;
+  overflow: hidden !important;
+}
+.vnd-ai-panel.active {
+  display:        flex !important;
+  flex-direction: column !important;
+}
+
+/* ── 6. Studio two-column grid ───────────────────────────────────────────── */
+
+.vnd-ai-studio-layout {
+  display:               grid !important;
+  grid-template-columns: 268px 1fr !important;
+  flex:                  1 !important;
+  height:                100% !important;
+  overflow:              hidden !important;
+  min-height:            0 !important;
+}
+
+#vnd-ai-panel-character .vnd-ai-studio-layout {
+  grid-template-columns: 290px 1fr !important;
+}
+
+/* ── 7. Section label ────────────────────────────────────────────────────── */
+
+.vnd-ai-section-label {
+  font-size:      9px !important;
+  font-weight:    700 !important;
+  color:          var(--ai-text-dim) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.12em;
+  display:        flex !important;
+  align-items:    center !important;
+  gap:            5px !important;
+  margin:         0 !important;
+  padding:        0 !important;
+}
+
+.vnd-ai-optional-tag {
+  color:       var(--ai-text-dim) !important;
+  font-size:   9px !important;
+  font-weight: 400 !important;
+  text-transform: none !important;
+  letter-spacing: 0;
+  margin-left: 4px !important;
+  border:      1px solid rgba(200,155,60,0.2) !important;
+  border-radius: 4px !important;
+  padding:     1px 5px !important;
+}
+
+.vnd-ai-required {
+  color:       #f87171 !important;
+  font-size:   9px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: 0;
+  margin-left: auto !important;
+}
+
+.vnd-ai-divider {
+  height:     1px !important;
+  background: linear-gradient(90deg, transparent, var(--ai-gold-border), transparent) !important;
+  flex-shrink: 0 !important;
+  margin:     2px 0 !important;
+}
+
+/* ── 8. Shared hint ──────────────────────────────────────────────────────── */
+
+.vnd-ai-hint {
+  font-size:   11px !important;
+  color:       var(--ai-text-dim) !important;
+  display:     flex !important;
+  align-items: center !important;
+  gap:         6px !important;
+  padding:     1px 0 !important;
+  margin:      0 !important;
+  line-height: 1.4 !important;
+}
+
+/* ── 9. Shared toggle group ──────────────────────────────────────────────── */
+
+.vnd-ai-toggle-group {
+  display:       flex !important;
+  border:        1px solid var(--ai-gold-border) !important;
+  border-radius: var(--ai-radius) !important;
+  overflow:      hidden !important;
+  flex-shrink:   0 !important;
+}
+
+/* ── 10. Shared textarea ─────────────────────────────────────────────────── */
+
+.vnd-ai-textarea {
+  flex:          1 !important;
+  resize:        vertical !important;
+  background:    rgba(4,3,1,0.8) !important;
+  border:        1px solid var(--ai-gold-border) !important;
+  border-radius: var(--ai-radius) !important;
+  color:         var(--ai-text) !important;
+  font-size:     12px !important;
+  padding:       10px 12px !important;
+  line-height:   1.65 !important;
+  box-sizing:    border-box !important;
+  transition:    border-color 0.2s, box-shadow 0.2s !important;
+  font-family:   inherit !important;
+  display:       block !important;
+  width:         100% !important;
+}
+.vnd-ai-textarea:focus {
+  border-color: rgba(200,155,60,0.7) !important;
+  outline:      none !important;
+  box-shadow:   0 0 0 3px rgba(200,155,60,0.10) !important;
+}
+.vnd-ai-textarea::placeholder { color: rgba(232,220,200,0.28) !important; }
+
+/* ── 11. Shared dropzone ─────────────────────────────────────────────────── */
+
+.vnd-ai-dropzone {
+  position:        relative !important;
+  border:          2px dashed var(--ai-gold-border) !important;
+  border-radius:   var(--ai-radius) !important;
+  min-height:      172px !important;
+  display:         flex !important;
+  align-items:     center !important;
+  justify-content: center !important;
+  cursor:          pointer !important;
+  overflow:        hidden !important;
+  transition:      border-color 0.2s, background 0.2s !important;
+  flex-shrink:     0 !important;
+  background:      rgba(6,4,1,0.6) !important;
+}
+.vnd-ai-dropzone:hover,
+.vnd-ai-dropzone.drag-over {
+  border-color: rgba(200,155,60,0.7) !important;
+  background:   rgba(200,155,60,0.05) !important;
+}
+.vnd-ai-dropzone input[type="file"] { display: none !important; }
+
+.vnd-ai-drop-idle {
+  display:        flex !important;
+  flex-direction: column !important;
+  align-items:    center !important;
+  gap:            8px !important;
+  padding:        22px 14px !important;
+  text-align:     center !important;
+  user-select:    none !important;
+}
+
+.vnd-ai-drop-ring {
+  width:           52px !important;
+  height:          52px !important;
+  border-radius:   50% !important;
+  background:      rgba(200,155,60,0.1) !important;
+  border:          1px solid var(--ai-gold-border) !important;
+  display:         flex !important;
+  align-items:     center !important;
+  justify-content: center !important;
+  color:           var(--ai-gold) !important;
+  font-size:       20px !important;
+  flex-shrink:     0 !important;
+  box-shadow:      0 0 18px rgba(200,155,60,0.18) !important;
+}
+
+.vnd-ai-drop-title {
+  font-size:   12px !important;
+  font-weight: 600 !important;
+  color:       var(--ai-text) !important;
+  margin:      0 !important;
+}
+.vnd-ai-drop-sub {
+  font-size: 10px !important;
+  color:     var(--ai-text-dim) !important;
+  margin:    0 !important;
+}
+
+.vnd-ai-drop-btns {
+  display:    flex !important;
+  gap:        6px !important;
+  margin-top: 4px !important;
+}
+
+.vnd-ai-pick-btn {
+  background:    rgba(200,155,60,0.1) !important;
+  border:        1px solid var(--ai-gold-border) !important;
+  border-radius: 7px !important;
+  color:         var(--ai-text) !important;
+  padding:       6px 13px !important;
+  font-size:     11px !important;
+  font-weight:   600 !important;
+  cursor:        pointer !important;
+  display:       flex !important;
+  align-items:   center !important;
+  gap:           5px !important;
+  transition:    background 0.15s, border-color 0.15s !important;
+  white-space:   nowrap !important;
+}
+.vnd-ai-pick-btn:hover {
+  background:   rgba(200,155,60,0.22) !important;
+  border-color: rgba(200,155,60,0.6) !important;
+}
+.vnd-ai-pick-btn--alt {
+  background:   rgba(6,4,1,0.7) !important;
+  border-color: rgba(200,155,60,0.15) !important;
+  color:        var(--ai-text-dim) !important;
+}
+.vnd-ai-pick-btn--alt:hover {
+  border-color: var(--ai-gold-border) !important;
+  color:        var(--ai-text) !important;
+}
+
+/* Reference preview */
+#vnd-ai-ref-preview {
+  position:        relative !important;
+  width:           100% !important;
+  display:         flex !important;
+  justify-content: center !important;
+  padding:         8px !important;
+}
+
+#vnd-ai-ref-img {
+  max-width:     100% !important;
+  max-height:    160px !important;
+  border-radius: 8px !important;
+  object-fit:    contain !important;
+  background:    rgba(255,255,255,0.95) !important;
+  display:       block !important;
+  border:        1px solid var(--ai-gold-border) !important;
+  box-shadow:    var(--ai-shadow) !important;
+}
+
+.vnd-ai-remove-img {
+  position:        absolute !important;
+  top:             6px !important;
+  right:           10px !important;
+  width:           24px !important;
+  height:          24px !important;
+  border-radius:   50% !important;
+  background:      rgba(0,0,0,0.82) !important;
+  border:          1px solid rgba(239,68,68,0.7) !important;
+  color:           #fca5a5 !important;
+  font-size:       10px !important;
+  cursor:          pointer !important;
+  display:         flex !important;
+  align-items:     center !important;
+  justify-content: center !important;
+  transition:      background 0.15s !important;
+}
+.vnd-ai-remove-img:hover {
+  background:   #dc2626 !important;
+  color:        #fff !important;
+  border-color: #dc2626 !important;
+}
+
+/* ── 12. SCENE STUDIO — left column ─────────────────────────────────────── */
+
+.vnd-ai-ref-column {
+  background:     rgba(6,4,1,0.7) !important;
+  border-right:   1px solid var(--ai-gold-border) !important;
+  padding:        12px 11px !important;
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            9px !important;
+  overflow-y:     auto !important;
+  min-height:     0 !important;
+}
+
+.vnd-ai-idea-block {
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            6px !important;
+  flex-shrink:    0 !important;
+}
+
+.vnd-ai-idea-input {
+  background:    rgba(4,3,1,0.8) !important;
+  border:        1px solid var(--ai-gold-border) !important;
+  border-radius: var(--ai-radius) !important;
+  color:         var(--ai-text) !important;
+  font-size:     12px !important;
+  padding:       9px 11px !important;
+  line-height:   1.55 !important;
+  resize:        none !important;
+  width:         100% !important;
+  box-sizing:    border-box !important;
+  font-family:   inherit !important;
+  transition:    border-color 0.2s !important;
+  min-height:    0 !important;
+}
+.vnd-ai-idea-input:focus {
+  border-color: rgba(200,155,60,0.7) !important;
+  outline:      none !important;
+}
+.vnd-ai-idea-input::placeholder { color: rgba(232,220,200,0.28) !important; }
+
+.vnd-ai-expand-btn {
+  width:           100% !important;
+  background:      rgba(200,155,60,0.12) !important;
+  border:          1px solid rgba(200,155,60,0.45) !important;
+  border-radius:   8px !important;
+  color:           var(--ai-text) !important;
+  padding:         8px 10px !important;
+  font-size:       12px !important;
+  font-weight:     700 !important;
+  cursor:          pointer !important;
+  display:         flex !important;
+  align-items:     center !important;
+  justify-content: center !important;
+  gap:             7px !important;
+  transition:      background 0.15s, box-shadow 0.15s !important;
+  flex-shrink:     0 !important;
+}
+.vnd-ai-expand-btn:hover:not(:disabled) {
+  background: rgba(200,155,60,0.22) !important;
+  box-shadow: 0 2px 14px rgba(200,155,60,0.25) !important;
+}
+.vnd-ai-expand-btn:disabled { opacity: 0.45 !important; cursor: not-allowed !important; }
+
+.vnd-ai-free-badge {
+  background:     #0a3d29 !important;
+  border:         1px solid rgba(5,150,105,0.6) !important;
+  border-radius:  4px !important;
+  padding:        1px 5px !important;
+  font-size:      9px !important;
+  font-weight:    800 !important;
+  color:          #34d399 !important;
+  letter-spacing: 0.06em;
+}
+
+.vnd-ai-scene-type-grid {
+  display:               grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap:                   5px !important;
+  flex-shrink:           0 !important;
+}
+
+.vnd-ai-scene-type-btn {
+  display:         flex !important;
+  flex-direction:  column !important;
+  align-items:     center !important;
+  justify-content: center !important;
+  gap:             3px !important;
+  padding:         9px 5px !important;
+  background:      rgba(6,4,1,0.8) !important;
+  border:          1px solid rgba(200,155,60,0.15) !important;
+  border-radius:   9px !important;
+  color:           var(--ai-text-dim) !important;
+  font-size:       11px !important;
+  font-weight:     600 !important;
+  cursor:          pointer !important;
+  text-align:      center !important;
+  line-height:     1.2 !important;
+  transition:      background 0.15s, border-color 0.15s, color 0.15s !important;
+}
+.vnd-ai-scene-type-btn em { font-style: normal !important; font-size: 9px !important; color: var(--ai-text-dim) !important; font-weight: 400 !important; }
+.vnd-ai-scene-type-btn i  { font-size: 14px !important; }
+.vnd-ai-scene-type-btn:hover:not(.active) {
+  background:   var(--ai-gold-hover) !important;
+  border-color: rgba(200,155,60,0.4) !important;
+  color:        var(--ai-text) !important;
+}
+.vnd-ai-scene-type-btn.active {
+  background:   var(--ai-gold-active) !important;
+  border-color: rgba(200,155,60,0.7) !important;
+  color:        var(--ai-gold) !important;
+  box-shadow:   0 0 12px rgba(200,155,60,0.2) !important;
+}
+.vnd-ai-scene-type-btn.active em { color: rgba(200,155,60,0.7) !important; }
+
+.vnd-ai-style-grid {
+  display:     flex !important;
+  flex-wrap:   wrap !important;
+  gap:         4px !important;
+  flex-shrink: 0 !important;
+}
+
+.vnd-ai-style-chip {
+  background:    rgba(200,155,60,0.06) !important;
+  border:        1px solid rgba(200,155,60,0.35) !important;
+  border-radius: 20px !important;
+  color:         var(--ai-text-dim) !important;
+  padding:       4px 10px !important;
+  font-size:     10px !important;
+  font-weight:   600 !important;
+  cursor:        pointer !important;
+  white-space:   nowrap !important;
+  transition:    background 0.15s, border-color 0.15s, color 0.15s !important;
+  letter-spacing: 0.01em;
+}
+.vnd-ai-style-chip:hover:not(.active) {
+  background:   var(--ai-gold-hover) !important;
+  border-color: rgba(200,155,60,0.45) !important;
+  color:        var(--ai-text) !important;
+}
+.vnd-ai-style-chip.active {
+  background:   var(--ai-gold-active) !important;
+  border-color: rgba(200,155,60,0.65) !important;
+  color:        var(--ai-gold) !important;
+}
+
+.vnd-ai-refs-grid {
+  display:               grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap:                   5px !important;
+  flex-shrink:           0 !important;
+}
+
+.vnd-ai-mini-slot {
+  position:      relative !important;
+  border:        1px dashed rgba(200,155,60,0.2) !important;
+  border-radius: 8px !important;
+  overflow:      hidden !important;
+  aspect-ratio:  1 !important;
+  background:    rgba(6,4,1,0.7) !important;
+  cursor:        pointer !important;
+  transition:    border-color 0.15s, background 0.15s !important;
+}
+.vnd-ai-mini-slot:hover { border-color: rgba(200,155,60,0.5) !important; background: var(--ai-gold-hover) !important; }
+.vnd-ai-mini-slot input[type="file"] { display: none !important; }
+
+.vnd-ai-slot-empty {
+  display:         flex !important;
+  flex-direction:  column !important;
+  align-items:     center !important;
+  justify-content: center !important;
+  gap:             4px !important;
+  height:          100% !important;
+  color:           var(--ai-text-dim) !important;
+  font-size:       10px !important;
+  padding:         6px !important;
+  text-align:      center !important;
+  user-select:     none !important;
+}
+.vnd-ai-slot-empty i { font-size: 16px !important; color: rgba(200,155,60,0.35) !important; }
+
+.vnd-ai-slot-filled  { position: relative !important; height: 100% !important; }
+.vnd-ai-slot-img     { width: 100% !important; height: 100% !important; object-fit: cover !important; display: block !important; border-radius: 7px !important; }
+
+.vnd-ai-slot-remove {
+  position:        absolute !important;
+  top:             4px !important;
+  right:           4px !important;
+  width:           20px !important;
+  height:          20px !important;
+  border-radius:   50% !important;
+  background:      rgba(0,0,0,0.78) !important;
+  border:          1px solid rgba(239,68,68,0.6) !important;
+  color:           #fca5a5 !important;
+  font-size:       10px !important;
+  cursor:          pointer !important;
+  display:         flex !important;
+  align-items:     center !important;
+  justify-content: center !important;
+}
+.vnd-ai-slot-remove:hover { background: #dc2626 !important; color: #fff !important; }
+
+.vnd-ai-slot-label {
+  position:   absolute !important;
+  bottom:     0 !important;
+  left:       0 !important;
+  right:      0 !important;
+  background: rgba(0,0,0,0.65) !important;
+  color:      var(--ai-text) !important;
+  font-size:  9px !important;
+  padding:    2px 4px !important;
+  text-align: center !important;
+}
+
+/* Shared scene/config toggles */
+.vnd-ai-scene-tier-btn,
+.vnd-ai-scene-quality-btn,
+.vnd-ai-scene-count-btn {
+  display:       flex !important;
+  flex-direction: column !important;
+  align-items:   center !important;
+  justify-content: center !important;
+  flex:          1 !important;
+  background:    rgba(6,4,1,0.8) !important;
+  border:        none !important;
+  border-right:  1px solid var(--ai-gold-border) !important;
+  color:         var(--ai-text-dim) !important;
+  padding:       8px 4px !important;
+  font-size:     11px !important;
+  font-weight:   600 !important;
+  cursor:        pointer !important;
+  text-align:    center !important;
+  transition:    background 0.15s, color 0.15s !important;
+  line-height:   1.3 !important;
+  letter-spacing: 0.01em;
+}
+.vnd-ai-scene-tier-btn:last-child,
+.vnd-ai-scene-quality-btn:last-child,
+.vnd-ai-scene-count-btn:last-child { border-right: none !important; }
+.vnd-ai-scene-tier-btn em,
+.vnd-ai-scene-quality-btn em,
+.vnd-ai-scene-count-btn em { display: block !important; font-style: normal !important; font-size: 9px !important; opacity: 0.7 !important; }
+.vnd-ai-scene-tier-btn:hover:not(.active),
+.vnd-ai-scene-quality-btn:hover:not(.active),
+.vnd-ai-scene-count-btn:hover:not(.active) { background: var(--ai-gold-hover) !important; color: var(--ai-text) !important; }
+.vnd-ai-scene-tier-btn.active,
+.vnd-ai-scene-quality-btn.active,
+.vnd-ai-scene-count-btn.active {
+  background:   var(--ai-gold-active) !important;
+  color:        var(--ai-gold) !important;
+  border-color: transparent !important;
+}
+.vnd-ai-scene-tier-btn.active em,
+.vnd-ai-scene-quality-btn.active em,
+.vnd-ai-scene-count-btn.active em { opacity: 0.8 !important; }
+
+.vnd-ai-cta {
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            8px !important;
+  padding-top:    10px !important;
+  border-top:     1px solid var(--ai-gold-border) !important;
+  margin-top:     auto !important;
+}
+
+.vnd-ai-cfg-group {
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            5px !important;
+}
+
+.vnd-ai-cfg-lbl {
+  font-size:      9px !important;
+  font-weight:    700 !important;
+  color:          var(--ai-text-dim) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em;
+}
+
+.vnd-ai-cost-breakdown {
+  background:    rgba(4,3,1,0.8) !important;
+  border:        1px solid var(--ai-gold-border) !important;
+  border-radius: 8px !important;
+  padding:       9px 11px !important;
+  display:       flex !important;
+  flex-direction: column !important;
+  gap:           4px !important;
+  flex-shrink:   0 !important;
+}
+
+.vnd-ai-cost-row {
+  display:     flex !important;
+  align-items: center !important;
+  font-size:   11px !important;
+  color:       var(--ai-text-dim) !important;
+}
+.vnd-ai-cost-row span:last-child { margin-left: auto !important; }
+
+.vnd-ai-cost-total {
+  border-top:  1px solid var(--ai-gold-border) !important;
+  padding-top: 6px !important;
+  margin-top:  2px !important;
+  font-size:   12px !important;
+  font-weight: 700 !important;
+  color:       var(--ai-text-dim) !important;
+  text-align:  right !important;
+}
+.vnd-ai-cost-total strong { color: var(--ai-gold) !important; font-size: 15px !important; }
+
+.vnd-ai-cr-unit { font-size: 10px !important; opacity: 0.7 !important; }
+
+.vnd-ai-primary-btn {
+  width:           100% !important;
+  background:      linear-gradient(135deg, rgba(200,155,60,0.25), rgba(150,110,30,0.18)) !important;
+  border:          1px solid rgba(200,155,60,0.55) !important;
+  border-radius:   var(--ai-radius) !important;
+  color:           var(--ai-text) !important;
+  padding:         11px 10px !important;
+  font-size:       13px !important;
+  font-weight:     700 !important;
+  cursor:          pointer !important;
+  display:         flex !important;
+  align-items:     center !important;
+  justify-content: center !important;
+  gap:             8px !important;
+  letter-spacing:  0.04em;
+  transition:      background 0.15s, box-shadow 0.2s !important;
+  box-shadow:      0 2px 16px rgba(200,155,60,0.2) !important;
+}
+.vnd-ai-primary-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(200,155,60,0.38), rgba(150,110,30,0.28)) !important;
+  box-shadow: 0 4px 24px rgba(200,155,60,0.38) !important;
+}
+.vnd-ai-primary-btn:disabled { opacity: 0.35 !important; cursor: not-allowed !important; box-shadow: none !important; }
+
+/* ── 13. SCENE STUDIO — right column ─────────────────────────────────────── */
+
+.vnd-ai-action-column {
+  display:        flex !important;
+  flex-direction: column !important;
+  padding:        14px !important;
+  gap:            10px !important;
+  overflow:       hidden !important;
+  background:     rgba(5,3,1,0.5) !important;
+  min-height:     0 !important;
+}
+
+#vnd-ai-panel-scene .vnd-ai-action-column {
+  overflow-y: auto !important;
+}
+
+.vnd-ai-scene-empty {
+  display:         flex !important;
+  flex-direction:  column !important;
+  align-items:     center !important;
+  justify-content: center !important;
+  gap:             14px !important;
+  flex:            1 !important;
+  padding:         40px 24px !important;
+  text-align:      center !important;
+  color:           var(--ai-text-dim) !important;
+}
+
+.vnd-ai-scene-empty-icon {
+  width:           72px !important;
+  height:          72px !important;
+  border-radius:   50% !important;
+  background:      var(--ai-gold-hover) !important;
+  border:          1px solid var(--ai-gold-border) !important;
+  display:         flex !important;
+  align-items:     center !important;
+  justify-content: center !important;
+  font-size:       28px !important;
+  color:           #818cf8 !important;
+  box-shadow:      0 0 28px rgba(200,155,60,0.1) !important;
+  flex-shrink:     0 !important;
+}
+
+.vnd-ai-scene-empty p { margin: 0 !important; font-size: 13px !important; color: var(--ai-text) !important; line-height: 1.6 !important; }
+.vnd-ai-scene-empty-sub { font-size: 11px !important; color: var(--ai-text-dim) !important; }
+
+.vnd-ai-scene-editor { display: flex !important; flex-direction: column !important; gap: 10px !important; flex-shrink: 0 !important; }
+
+.vnd-ai-editor-title-row {
+  background:    rgba(4,3,1,0.8) !important;
+  border:        1px solid var(--ai-gold-border) !important;
+  border-radius: var(--ai-radius) !important;
+  flex-shrink:   0 !important;
+}
+
+.vnd-ai-editor-title {
+  color:       var(--ai-text) !important;
+  font-size:   15px !important;
+  font-weight: 700 !important;
+  padding:     10px 13px !important;
+  min-height:  24px !important;
+  outline:     none !important;
+  line-height: 1.3 !important;
+  cursor:      text !important;
+  border-radius: var(--ai-radius) !important;
+}
+.vnd-ai-editor-title:empty::before { content: attr(data-placeholder); color: rgba(232,220,200,0.28) !important; }
+.vnd-ai-editor-title:focus { background: rgba(200,155,60,0.04) !important; }
+
+.vnd-ai-editor-section { display: flex !important; flex-direction: column !important; gap: 6px !important; flex-shrink: 0 !important; }
+
+.vnd-ai-tag-cloud { display: flex !important; flex-wrap: wrap !important; gap: 5px !important; min-height: 28px !important; padding: 2px 0 !important; }
+
+.vnd-ai-tag {
+  display:       inline-flex !important;
+  align-items:   center !important;
+  gap:           5px !important;
+  background:    rgba(200,155,60,0.08) !important;
+  border:        1px solid rgba(200,155,60,0.25) !important;
+  border-radius: 20px !important;
+  padding:       4px 10px 4px 11px !important;
+  font-size:     11px !important;
+  color:         var(--ai-text) !important;
+  transition:    border-color 0.15s !important;
+}
+.vnd-ai-tag:hover { border-color: rgba(200,155,60,0.6) !important; }
+
+.vnd-ai-tag-rm {
+  background:  none !important;
+  border:      none !important;
+  color:       var(--ai-text-dim) !important;
+  cursor:      pointer !important;
+  font-size:   10px !important;
+  padding:     0 !important;
+  display:     flex !important;
+  align-items: center !important;
+  opacity:     0 !important;
+  transition:  color 0.12s !important;
+}
+.vnd-ai-tag:hover .vnd-ai-tag-rm { opacity: 1 !important; }
+.vnd-ai-tag-rm:hover { color: #f87171 !important; }
+
+.vnd-ai-tag-add-trigger {
+  background:    var(--ai-gold-hover) !important;
+  border:        1px dashed var(--ai-gold-border) !important;
+  border-radius: 50% !important;
+  width:         22px !important;
+  height:        22px !important;
+  color:         var(--ai-text-dim) !important;
+  font-size:     10px !important;
+  cursor:        pointer !important;
+  display:       inline-flex !important;
+  align-items:   center !important;
+  justify-content: center !important;
+  margin-left:   4px !important;
+  transition:    border-color 0.15s, color 0.15s !important;
+  flex-shrink:   0 !important;
+}
+.vnd-ai-tag-add-trigger:hover { border-color: rgba(200,155,60,0.6) !important; color: var(--ai-gold) !important; }
+
+.vnd-ai-prompt-section { flex-shrink: 0 !important; }
+
+.vnd-ai-rebuild-btn {
+  background:    rgba(200,155,60,0.08) !important;
+  border:        1px solid var(--ai-gold-border) !important;
+  border-radius: 6px !important;
+  color:         var(--ai-text-dim) !important;
+  padding:       3px 9px !important;
+  font-size:     10px !important;
+  font-weight:   600 !important;
+  cursor:        pointer !important;
+  display:       inline-flex !important;
+  align-items:   center !important;
+  gap:           4px !important;
+  margin-left:   auto !important;
+  transition:    background 0.15s, border-color 0.15s, color 0.15s !important;
+}
+.vnd-ai-rebuild-btn:hover { background: var(--ai-gold-active) !important; border-color: rgba(200,155,60,0.6) !important; color: var(--ai-gold) !important; }
+
+.vnd-ai-desc-textarea   { min-height: 68px !important; }
+.vnd-ai-prompt-textarea { min-height: 110px !important; font-family: monospace !important; font-size: 11px !important; }
+
+#vnd-ai-scene-results { max-height: none !important; flex-shrink: 0 !important; }
+#vnd-ai-scene-results .vnd-ai-result-img   { aspect-ratio: auto !important; max-height: 240px !important; }
+#vnd-ai-scene-results .vnd-ai-result-card  { flex: 0 0 100% !important; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   14. CHARACTER STUDIO — PREMIUM LAYOUT
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.vnd-ai-char-left {
+  background:     rgba(6,4,1,0.72) !important;
+  border-right:   1px solid var(--ai-gold-border) !important;
+  padding:        14px 12px !important;
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            12px !important;
+  overflow-y:     auto !important;
+  min-height:     0 !important;
+}
+
+.vnd-ai-char-right {
+  display:        flex !important;
+  flex-direction: column !important;
+  padding:        14px 14px 10px !important;
+  gap:            10px !important;
+  overflow:       hidden !important;
+  background:     rgba(5,3,1,0.55) !important;
+  min-height:     0 !important;
+}
+
+/* ── Card ─────────────────────────────────────────────────────────────────── */
+
+.vnd-ai-card {
+  background:    var(--ai-card) !important;
+  border:        1px solid var(--ai-gold-border) !important;
+  border-radius: 12px !important;
+  display:       flex !important;
+  flex-direction: column !important;
+  gap:           10px !important;
+  padding:       12px !important;
+  flex-shrink:   0 !important;
+  position:      relative !important;
+  overflow:      hidden !important;
+}
+
+/* top accent line on card */
+.vnd-ai-card::before {
+  content:     "" !important;
+  position:    absolute !important;
+  top:         0 !important;
+  left:        16px !important;
+  right:       16px !important;
+  height:      1px !important;
+  background:  linear-gradient(to right, transparent, rgba(200,155,60,0.4), transparent) !important;
+}
+
+.vnd-ai-card-hdr {
+  display:     flex !important;
+  align-items: center !important;
+  gap:         7px !important;
+  font-size:   10px !important;
+  font-weight: 700 !important;
+  color:       var(--ai-gold) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.1em;
+  padding-bottom: 8px !important;
+  border-bottom: 1px solid rgba(200,155,60,0.15) !important;
+  flex-shrink:  0 !important;
+}
+
+/* ── Config block inside card ─────────────────────────────────────────────── */
+
+.vnd-ai-cfg-block {
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            10px !important;
+}
+
+.vnd-ai-cfg-row {
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            5px !important;
+}
+
+/* Quality / count toggle buttons */
+.vnd-ai-quality-btn,
+.vnd-ai-count-btn {
+  display:        flex !important;
+  flex-direction: column !important;
+  align-items:    center !important;
+  justify-content: center !important;
+  flex:          1 !important;
+  background:    rgba(4,3,1,0.9) !important;
+  border:        none !important;
+  border-right:  1px solid var(--ai-gold-border) !important;
+  color:         var(--ai-text-dim) !important;
+  padding:       9px 4px !important;
+  font-size:     11px !important;
+  font-weight:   600 !important;
+  cursor:        pointer !important;
+  text-align:    center !important;
+  transition:    background 0.15s, color 0.15s !important;
+  line-height:   1.3 !important;
+  letter-spacing: 0.01em;
+}
+.vnd-ai-quality-btn:last-child,
+.vnd-ai-count-btn:last-child { border-right: none !important; }
+.vnd-ai-quality-btn em,
+.vnd-ai-count-btn em { display: block !important; font-style: normal !important; font-size: 9px !important; opacity: 0.65 !important; }
+.vnd-ai-quality-btn:hover:not(.active),
+.vnd-ai-count-btn:hover:not(.active)  { background: var(--ai-gold-hover) !important; color: var(--ai-text) !important; }
+.vnd-ai-quality-btn.active,
+.vnd-ai-count-btn.active {
+  background: var(--ai-gold-active) !important;
+  color:      var(--ai-gold) !important;
+}
+.vnd-ai-quality-btn.active em,
+.vnd-ai-count-btn.active em { opacity: 0.8 !important; }
+
+/* ── CTA card ─────────────────────────────────────────────────────────────── */
+
+.vnd-ai-cta-card {
+  background:    var(--ai-card) !important;
+  border:        1px solid var(--ai-gold-border) !important;
+  border-radius: 12px !important;
+  padding:       14px 12px !important;
+  display:       flex !important;
+  flex-direction: column !important;
+  gap:           12px !important;
+  flex-shrink:   0 !important;
+  margin-top:    auto !important;
+  position:      relative !important;
+  overflow:      hidden !important;
+}
+.vnd-ai-cta-card::before {
+  content:    "" !important;
+  position:   absolute !important;
+  top:        0 !important;
+  left:       16px !important;
+  right:      16px !important;
+  height:     1px !important;
+  background: linear-gradient(to right, transparent, rgba(200,155,60,0.4), transparent) !important;
+}
+
+.vnd-ai-cost-badge {
+  display:     flex !important;
+  align-items: center !important;
+  gap:         12px !important;
+}
+
+.vnd-ai-cost-gem {
+  font-size: 22px !important;
+  color:     var(--ai-gold) !important;
+  filter:    drop-shadow(0 0 8px rgba(200,155,60,0.5)) !important;
+  flex-shrink: 0 !important;
+}
+
+.vnd-ai-cost-info {
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            2px !important;
+}
+
+.vnd-ai-cost-lbl {
+  font-size:      9px !important;
+  font-weight:    700 !important;
+  letter-spacing: 0.1em;
+  text-transform: uppercase !important;
+  color:          var(--ai-text-dim) !important;
+}
+
+.vnd-ai-cost-value {
+  display:     flex !important;
+  align-items: baseline !important;
+  gap:         5px !important;
+}
+
+.vnd-ai-cost-value span:first-child {
+  font-size:   24px !important;
+  font-weight: 800 !important;
+  color:       var(--ai-gold) !important;
+  text-shadow: 0 0 16px rgba(200,155,60,0.45) !important;
+  line-height: 1 !important;
+}
+
+.vnd-ai-cost-unit {
+  font-size:   11px !important;
+  color:       var(--ai-text-dim) !important;
+  font-weight: 600 !important;
+}
+
+/* THE main generate button — most prominent element in the character panel */
+.vnd-ai-generate-btn {
+  width:           100% !important;
+  background:      linear-gradient(135deg, rgba(130,98,18,0.5), rgba(200,155,60,0.3)) !important;
+  border:          1px solid rgba(200,155,60,0.65) !important;
+  border-radius:   var(--ai-radius) !important;
+  color:           var(--ai-text) !important;
+  padding:         14px 16px !important;
+  font-size:       15px !important;
+  font-weight:     700 !important;
+  cursor:          pointer !important;
+  display:         flex !important;
+  align-items:     center !important;
+  justify-content: center !important;
+  gap:             9px !important;
+  letter-spacing:  0.06em;
+  text-transform:  uppercase !important;
+  transition:      background 0.2s, box-shadow 0.2s, transform 0.1s !important;
+  box-shadow:      0 4px 24px rgba(200,155,60,0.28), inset 0 1px 0 rgba(255,235,150,0.15) !important;
+  position:        relative !important;
+  overflow:        hidden !important;
+}
+.vnd-ai-generate-btn::before {
+  content:    "" !important;
+  position:   absolute !important;
+  inset:      0 !important;
+  background: linear-gradient(135deg, rgba(255,235,150,0.06), transparent) !important;
+  pointer-events: none !important;
+}
+.vnd-ai-generate-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(150,115,25,0.65), rgba(200,155,60,0.45)) !important;
+  box-shadow: 0 6px 32px rgba(200,155,60,0.45), inset 0 1px 0 rgba(255,235,150,0.2) !important;
+  transform:  translateY(-1px) !important;
+}
+.vnd-ai-generate-btn:disabled {
+  opacity:    0.35 !important;
+  cursor:     not-allowed !important;
+  box-shadow: none !important;
+  transform:  none !important;
+}
+
+/* ── 15. Category tabs ────────────────────────────────────────────────────── */
+
+.vnd-ai-cat-bar {
+  display:     flex !important;
+  gap:         4px !important;
+  flex-wrap:   wrap !important;
+  flex-shrink: 0 !important;
+  padding-bottom: 2px !important;
+  border-bottom: 1px solid var(--ai-gold-border) !important;
+}
+
+.vnd-ai-cat-btn {
+  background:    transparent !important;
+  border:        none !important;
+  border-bottom: 2px solid transparent !important;
+  margin-bottom: -1px !important;
+  color:         var(--ai-text-dim) !important;
+  padding:       7px 14px !important;
+  font-size:     11px !important;
+  font-weight:   700 !important;
+  cursor:        pointer !important;
+  display:       flex !important;
+  align-items:   center !important;
+  gap:           5px !important;
+  letter-spacing: 0.04em;
+  white-space:   nowrap !important;
+  transition:    color 0.15s, border-color 0.15s !important;
+}
+.vnd-ai-cat-btn:hover:not(.active) { color: var(--ai-text) !important; }
+.vnd-ai-cat-btn.active {
+  color:             var(--ai-gold) !important;
+  border-bottom-color: var(--ai-gold) !important;
+  text-shadow:       0 0 10px rgba(200,155,60,0.4) !important;
+}
+
+/* ── 16. Selected action card ─────────────────────────────────────────────── */
+
+.vnd-ai-selected-action {
+  display:       flex !important;
+  align-items:   flex-start !important;
+  gap:           12px !important;
+  padding:       11px 14px !important;
+  background:    rgba(200,155,60,0.07) !important;
+  border:        1px solid rgba(200,155,60,0.35) !important;
+  border-radius: 10px !important;
+  flex-shrink:   0 !important;
+  animation:     vnd-ai-fade-in 0.2s ease !important;
+}
+
+@keyframes vnd-ai-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.vnd-ai-selected-ico {
+  color:     var(--ai-gold) !important;
+  font-size: 18px !important;
+  flex-shrink: 0 !important;
+  margin-top: 1px !important;
+  text-shadow: 0 0 10px rgba(200,155,60,0.5) !important;
+}
+
+.vnd-ai-selected-text {
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            3px !important;
+  min-width:      0 !important;
+}
+
+.vnd-ai-selected-name {
+  font-size:   13px !important;
+  font-weight: 700 !important;
+  color:       var(--ai-gold) !important;
+  white-space: nowrap !important;
+  overflow:    hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.vnd-ai-selected-desc {
+  font-size:   11px !important;
+  color:       var(--ai-text-dim) !important;
+  line-height: 1.5 !important;
+  display:     -webkit-box !important;
+  -webkit-line-clamp: 2 !important;
+  -webkit-box-orient: vertical !important;
+  overflow:    hidden !important;
+}
+
+/* ── 17. Preset action grid ───────────────────────────────────────────────── */
+
+.vnd-ai-preset-grid {
+  display:               grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap:                   6px !important;
+  overflow-y:            auto !important;
+  align-content:         flex-start !important;
+  flex:                  1 !important;
+  min-height:            0 !important;
+}
+.vnd-ai-preset-grid.hidden { display: none !important; }
+
+.vnd-ai-preset-chip {
+  background:    rgba(8,6,2,0.85) !important;
+  border:        1px solid rgba(200,155,60,0.18) !important;
+  border-radius: 9px !important;
+  color:         var(--ai-text-dim) !important;
+  padding:       14px 8px !important;
+  font-size:     11px !important;
+  font-weight:   600 !important;
+  cursor:        pointer !important;
+  text-align:    center !important;
+  transition:    background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s, transform 0.1s !important;
+  white-space:   nowrap !important;
+  overflow:      hidden !important;
+  text-overflow: ellipsis !important;
+  line-height:   1.2 !important;
+  letter-spacing: 0.01em;
+  position:      relative !important;
+}
+.vnd-ai-preset-chip:hover {
+  background:   rgba(200,155,60,0.1) !important;
+  border-color: rgba(200,155,60,0.45) !important;
+  color:        var(--ai-text) !important;
+}
+.vnd-ai-preset-chip.selected {
+  background:   rgba(200,155,60,0.16) !important;
+  border-color: rgba(200,155,60,0.85) !important;
+  color:        var(--ai-gold) !important;
+  box-shadow:   0 0 14px rgba(200,155,60,0.3), inset 0 0 0 1px rgba(200,155,60,0.2) !important;
+  transform:    scale(1.04) !important;
+}
+/* checkmark on selected */
+.vnd-ai-preset-chip.selected::after {
+  content:        "✓" !important;
+  position:       absolute !important;
+  top:            4px !important;
+  right:          6px !important;
+  font-size:      9px !important;
+  color:          var(--ai-gold) !important;
+  font-weight:    900 !important;
+  line-height:    1 !important;
+}
+
+/* ── 18. Custom action ────────────────────────────────────────────────────── */
+
+.vnd-ai-custom-action {
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            7px !important;
+  flex:           1 !important;
+  min-height:     0 !important;
+}
+.vnd-ai-custom-action.hidden { display: none !important; }
+
+.vnd-ai-custom-lbl {
+  font-size:   12px !important;
+  font-weight: 700 !important;
+  color:       var(--ai-text) !important;
+  margin:      0 !important;
+}
+.vnd-ai-custom-sub {
+  font-size:   11px !important;
+  color:       var(--ai-text-dim) !important;
+  margin:      0 !important;
+  line-height: 1.5 !important;
+}
+
+/* ── 19. Results ──────────────────────────────────────────────────────────── */
+
+.vnd-ai-results {
+  display:    flex !important;
+  flex-wrap:  wrap !important;
+  gap:        8px !important;
+  overflow-y: auto !important;
+  min-height: 0 !important;
+  flex-shrink: 0 !important;
+  align-content: flex-start !important;
+}
+
+/* When results are visible: swap grid → results, results take full column height */
+.vnd-ai-char-right.has-results .vnd-ai-cat-bar         { display: none !important; }
+.vnd-ai-char-right.has-results .vnd-ai-selected-action { display: none !important; }
+.vnd-ai-char-right.has-results .vnd-ai-preset-grid     { display: none !important; }
+.vnd-ai-char-right.has-results .vnd-ai-custom-action   { display: none !important; }
+.vnd-ai-char-right.has-results .vnd-ai-results         {
+  flex:       1 !important;
+  max-height: none !important;
+}
+.vnd-ai-char-right.has-results .vnd-ai-results-header  {
+  display: flex !important;
+}
+
+.vnd-ai-result-card {
+  flex:           0 0 calc(50% - 4px) !important;
+  border:         1px solid var(--ai-gold-border) !important;
+  border-radius:  10px !important;
+  overflow:       hidden !important;
+  background:     var(--ai-card) !important;
+  display:        flex !important;
+  flex-direction: column !important;
+}
+
+.vnd-ai-result-label {
+  padding:        5px 10px !important;
+  font-size:      9px !important;
+  font-weight:    700 !important;
+  color:          var(--ai-text-dim) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.07em;
+  background:     rgba(6,4,1,0.9) !important;
+  border-bottom:  1px solid var(--ai-gold-border) !important;
+}
+
+.vnd-ai-result-img {
+  width:        100% !important;
+  aspect-ratio: 1 !important;
+  object-fit:   contain !important;
+  background:   rgba(255,255,255,0.95) !important;
+  display:      block !important;
+}
+
+.vnd-ai-result-actions {
+  display:    flex !important;
+  gap:        4px !important;
+  padding:    6px !important;
+  background: rgba(5,3,1,0.9) !important;
+  border-top: 1px solid var(--ai-gold-border) !important;
+}
+
+.vnd-ai-result-btn {
+  flex:            1 !important;
+  background:      rgba(200,155,60,0.08) !important;
+  border:          1px solid rgba(200,155,60,0.25) !important;
+  border-radius:   6px !important;
+  color:           var(--ai-text-dim) !important;
+  padding:         5px 0 !important;
+  font-size:       10px !important;
+  font-weight:     600 !important;
+  cursor:          pointer !important;
+  display:         flex !important;
+  align-items:     center !important;
+  justify-content: center !important;
+  gap:             4px !important;
+  transition:      background 0.15s, color 0.15s, border-color 0.15s !important;
+  letter-spacing:  0.02em;
+}
+.vnd-ai-result-btn:hover {
+  background:   var(--ai-gold-active) !important;
+  color:        var(--ai-gold) !important;
+  border-color: rgba(200,155,60,0.6) !important;
+}
+
+.vnd-ai-result-path {
+  padding:       3px 8px !important;
+  font-size:     9px !important;
+  color:         var(--ai-text-dim) !important;
+  white-space:   nowrap !important;
+  overflow:      hidden !important;
+  text-overflow: ellipsis !important;
+  background:    rgba(4,3,1,0.9) !important;
+  font-family:   monospace !important;
+  border-top:    1px solid rgba(200,155,60,0.1) !important;
+}
+
+/* ── 20. Progress · Error · Empty ─────────────────────────────────────────── */
+
+.vnd-ai-progress {
+  display:         flex !important;
+  flex-direction:  column !important;
+  align-items:     center !important;
+  justify-content: center !important;
+  gap:             10px !important;
+  padding:         32px !important;
+  color:           var(--ai-text-dim) !important;
+  width:           100% !important;
+  text-align:      center !important;
+  font-size:       13px !important;
+}
+.vnd-ai-progress-sub { font-size: 11px !important; color: var(--ai-text-dim) !important; }
+
+.vnd-ai-error {
+  background:    #160c0c !important;
+  border:        1px solid #7f1d1d !important;
+  border-radius: 8px !important;
+  color:         #fca5a5 !important;
+  padding:       11px 14px !important;
+  font-size:     12px !important;
+  display:       flex !important;
+  align-items:   flex-start !important;
+  gap:           8px !important;
+  width:         100% !important;
+}
+
+.vnd-ai-empty {
+  color:       var(--ai-text-dim) !important;
+  font-size:   13px !important;
+  text-align:  center !important;
+  padding:     32px 20px !important;
+  line-height: 1.7 !important;
+}
+
+/* ── 21. History ──────────────────────────────────────────────────────────── */
+
+#vnd-ai-panel-history {
+  padding:  14px !important;
+  overflow: hidden !important;
+}
+
+.vnd-ai-history-list {
+  flex:           1 !important;
+  overflow-y:     auto !important;
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            6px !important;
+  height:         100% !important;
+}
+
+.vnd-ai-history-row {
+  background:     var(--ai-card) !important;
+  border:         1px solid var(--ai-gold-border) !important;
+  border-radius:  10px !important;
+  padding:        12px 14px !important;
+  cursor:         pointer !important;
+  display:        flex !important;
+  flex-direction: column !important;
+  gap:            5px !important;
+  transition:     border-color 0.15s, background 0.15s !important;
+  position:       relative !important;
+}
+.vnd-ai-history-row::before {
+  content:     "" !important;
+  position:    absolute !important;
+  top:         0 !important;
+  left:        14px !important;
+  right:       14px !important;
+  height:      1px !important;
+  background:  linear-gradient(to right, transparent, rgba(200,155,60,0.3), transparent) !important;
+}
+.vnd-ai-history-row:hover {
+  border-color: rgba(200,155,60,0.6) !important;
+  background:   rgba(200,155,60,0.04) !important;
+}
+
+.vnd-ai-hist-header {
+  display:     flex !important;
+  align-items: center !important;
+  gap:         8px !important;
+  flex-wrap:   wrap !important;
+}
+.vnd-ai-hist-mode    { font-size: 10px !important; font-weight: 700 !important; color: var(--ai-gold) !important; flex-shrink: 0 !important; }
+.vnd-ai-hist-date    { font-size: 11px !important; color: var(--ai-text-dim) !important; }
+.vnd-ai-hist-quality { font-size: 11px !important; color: var(--ai-text-dim) !important; }
+.vnd-ai-hist-cost    { font-size: 11px !important; color: #f87171 !important; margin-left: auto !important; font-weight: 700 !important; }
+.vnd-ai-hist-action  { font-size: 12px !important; color: var(--ai-text) !important; line-height: 1.4 !important; }
+.vnd-ai-hist-preset  {
+  display:       inline-block !important;
+  background:    var(--ai-gold-hover) !important;
+  border:        1px solid rgba(200,155,60,0.3) !important;
+  border-radius: 4px !important;
+  padding:       1px 7px !important;
+  font-size:     10px !important;
+  color:         var(--ai-gold) !important;
+  letter-spacing: 0.04em;
+}
+
+/* ── 22. VN top-bar AI button ────────────────────────────────────────────── */
+
+#vne-ai-btn       { color: var(--vne-accent, #c89b3c) !important; }
+#vne-ai-btn:hover { background: #1e1408 !important; color: #f0d690 !important; }
