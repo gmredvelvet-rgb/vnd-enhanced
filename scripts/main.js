@@ -120,7 +120,12 @@ function _patchCombatDisplay() {
 
 // ── Data helpers ─────────────────────────────────────────────────────────────
 
-function getData() { return foundry.utils.deepClone(game.settings.get(ID, "vnData")); }
+function getData() {
+  const d = foundry.utils.deepClone(game.settings.get(ID, "vnData"));
+  if (!Array.isArray(d.stagePlayers)) d.stagePlayers = [];
+  if (!Array.isArray(d.stageNPCs))    d.stageNPCs    = [];
+  return d;
+}
 
 async function saveData(data, opts = {}) {
   if (game.user.isGM) {
@@ -164,7 +169,7 @@ function canControlActor(actorId) {
 }
 
 // Pre-process a portrait for the template (apply worldOffsetY, build style string)
-function templatePortrait(p, side, activeSpeakerId, worldOffsetY, editMode, combatMode = false) {
+function templatePortrait(p, side, stageActorIds, worldOffsetY, editMode, combatMode = false) {
   const scaleX = (side === "left" ? !p.mirrorX : p.mirrorX) ? 1 : -1;
   const scaleVal = (p.scale || 100) / 100;
   const oy = (p.offsetY || 0) - worldOffsetY;
@@ -177,7 +182,7 @@ function templatePortrait(p, side, activeSpeakerId, worldOffsetY, editMode, comb
   return {
     ...p,
     img: getPortraitImg(p),
-    isActive: p.id === activeSpeakerId,
+    isActive: stageActorIds instanceof Set ? stageActorIds.has(p.id) : false,
     isOwned: canControlActor(p.id),
     isCombatTarget,
     isTargeted,
@@ -186,32 +191,41 @@ function templatePortrait(p, side, activeSpeakerId, worldOffsetY, editMode, comb
   };
 }
 
-function templateCenterSpeaker(d, worldOffsetY) {
-  if (!d.activeSpeakerId) return null;
-  const sp =
-    d.leftCast.find(p => p.id === d.activeSpeakerId) ||
-    d.rightCast.find(p => p.id === d.activeSpeakerId);
-  if (!sp) return null;
-  const scaleVal = (sp.scale || 100) / 100;
-  const scaleX   = sp.mirrorX ? -1 : 1;
-  const oy       = (sp.offsetY || 0) - worldOffsetY;
-  const ox       = sp.offsetX || 0;
+function isOnStage(actorId, d) {
+  return (d.stagePlayers || []).includes(actorId) || (d.stageNPCs || []).includes(actorId);
+}
 
-  const reactionMap    = sp.reactions || { default: sp.img };
-  const activeReaction = sp.activeReaction || "default";
-  const reactions = Object.entries(reactionMap).map(([name, img]) => ({
-    name, img, isActive: name === activeReaction,
-    label: name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ")
-  }));
+async function addToStage(actorId) {
+  if (!actorId) return;
+  if (game.user.isGM) {
+    const d = getData();
+    if (isOnStage(actorId, d)) return;
+    const inLeft  = d.leftCast.some(p => p.id === actorId);
+    const inRight = d.rightCast.some(p => p.id === actorId);
+    if (!inLeft && !inRight) return;
+    if (inLeft  && d.stagePlayers.length < 5) d.stagePlayers.push(actorId);
+    else if (inRight && d.stageNPCs.length < 5) d.stageNPCs.push(actorId);
+    else { ui.notifications?.warn("El escenario está lleno (máx. 5 por fila)."); return; }
+    await saveData(d, { change: "stageChange" });
+  } else {
+    const actor = game.actors.get(actorId);
+    if (!actor?.isOwner) return;
+    game.socket.emit(`module.${ID}`, { type: "vnAddToStage", actorId, senderId: game.user.id });
+  }
+}
 
-  return {
-    ...sp,
-    img: getPortraitImg(sp),
-    imgStyle: `transform: scale(${scaleVal}) scaleX(${scaleX}); margin-top: ${oy}px; margin-left: ${ox}px;`,
-    reactions,
-    activeReaction,
-    canControl: canControlActor(sp.id)
-  };
+async function removeFromStage(actorId) {
+  if (!actorId) return;
+  if (game.user.isGM) {
+    const d = getData();
+    d.stagePlayers = d.stagePlayers.filter(id => id !== actorId);
+    d.stageNPCs    = d.stageNPCs.filter(id => id !== actorId);
+    await saveData(d, { change: "stageChange" });
+  } else {
+    const actor = game.actors.get(actorId);
+    if (!actor?.isOwner) return;
+    game.socket.emit(`module.${ID}`, { type: "vnRemoveFromStage", actorId, senderId: game.user.id });
+  }
 }
 
 // ── Reaction helpers ──────────────────────────────────────────────────────────
@@ -277,19 +291,12 @@ async function setReaction(actorId, reactionName) {
   }
 }
 
+// setSpeaker kept as thin backward-compat wrapper → addToStage/removeFromStage
 async function setSpeaker(actorId) {
-  const newId = actorId ?? null;
-  if (game.user.isGM) {
-    const d = getData();
-    d.activeSpeakerId = d.activeSpeakerId === newId ? null : newId;
-    await saveData(d, { change: "activeSpeaker" });
-  } else {
-    if (newId) {
-      const actor = game.actors.get(newId);
-      if (!actor?.isOwner) return;
-    }
-    game.socket.emit(`module.${ID}`, { type: "vnSpeaker", actorId: newId, senderId: game.user.id });
-  }
+  if (!actorId) return;
+  const d = getData();
+  if (isOnStage(actorId, d)) await removeFromStage(actorId);
+  else await addToStage(actorId);
 }
 
 // ── Combat Stage helpers ──────────────────────────────────────────────────────
@@ -308,8 +315,12 @@ function targetActorToken(actorId) {
 }
 
 function getVNECastTokens(d = getData()) {
-  const actorIds = new Set([...(d.leftCast ?? []), ...(d.rightCast ?? [])].map(p => p.id));
-  return (canvas.tokens?.placeables ?? []).filter(t => actorIds.has(t.actor?.id));
+  const actorIds = new Set([
+    ...(d.leftCast ?? []), ...(d.rightCast ?? [])
+  ].map(p => p.id));
+  return (canvas.tokens?.placeables ?? []).filter(t =>
+    actorIds.has(t.document?.actorId ?? t.actor?.id)
+  );
 }
 
 function getCollectionArray(collection) {
@@ -449,17 +460,17 @@ function showPortraitActionMenu(trigger, actorId, side) {
 
   const inCombat = !!game.combat?.combatants.find(c => c.actorId === actorId);
   const initiativeBtn = `<button type="button" data-action="initiative"><i class="fas fa-dice-d20"></i><span>Roll Initiative</span></button>`;
-  const removeVNBtn    = game.user.isGM ? `<button type="button" data-action="removeVN"><i class="fas fa-user-minus"></i><span>Remover del VN</span></button>` : "";
-  const removeCombatBtn = (game.user.isGM && inCombat) ? `<button type="button" data-action="removeCombat"><i class="fas fa-skull"></i><span>Remover del combate</span></button>` : "";
+  const removeVNBtn    = game.user.isGM ? `<button type="button" data-action="removeVN"><i class="fas fa-user-minus"></i><span>Remove from VN</span></button>` : "";
+  const removeCombatBtn = (game.user.isGM && inCombat) ? `<button type="button" data-action="removeCombat"><i class="fas fa-skull"></i><span>Remove from combat</span></button>` : "";
 
   const menu = document.createElement("div");
   menu.id = "vne-portrait-action-menu";
   menu.className = "vne-portrait-action-menu";
   menu.innerHTML = `
-    <button type="button" data-action="sheet"><i class="fas fa-id-card"></i><span>Abrir hoja de personaje</span></button>
-    <button type="button" data-action="target"><i class="fas fa-crosshairs"></i><span>Seleccionar objetivo</span></button>
+    <button type="button" data-action="sheet"><i class="fas fa-id-card"></i><span>Open character sheet</span></button>
+    <button type="button" data-action="target"><i class="fas fa-crosshairs"></i><span>Select as target</span></button>
     ${inCombat ? initiativeBtn : ""}
-    <button type="button" data-action="speaker"><i class="fas fa-comment-dots"></i><span>Hacer hablante</span></button>
+    <button type="button" data-action="speaker"><i class="fas fa-comment-dots"></i><span>Set as speaker</span></button>
     ${removeVNBtn}
     ${removeCombatBtn}`;
 
@@ -486,17 +497,17 @@ function showPortraitActionMenu(trigger, actorId, side) {
       return;
     }
     if (action === "speaker") {
-      const d = getData();
-      d.activeSpeakerId = d.activeSpeakerId === actorId ? null : actorId;
-      await saveData(d, { change: "activeSpeaker" });
+      if (isOnStage(actorId, getData())) await removeFromStage(actorId);
+      else await addToStage(actorId);
       return;
     }
     if (action === "removeVN") {
       if (!game.user.isGM) return;
       const d = getData();
-      d.leftCast  = d.leftCast.filter(p => p.id !== actorId);
-      d.rightCast = d.rightCast.filter(p => p.id !== actorId);
-      if (d.activeSpeakerId === actorId) d.activeSpeakerId = null;
+      d.leftCast     = d.leftCast.filter(p => p.id !== actorId);
+      d.rightCast    = d.rightCast.filter(p => p.id !== actorId);
+      d.stagePlayers = d.stagePlayers.filter(id => id !== actorId);
+      d.stageNPCs    = d.stageNPCs.filter(id => id !== actorId);
       await saveData(d, { change: "castChange" });
       return;
     }
@@ -1166,33 +1177,11 @@ export class VNE extends FormApplication {
       visible: !d.showForIds || d.showForIds.includes(u.id)
     }));
 
-    const leftCast  = d.leftCast.map(p  => templatePortrait(p, "left",  d.activeSpeakerId, worldOffsetY, editMode, combatMode));
-    const rightCast = d.rightCast.map(p => templatePortrait(p, "right", d.activeSpeakerId, worldOffsetY, editMode, combatMode));
-    const activeSpeaker = templateCenterSpeaker(d, worldOffsetY);
-
-    // Roleplay cast: merged left+right, max 4, each with reactions for their owner
-    const rpRaw = [...d.leftCast, ...d.rightCast].slice(0, 4);
-    const roleplayCastCount = Math.max(1, rpRaw.length);
-    const roleplayCast = rpRaw.map(p => {
-      const reactionMap    = p.reactions || { default: p.img };
-      const activeReaction = p.activeReaction || "default";
-      const scaleVal = (p.scale || 100) / 100;
-      const scaleX   = p.mirrorX ? -1 : 1;
-      const oy = (p.offsetY || 0) - worldOffsetY;
-      const ox = p.offsetX || 0;
-      return {
-        id: p.id, name: p.name, title: p.title || "",
-        img:      getPortraitImg(p),
-        imgStyle: `transform: scale(${scaleVal}) scaleX(${scaleX}); margin-top: ${oy}px; margin-left: ${ox}px;`,
-        isActive:   p.id === d.activeSpeakerId,
-        canControl: canControlActor(p.id),
-        editMode,
-        reactions: Object.entries(reactionMap).map(([name, img]) => ({
-          name, img, isActive: name === activeReaction,
-          label: name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ")
-        }))
-      };
-    });
+    const stageActorIds = combatMode
+      ? new Set([game.combat?.combatant?.actorId].filter(Boolean))
+      : new Set([...(d.stagePlayers || []), ...(d.stageNPCs || [])]);
+    const leftCast  = d.leftCast.map(p  => templatePortrait(p, "left",  stageActorIds, worldOffsetY, editMode, combatMode));
+    const rightCast = d.rightCast.map(p => templatePortrait(p, "right", stageActorIds, worldOffsetY, editMode, combatMode));
 
     const combat        = game.combat;
     const combatRound   = combat?.round ?? 0;
@@ -1213,11 +1202,8 @@ export class VNE extends FormApplication {
       locationParent:  d.location?.parent || "",
       locationWeather: d.location?.weather || "",
       locationTime:    d.location?.time || "",
-      activeSpeaker,
       leftCast,
       rightCast,
-      roleplayCast,
-      roleplayCastCount,
       locationList:    d.locationList,
       currentLocationId: d.location?.id || "",
       players,
@@ -1334,7 +1320,7 @@ export class VNE extends FormApplication {
           showPortraitActionMenu(e.currentTarget, id, side);
           return;
         }
-        await setSpeaker(id);
+        await addToStage(id);
       });
       // Right-click → edit portrait (edit mode)
       el.addEventListener("contextmenu", (e) => {
@@ -1434,6 +1420,7 @@ export class VNE extends FormApplication {
       const key = `${side}Cast`;
       if (d[key].some(p => p.id === actorId)) {
         ui.notifications?.info(`${actor.name} ya está en el panel.`);
+        if (d.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
         return;
       }
       const saved = d.portraits[actorId];
@@ -1442,6 +1429,7 @@ export class VNE extends FormApplication {
       d[key].push(portrait);
       d.portraits[actorId] = portrait;
       await saveData(d, { change: "castChange" });
+      if (d.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
     });
   }
 
@@ -1466,40 +1454,66 @@ export class VNE extends FormApplication {
     const dropZone  = event.target.closest(".vne-drop-zone");
     const toSide    = dropZone?.dataset?.side;
     const isRPStage = dropZone?.id === "vne-rp-stage";
+    const isCenter  = isRPStage || dropZone?.classList?.contains("vne-center-area");
 
-    // Actor dropped from Foundry sidebar
+    // ── Actor dropped from Foundry sidebar ──────────────────────────────────
     if (raw.type === "Actor" && raw.uuid) {
       const actor = await fromUuid(raw.uuid);
-      if (!actor || !toSide) return;
+      if (!actor) return;
       const d = getData();
-      const key = `${toSide}Cast`;
-      if (!d[key].some(p => p.id === actor.id)) {
-        if (isRPStage && d.leftCast.length + d.rightCast.length >= 10) {
-          ui.notifications?.warn("Máximo 10 personajes en modo roleplay.");
-          return;
+
+      if (isCenter) {
+        // Dropping on center → add to rpCast if not present, set as speaker
+        d.rpCast = d.rpCast || [];
+        if (!d.rpCast.some(p => p.id === actor.id)) {
+          if (d.rpCast.length >= 10) {
+            ui.notifications?.warn("Maximum 10 characters on the stage.");
+            return;
+          }
+          const saved = d.portraits[actor.id];
+          const portrait = saved ? { ...saved } : defaultPortrait(actor);
+          d.rpCast.push(portrait);
+          d.portraits[actor.id] = portrait;
         }
-        const saved = d.portraits[actor.id];
-        const portrait = saved ? { ...saved } : defaultPortrait(actor);
-        if (!isRPStage && d[key].length >= 10) d[key].shift();
-        d[key].push(portrait);
-        d.portraits[actor.id] = portrait;
+        d.activeSpeakerId = actor.id;
+      } else {
+        // Dropping on a side panel → leftCast / rightCast only, no speaker
+        if (!toSide) return;
+        const key = `${toSide}Cast`;
+        if (!d[key].some(p => p.id === actor.id)) {
+          if (d[key].length >= 10) d[key].shift();
+          const saved = d.portraits[actor.id];
+          const portrait = saved ? { ...saved } : defaultPortrait(actor);
+          d[key].push(portrait);
+          d.portraits[actor.id] = portrait;
+        }
       }
-      // Solo se convierte en speaker si se arrastra al stage central (no a los paneles laterales)
-      if (isRPStage) d.activeSpeakerId = actor.id;
+
       await saveData(d, { change: "castChange" });
+      if (d.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
       return;
     }
 
-    // Internal move between sides
-    if (raw.type === "vne-portrait" && toSide && raw.side !== toSide) {
-      const d = getData();
-      const fromKey = `${raw.side}Cast`;
-      const toKey   = `${toSide}Cast`;
-      const idx = d[fromKey].findIndex(p => p.id === raw.id);
-      if (idx < 0) return;
-      const [portrait] = d[fromKey].splice(idx, 1);
-      d[toKey].push(portrait);
-      await saveData(d, { change: "castChange" });
+    // ── Internal portrait drag ──────────────────────────────────────────────
+    if (raw.type === "vne-portrait") {
+      // Portrait dragged to center → set as active speaker, stays in leftCast/rightCast
+      if (isCenter) {
+        const d = getData();
+        d.activeSpeakerId = raw.id;
+        await saveData(d, { change: "activeSpeaker" });
+        return;
+      }
+      // Portrait dragged to a different side panel → move between panels
+      if (toSide && raw.side !== toSide) {
+        const d = getData();
+        const fromKey = `${raw.side}Cast`;
+        const toKey   = `${toSide}Cast`;
+        const idx = d[fromKey].findIndex(p => p.id === raw.id);
+        if (idx < 0) return;
+        const [portrait] = d[fromKey].splice(idx, 1);
+        d[toKey].push(portrait);
+        await saveData(d, { change: "castChange" });
+      }
     }
   }
 }
@@ -1870,13 +1884,7 @@ function _buildCastPortraitEl(p, side, tp, editMode) {
 function _bindCastPortrait(div, p, side, editMode) {
   div.addEventListener("click", async (e) => {
     if (e.target.closest(".vne-remove-cast-btn")) return;
-    const d = getData();
-    if (d.combatMode) {
-      e.stopPropagation();
-      showPortraitActionMenu(e.currentTarget, p.id, side);
-      return;
-    }
-    await setSpeaker(p.id);
+    // Speaker is set only by dragging to the center stage — click does nothing here
   });
 
   div.addEventListener("contextmenu", (e) => {
@@ -1981,19 +1989,41 @@ function _buildReactionsHTML(sp) {
 function _patchCenterSpeaker(d, worldOffsetY) {
   const centerEl = document.getElementById("vne-center-speaker");
   if (!centerEl) return;
+  const main = document.getElementById("vne-main");
   const sp = templateCenterSpeaker(d, worldOffsetY);
   if (sp) {
-    const titleHtml    = sp.title ? `<span class="vne-nameplate-title">${sp.title}</span>` : "";
+    main?.classList.add("vne-has-speaker");
+    const titleHtml     = sp.title ? `<span class="vne-nameplate-title">${sp.title}</span>` : "";
     const reactionsHtml = _buildReactionsHTML(sp);
+    const canClear      = sp.canControl || game.user.isGM;
+    const clearBtn      = canClear
+      ? `<div class="vne-speaker-clear-btn" title="Remove as speaker (stays in VN panels)"><i class="fas fa-times-circle"></i></div>` : "";
     centerEl.innerHTML = `
-      <div class="vne-center-portrait-wrap">
+      <div class="vne-center-portrait-wrap" data-actor-id="${sp.id}">
         <img class="vne-center-img" src="${sp.img}" style="${sp.imgStyle}"/>
       </div>
       <div class="vne-nameplate">
-        <span class="vne-nameplate-name">${sp.name || ""}</span>${titleHtml}
+        <div class="vne-nameplate-top">
+          <span class="vne-nameplate-name">${sp.name || ""}</span>
+          ${clearBtn}
+        </div>
+        ${titleHtml}
         ${reactionsHtml}
       </div>`;
     centerEl.classList.add("vne-has-speaker");
+
+    // Clear speaker button
+    centerEl.querySelector(".vne-speaker-clear-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const d2 = getData(); d2.activeSpeakerId = null;
+      await saveData(d2, { change: "activeSpeaker" });
+    });
+
+    // Right-click on center portrait → context menu
+    centerEl.querySelector(".vne-center-portrait-wrap")?.addEventListener("contextmenu", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      _openVNContextMenu(sp.id, e.currentTarget, { mode: "vn", editMode: d.editMode && game.user.isGM });
+    });
 
     // Bind reaction buttons
     centerEl.querySelectorAll(".vne-reaction-btn[data-reaction]").forEach(btn => {
@@ -2003,7 +2033,8 @@ function _patchCenterSpeaker(d, worldOffsetY) {
       openReactionManager(e.currentTarget.dataset.actorId);
     });
   } else {
-    centerEl.innerHTML = `<div class="vne-no-speaker"><i class="fas fa-user-circle"></i><span>Click a portrait to set active speaker</span></div>`;
+    main?.classList.remove("vne-has-speaker");
+    centerEl.innerHTML = `<div class="vne-no-speaker"><i class="fas fa-user-circle"></i><span>Drag a portrait to the center to set the active speaker</span></div>`;
     centerEl.classList.remove("vne-has-speaker");
   }
 }
@@ -2025,7 +2056,7 @@ function _patchRPStage(d, worldOffsetY, editMode) {
   const stage = document.getElementById("vne-rp-stage");
   if (!stage) return;
 
-  const rpRaw = [...(d.leftCast || []), ...(d.rightCast || [])].slice(0, 10);
+  const rpRaw = (d.rpCast || []).slice(0, 10);
   const count  = rpRaw.length;
   const twoRows = count > 5;
 
@@ -2049,11 +2080,11 @@ function _patchRPStage(d, worldOffsetY, editMode) {
         return `<div class="vne-reaction-btn${active}" data-reaction="${name}" data-actor-id="${p.id}" title="${label}"><img src="${rImg}" loading="lazy"/><span>${label}</span></div>`;
       }).join("");
       const manageBtnHtml = game.user.isGM
-        ? `<div class="vne-reaction-manage-btn" data-actor-id="${p.id}" title="Gestionar reacciones"><i class="fas fa-cog"></i></div>` : "";
+        ? `<div class="vne-reaction-manage-btn" data-actor-id="${p.id}" title="Manage reactions"><i class="fas fa-cog"></i></div>` : "";
       reactionsHtml = `<div class="vne-rp-reactions">${btns}${manageBtnHtml}</div>`;
     }
 
-    const removeBtn = editMode ? `<div class="vne-rp-remove-btn" data-id="${p.id}" title="Quitar"><i class="fas fa-times"></i></div>` : "";
+    const removeBtn = editMode ? `<div class="vne-rp-remove-btn" data-id="${p.id}" title="Remove from stage"><i class="fas fa-times"></i></div>` : "";
     const titleHtml = p.title ? `<span class="vne-rp-title">${p.title}</span>` : "";
 
     return `<div class="vne-rp-slot${isActive ? " vne-rp-speaking" : ""}" data-id="${p.id}" data-slot-count="${rowCount}">
@@ -2065,9 +2096,6 @@ function _patchRPStage(d, worldOffsetY, editMode) {
       ${reactionsHtml}
     </div>`;
   }
-
-  const addBtn = (game.user.isGM && count < 10)
-    ? `<div id="vne-rp-add-btn" class="vne-rp-add-slot" title="Añadir personaje"><i class="fas fa-user-plus"></i><span>Añadir</span></div>` : "";
 
   let html = "";
 
@@ -2081,15 +2109,14 @@ function _patchRPStage(d, worldOffsetY, editMode) {
     const topSlots = topChars.map(p => buildSlotHtml(p, topCount)).join("");
     const botSlots = botChars.map(p => buildSlotHtml(p, botCount)).join("");
 
-    html = `<div class="vne-rp-row vne-rp-row-top">${topSlots}</div><div class="vne-rp-row vne-rp-row-bottom">${botSlots}${addBtn}</div>`;
+    html = `<div class="vne-rp-row vne-rp-row-top">${topSlots}</div><div class="vne-rp-row vne-rp-row-bottom">${botSlots}</div>`;
   } else {
     stage.classList.remove("vne-two-rows");
     html = rpRaw.map(p => buildSlotHtml(p, count)).join("");
 
     if (count === 0) {
-      html += `<div class="vne-rp-empty"><i class="fas fa-users fa-2x"></i><span>${game.user.isGM ? "Arrastra actores aquí o usa +" : "No hay personajes en escena"}</span></div>`;
+      html += `<div class="vne-rp-empty"><i class="fas fa-users fa-2x"></i><span>Drag actors from the side panels</span></div>`;
     }
-    html += addBtn;
   }
 
   stage.innerHTML = html;
@@ -2125,32 +2152,12 @@ function _patchRPStage(d, worldOffsetY, editMode) {
       e.stopPropagation();
       const actorId = e.currentTarget.dataset.id;
       const d2 = getData();
-      d2.leftCast  = d2.leftCast.filter(p => p.id !== actorId);
-      d2.rightCast = d2.rightCast.filter(p => p.id !== actorId);
+      d2.rpCast = (d2.rpCast || []).filter(p => p.id !== actorId);
       if (d2.activeSpeakerId === actorId) d2.activeSpeakerId = null;
       await saveData(d2, { change: "castChange" });
     });
   });
 
-  stage.querySelector("#vne-rp-add-btn")?.addEventListener("click", () => {
-    if (!game.user.isGM) return;
-    openActorPicker(async (actorId) => {
-      const d2 = getData();
-      if (d2.leftCast.length + d2.rightCast.length >= 10) {
-        ui.notifications?.warn("Máximo 10 personajes en modo roleplay.");
-        return;
-      }
-      if (!d2.leftCast.some(p => p.id === actorId) && !d2.rightCast.some(p => p.id === actorId)) {
-        const actor = game.actors.get(actorId);
-        if (!actor) return;
-        const saved    = d2.portraits[actorId];
-        const portrait = saved ? { ...saved } : defaultPortrait(actor);
-        d2.leftCast.push(portrait);
-        d2.portraits[actorId] = portrait;
-      }
-      await saveData(d2, { change: "castChange" });
-    });
-  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2360,22 +2367,23 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
   const d         = getData();
   const inLeft    = d.leftCast.some(p => p.id === actorId);
   const inRight   = d.rightCast.some(p => p.id === actorId);
-  const inVN      = inLeft || inRight;
+  const inRPStage = (d.rpCast || []).some(p => p.id === actorId);
+  const inVN      = inLeft || inRight || inRPStage;
   const isSpeaker = d.activeSpeakerId === actorId;
-  const inCombat  = mode === "combat" || !!game.combat?.combatants.find(c => c.actorId === actorId);
+  const inCombat  = (mode === "combat" || d.combatMode) && !!game.combat?.combatants.find(c => c.actorId === actorId);
   const canCtrl   = game.user.isGM || !!actor?.isOwner;
 
   const items = [];
-  items.push({ label: "Abrir hoja de personaje", icon: "fas fa-id-card",      action: "sheet" });
-  items.push({ label: "Seleccionar objetivo",     icon: "fas fa-hand-pointer", action: "select" });
+  items.push({ label: "Open character sheet", icon: "fas fa-id-card",      action: "sheet" });
+  items.push({ label: "Select as target",     icon: "fas fa-hand-pointer", action: "select" });
 
   // Speaker controls (available to owner and GM)
   if (inVN && canCtrl) {
     items.push({ separator: true });
     if (isSpeaker) {
-      items.push({ label: "Dejar de ser hablante", icon: "fas fa-comment-slash", action: "clearSpeaker" });
+      items.push({ label: "Remove as speaker", icon: "fas fa-comment-slash", action: "clearSpeaker" });
     } else {
-      items.push({ label: "Hacer hablante",        icon: "fas fa-comment",        action: "setSpeaker" });
+      items.push({ label: "Set as speaker",    icon: "fas fa-comment",        action: "setSpeaker" });
     }
   }
 
@@ -2385,17 +2393,17 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
       items.push({ label: "Roll Initiative", icon: "fas fa-dice-d20", action: "rollInit" });
     }
     if (!inVN) {
-      items.push({ label: "Añadir al VN (izquierda)", icon: "fas fa-user-plus",  action: "addVNLeft" });
-      items.push({ label: "Añadir al VN (derecha)",   icon: "fas fa-user-plus",  action: "addVNRight" });
+      items.push({ label: "Add to VN (left)",  icon: "fas fa-user-plus",  action: "addVNLeft" });
+      items.push({ label: "Add to VN (right)", icon: "fas fa-user-plus",  action: "addVNRight" });
     } else {
-      items.push({ label: "Remover del VN",       icon: "fas fa-user-minus", action: "removeVN" });
+      items.push({ label: "Remove from VN",    icon: "fas fa-user-minus", action: "removeVN" });
     }
     if (inCombat) {
-      items.push({ label: "Remover del combate",  icon: "fas fa-skull",      action: "removeCombat" });
+      items.push({ label: "Remove from combat", icon: "fas fa-skull",     action: "removeCombat" });
     }
     if (editMode) {
       items.push({ separator: true });
-      items.push({ label: "Editar retrato",       icon: "fas fa-sliders-h",  action: "editPortrait" });
+      items.push({ label: "Edit portrait",      icon: "fas fa-sliders-h", action: "editPortrait" });
     }
   }
 
@@ -2437,6 +2445,7 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
         d2.portraits[actorId] = portrait;
         await saveData(d2, { change: "castChange" });
       }
+      if (d2.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
     } else if (action === "addVNRight") {
       const d2 = getData();
       if (!d2.rightCast.some(p => p.id === actorId)) {
@@ -2446,10 +2455,12 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
         d2.portraits[actorId] = portrait;
         await saveData(d2, { change: "castChange" });
       }
+      if (d2.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
     } else if (action === "removeVN") {
       const d2 = getData();
       d2.leftCast  = d2.leftCast.filter(p => p.id !== actorId);
       d2.rightCast = d2.rightCast.filter(p => p.id !== actorId);
+      d2.rpCast    = (d2.rpCast || []).filter(p => p.id !== actorId);
       if (d2.activeSpeakerId === actorId) d2.activeSpeakerId = null;
       await saveData(d2, { change: "castChange" });
     } else if (action === "removeCombat") {
@@ -2485,32 +2496,7 @@ Hooks.on("updateCombatant",  (combatant, changes) => {
   }
   renderVNECombatCarousel();
   if (changes.defeated === true) _checkVictoryCondition(_lastCombatTurns);
-  // Auto-add to VN side panels when initiative is rolled
-  if (changes.initiative !== undefined) _autoAddCombatantToVN(combatant);
 });
-
-async function _autoAddCombatantToVN(combatant) {
-  if (!game.user.isGM) return;
-  const d = getData();
-  if (!d.showVN) return;
-
-  const actor = combatant.actor ?? game.actors.get(combatant.actorId);
-  if (!actor) return;
-
-  const actorId = actor.id;
-  if (d.leftCast.some(p => p.id === actorId) || d.rightCast.some(p => p.id === actorId)) return;
-
-  // Player-owned actors → left panel, NPCs/enemies → right panel
-  const side = actor.hasPlayerOwner ? "left" : "right";
-  const key  = `${side}Cast`;
-
-  if (d[key].length >= 10) d[key].shift();
-  const portrait = d.portraits[actorId] ? { ...d.portraits[actorId] } : defaultPortrait(actor);
-  d[key].push(portrait);
-  d.portraits[actorId] = portrait;
-
-  await saveData(d, { change: "castChange" });
-}
 Hooks.on("deleteCombat",     () => {
   renderVNECombatCarousel();
   _checkVictoryCondition(_lastCombatTurns); // use pre-delete snapshot
@@ -2713,12 +2699,13 @@ Hooks.on("ready", () => {
       const d = getData();
       d.leftCast  = d.leftCast.filter(p => p.id !== actorId);
       d.rightCast = d.rightCast.filter(p => p.id !== actorId);
+      d.rpCast    = (d.rpCast || []).filter(p => p.id !== actorId);
       if (d.activeSpeakerId === actorId) d.activeSpeakerId = null;
       await saveData(d, { change: "castChange" });
     },
     clearCast:    async () => {
       const d = getData();
-      d.leftCast = []; d.rightCast = []; d.activeSpeakerId = null;
+      d.leftCast = []; d.rightCast = []; d.rpCast = []; d.activeSpeakerId = null;
       await saveData(d, { change: "castChange" });
     },
     // Read state
@@ -2758,45 +2745,103 @@ function _initSequencerHook() {
       const d = getData();
       if (!d.showVN) return;
 
-      const file = effect?.data?.file;
+      // ── File resolution ──────────────────────────────────────────────────
+      let file = effect?.data?.file ?? effect?.file;
       if (!file) return;
 
-      const durationMs = effect?.data?.duration ?? 2000;
+      // Sequencer may store a database path (no extension) — resolve it
+      if (!/\.(webm|gif|mp4)$/i.test(file)) {
+        try {
+          const db = window.Sequencer?.Database ?? globalThis.Sequencer?.Database;
+          const entry = db?.getEntry?.(file);
+          if (!entry) return;
+          const f = Array.isArray(entry)
+            ? (entry[0]?.file ?? entry[0])
+            : (entry?.file ?? entry?.files?.[0] ?? null);
+          if (!f || !/\.(webm|gif|mp4)$/i.test(f)) return;
+          file = f;
+        } catch { return; }
+      }
 
-      // Resolve source and target actor IDs from their UUIDs
-      const sourceId = _actorIdFromSeqUuid(effect?.data?.source);
-      const targetId = _actorIdFromSeqUuid(effect?.data?.target);
+      // ── Duration ────────────────────────────────────────────────────────
+      const durationMs = effect?.data?.duration ?? effect?.duration ?? 2000;
+
+      // ── Actor ID extraction ──────────────────────────────────────────────
+      // Sequencer stores token references in several places depending on version
+      // and how the effect was created (source/target, attachTo/stretchTo, etc.)
+      const actorIds = new Set();
+      const candidates = [
+        effect?.data?.source,       // UUID string (older Sequencer)
+        effect?.data?.target,       // UUID string (older Sequencer)
+        effect?.data?.attachTo,     // { id: UUID } — used by AttachTo trait
+        effect?.data?.stretchTo,    // { id: UUID } — used by StretchTo trait
+        effect?.source,             // CanvasEffect resolved property
+        effect?.target,             // CanvasEffect resolved property
+      ];
+      if (Array.isArray(effect?.data?.targets)) candidates.push(...effect.data.targets);
+
+      for (const ref of candidates) {
+        const id = _actorIdFromSeqRef(ref);
+        if (id) actorIds.add(id);
+      }
+
+      if (!actorIds.size) return;
 
       const allCast = [...(d.leftCast ?? []), ...(d.rightCast ?? [])];
-
-      // Play on target first, then source (target is usually the one "hit")
-      for (const actorId of [targetId, sourceId]) {
-        if (!actorId) continue;
-        if (!allCast.some(p => p.id === actorId)) continue;
-        _playVNFx(actorId, file, durationMs, d);
+      for (const actorId of actorIds) {
+        if (allCast.some(p => p.id === actorId)) {
+          _playVNFx(actorId, file, durationMs, d);
+        }
       }
     } catch (e) {
-      console.warn("VNE | Sequencer hook error:", e);
+      console.warn("VNE | Sequencer VFX error:", e);
     }
   });
 }
 
+// Extracts an Actor ID from any Sequencer reference format:
+// UUID string, TokenDocument, CanvasEffect, or { id, uuid } objects.
+function _actorIdFromSeqRef(ref) {
+  if (!ref) return null;
+  if (typeof ref === "string") return _actorIdFromSeqUuid(ref);
+  // Already a resolved document or placeable
+  if (ref.actor?.id) return ref.actor.id;
+  if (ref.actorId)   return ref.actorId;
+  // { id: string } — Sequencer attachTo/stretchTo format
+  if (typeof ref.id === "string") {
+    return ref.id.includes(".")
+      ? _actorIdFromSeqUuid(ref.id)
+      : _actorIdFromTokenDocId(ref.id);
+  }
+  if (ref.uuid)           return _actorIdFromSeqUuid(ref.uuid);
+  if (ref.document?.uuid) return _actorIdFromSeqUuid(ref.document.uuid);
+  return null;
+}
+
+// Resolves a full Foundry UUID (e.g. "Scene.X.Token.Y") to an Actor ID.
 function _actorIdFromSeqUuid(uuid) {
   if (!uuid) return null;
   try {
-    // fromUuidSync is available in Foundry v11+
     const doc = (typeof fromUuidSync === "function") ? fromUuidSync(uuid) : null;
     if (doc) return doc.actor?.id ?? doc.actorId ?? null;
-    // Fallback: parse token UUID manually  "Scene.X.Token.Y"
+    // Fallback for "Scene.X.Token.Y" format
     const parts = uuid.split(".");
     if (parts.includes("Token")) {
       const tokenId = parts[parts.indexOf("Token") + 1];
       const sceneId = parts[parts.indexOf("Scene") + 1];
-      const token = game.scenes.get(sceneId)?.tokens.get(tokenId);
+      const token   = game.scenes.get(sceneId)?.tokens.get(tokenId);
       return token?.actor?.id ?? token?.actorId ?? null;
     }
     return null;
   } catch { return null; }
+}
+
+// Resolves a plain TokenDocument ID to an Actor ID via the active canvas.
+function _actorIdFromTokenDocId(tokenDocId) {
+  if (!tokenDocId) return null;
+  const tok = canvas?.tokens?.get?.(tokenDocId)
+           ?? game.scenes?.current?.tokens?.get?.(tokenDocId);
+  return tok?.actor?.id ?? tok?.actorId ?? null;
 }
 
 function _playVNFx(actorId, file, durationMs, d) {

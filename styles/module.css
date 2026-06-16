@@ -499,12 +499,14 @@
   overflow: hidden;
   position: relative;
 }
-/* rp-stage and center-area share column 2 of .vne-stage, one hidden at a time */
-#vne-rp-stage                                     { grid-column: 2; grid-row: 1; }
-/* In RP mode: show rp-stage, hide center speaker */
-#vne-main:not(.vne-combat-mode) .vne-center-area  { display: none !important; }
-/* In combat mode: hide rp-stage, show center speaker */
-#vne-main.vne-combat-mode .vne-rp-stage           { display: none !important; }
+/* rp-stage and center-area share column 2 of .vne-stage, toggled by speaker state */
+#vne-rp-stage    { grid-column: 2; grid-row: 1; }
+/* VN mode, no active speaker → show RP stage cards, hide center speaker */
+#vne-main:not(.vne-combat-mode):not(.vne-has-speaker) .vne-center-area { display: none !important; }
+/* VN mode, speaker active → show center speaker (large portrait), hide RP stage cards */
+#vne-main:not(.vne-combat-mode).vne-has-speaker .vne-rp-stage          { display: none !important; }
+/* Combat mode → always hide RP stage, show center speaker area */
+#vne-main.vne-combat-mode .vne-rp-stage                                { display: none !important; }
 
 /* ── ROLEPLAY STAGE (VN mode, non-combat) — occupies grid-column 2 of .vne-stage ── */
 .vne-rp-stage {
@@ -1028,7 +1030,31 @@
   justify-content: center;
   /* Let the portrait be as tall as the stage allows */
   max-height: calc(100vh - 200px);
-  pointer-events: none;
+  pointer-events: all;
+}
+
+/* Clear-speaker button — sits inline in the nameplate next to the name */
+.vne-nameplate-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vne-speaker-clear-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: rgba(200,155,60,0.6);
+  font-size: 1.1em;
+  transition: color var(--vne-transition), transform var(--vne-transition);
+  pointer-events: all;
+}
+.vne-speaker-clear-btn:hover {
+  color: #e53935;
+  transform: scale(1.2);
 }
 
 .vne-center-img {
