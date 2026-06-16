@@ -73,6 +73,15 @@ export function registerSettings() {
     default: {}
   });
 
+  // World-level license flag — written by GM client after Patreon auth,
+  // read by all clients to decide whether to activate the module.
+  game.settings.register(ID, "worldLicensed", {
+    scope: "world",
+    type: Boolean,
+    config: false,
+    default: false
+  });
+
   // AI Image Generator — folder where generated images are saved
   game.settings.register(ID, "aiImageFolder", {
     name:    "AI Images Folder",

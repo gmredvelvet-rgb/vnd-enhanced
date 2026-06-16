@@ -143,6 +143,10 @@ export class VndLicenseClient {
     this.#tier     = result.tier;
     this.#features = result.features ?? [];
     this.#startHeartbeat();
+    // Activate VNE immediately on this client (no server round-trip needed)
+    Hooks.callAll('vnd-enhanced.activate');
+    // Persist the flag so other connected clients and future reloads also activate
+    game.settings?.set?.(MODULE_ID, 'worldLicensed', true).catch(() => {});
 
     ui.notifications?.info(`VND Enhanced: Connected as ${result.tier} subscriber. Welcome!`);
   }
@@ -154,6 +158,7 @@ export class VndLicenseClient {
       await this.#apiCall('/license/release', { installationId: this.#installationId });
       this.#clearStoredTokens();
       this.#stopHeartbeat();
+      game.settings?.set?.(MODULE_ID, 'worldLicensed', false).catch(() => {});
       ui.notifications?.info('VND Enhanced: Installation slot released.');
     } catch (e) {
       ui.notifications?.error(`VND Enhanced: Failed to release slot — ${e.message}`);
@@ -301,8 +306,9 @@ export class VndLicenseClient {
     if (timeSinceLast > this.#gracePeriodMs) {
       if (!this.#degraded) {
         this.#degraded = true;
-        // Notify GM silently — no intrusive UI for players
         if (game.user?.isGM) {
+          // Lock the module for all clients until the GM reconnects
+          game.settings?.set?.(MODULE_ID, 'worldLicensed', false).catch(() => {});
           ui.notifications?.warn('VND Enhanced: License server unreachable. Premium features suspended until reconnected.');
         }
       }

@@ -113,41 +113,75 @@ router.post('/exchange', async (c) => {
     return c.json({ error: 'User not found or suspended', code: 'USER_INVALID' }, 403);
   }
 
-  // Count active installations
-  const activeCount = await db.count('vnd_installations', {
-    user_id: userId,
-    status:  'active'
-  });
   const MAX_SLOTS = 2;
 
-  // Check if this installation_id already exists (re-activation)
-  let installation = await db.findOne('vnd_installations', { installation_id: installationId });
+  // Fetch ALL rows for this user (any status) — UNIQUE constraint applies to all rows,
+  // so we must count total rows (not just active) before deciding INSERT vs UPDATE.
+  const allInstalls = await db.findMany('vnd_installations', { user_id: userId });
+
+  // Check if this installation_id already exists on this user (re-activation)
+  let installation = allInstalls.find(i => i.installation_id === installationId) ?? null;
+
+  // Also check globally in case it belongs to a different user (conflict guard)
+  if (!installation) {
+    const foreign = await db.findOne('vnd_installations', { installation_id: installationId });
+    if (foreign) return c.json({ error: 'Installation ID conflict', code: 'INSTALL_CONFLICT' }, 409);
+  }
 
   if (installation) {
-    if (installation.user_id !== userId) {
-      return c.json({ error: 'Installation ID conflict', code: 'INSTALL_CONFLICT' }, 409);
-    }
-    // Update fingerprint for re-activations
+    // Re-activation on same world — update in place
     installation = await db.update('vnd_installations',
       { id: installation.id },
-      { fingerprint_hash: fingerprintHash, updated_at: new Date().toISOString() }
+      { fingerprint_hash: fingerprintHash, status: 'active', updated_at: new Date().toISOString() }
     );
-  } else {
-    if (activeCount >= MAX_SLOTS) {
-      return c.json({
-        error:   `All ${MAX_SLOTS} installation slots are in use. Free one from your dashboard.`,
-        code:    'SLOTS_FULL',
-        dashboardUrl: `https://vnd-license.REPLACE.workers.dev/dashboard`
-      }, 403);
+  } else if (allInstalls.length >= MAX_SLOTS) {
+    // Table is full (UNIQUE on slot_number covers all statuses) — must overwrite a row.
+    // Prefer evicting revoked/inactive slots first, then least-recently-heartbeated active slot.
+    const toEvict = [...allInstalls].sort((a, b) => {
+      const aActive = a.status === 'active' ? 1 : 0;
+      const bActive = b.status === 'active' ? 1 : 0;
+      if (aActive !== bActive) return aActive - bActive;
+      return new Date(a.last_heartbeat ?? 0) - new Date(b.last_heartbeat ?? 0);
+    })[0];
+
+    // Only revoke tokens when displacing an active slot
+    if (toEvict.status === 'active') {
+      const oldTokens = await db.findMany('vnd_refresh_tokens', { installation_id: toEvict.id });
+      for (const t of oldTokens) {
+        if (!t.is_revoked) {
+          await db.update('vnd_refresh_tokens', { id: t.id }, {
+            is_revoked: true, revoked_at: new Date().toISOString(), revocation_reason: 'auto_replaced'
+          });
+        }
+      }
+      await c.env.KV.put(`revoked:install:${toEvict.installation_id}`, '1', { expirationTtl: 86400 * 31 });
     }
 
+    installation = await db.update('vnd_installations', { id: toEvict.id }, {
+      installation_id:   installationId,
+      fingerprint_hash:  fingerprintHash,
+      status:            'active',
+      last_heartbeat:    null,
+      heartbeat_count:   0,
+      revoked_at:        null,
+      revocation_reason: null,
+      updated_at:        new Date().toISOString()
+    });
+  } else {
+    // Truly fresh — find first slot_number not already taken
+    const usedSlots = new Set(allInstalls.map(i => i.slot_number));
+    const slotNumber = [1, 2, 3, 4].find(n => !usedSlots.has(n)) ?? (allInstalls.length + 1);
     installation = await db.insert('vnd_installations', {
       installation_id:  installationId,
       user_id:          userId,
-      slot_number:      activeCount + 1,
+      slot_number:      slotNumber,
       fingerprint_hash: fingerprintHash,
       status:           'active'
     });
+  }
+
+  if (!installation) {
+    return c.json({ error: 'Failed to claim installation slot', code: 'SLOT_ERROR' }, 500);
   }
 
   // Issue access + refresh tokens

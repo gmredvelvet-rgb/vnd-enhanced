@@ -561,10 +561,56 @@
   filter: drop-shadow(0 0 40px rgba(200,155,60,0.75)) drop-shadow(0 0 80px rgba(200,120,0,0.35));
 }
 
+/* Single-row image heights by slot count */
 .vne-rp-slot[data-slot-count="1"] .vne-rp-img { max-height: 90vh; }
 .vne-rp-slot[data-slot-count="2"] .vne-rp-img { max-height: 83vh; }
 .vne-rp-slot[data-slot-count="3"] .vne-rp-img { max-height: 76vh; }
 .vne-rp-slot[data-slot-count="4"] .vne-rp-img { max-height: 68vh; }
+.vne-rp-slot[data-slot-count="5"] .vne-rp-img { max-height: 60vh; }
+
+/* ── TWO-ROW STAGE (6–10 characters) ────────────────────────────────────── */
+.vne-rp-stage.vne-two-rows {
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+}
+
+.vne-rp-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: space-evenly;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.vne-rp-row.vne-rp-row-top {
+  align-items: flex-start;
+  border-bottom: 1px solid rgba(200,155,60,0.08);
+}
+
+/* Two-row mode: images sized to fit half the stage height */
+.vne-rp-stage.vne-two-rows .vne-rp-img { max-height: 44vh; }
+.vne-rp-stage.vne-two-rows .vne-rp-slot[data-slot-count="1"] .vne-rp-img { max-height: 48vh; }
+.vne-rp-stage.vne-two-rows .vne-rp-slot[data-slot-count="2"] .vne-rp-img { max-height: 46vh; }
+.vne-rp-stage.vne-two-rows .vne-rp-slot[data-slot-count="3"] .vne-rp-img { max-height: 44vh; }
+.vne-rp-stage.vne-two-rows .vne-rp-slot[data-slot-count="4"] .vne-rp-img { max-height: 42vh; }
+.vne-rp-stage.vne-two-rows .vne-rp-slot[data-slot-count="5"] .vne-rp-img { max-height: 40vh; }
+
+/* Top-row: nameplate sits just below the image (not pinned to bottom) */
+.vne-rp-row.vne-rp-row-top .vne-rp-slot {
+  justify-content: flex-start;
+}
+.vne-rp-row.vne-rp-row-top .vne-rp-portrait-wrap {
+  align-items: flex-start;
+  flex: 0 0 auto;
+  max-height: 100%;
+}
+.vne-rp-row.vne-rp-row-top .vne-rp-img {
+  object-position: top center;
+  max-height: 100%;
+}
 
 .vne-rp-slot.vne-rp-speaking::after {
   content: '';
@@ -868,6 +914,41 @@
 }
 .vne-cast-portrait:hover .vne-remove-cast-btn { opacity: 1; }
 .vne-remove-cast-btn:hover { background: rgba(220,40,40,1); }
+
+/* ── SIDE PANEL CAROUSEL NAV BUTTONS ────────────────────────────────────── */
+.vne-panel-nav {
+  width: 34px;
+  height: 34px;
+  background: rgba(10,10,20,0.75);
+  border: 1px solid var(--vne-border);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--vne-accent);
+  font-size: 0.85em;
+  flex-shrink: 0;
+  pointer-events: all;
+  transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
+  z-index: 2;
+}
+.vne-panel-nav:hover {
+  background: rgba(200,155,60,0.22);
+  box-shadow: 0 0 10px rgba(200,155,60,0.45);
+  transform: scale(1.08);
+}
+.vne-panel-nav-up  { margin-bottom: 3px; }
+.vne-panel-nav-down { margin-top: 3px; }
+
+.vne-panel-page-indicator {
+  font-size: 0.62em;
+  color: var(--vne-text-dim);
+  letter-spacing: 0.05em;
+  text-align: center;
+  padding: 2px 0 4px;
+  flex-shrink: 0;
+}
 
 /* Empty slot hint */
 .vne-cast-empty {
@@ -2091,6 +2172,7 @@
 }
 
 .vne-vs-side {
+  position: relative;   /* anchor for .vne-fx-overlay */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2224,8 +2306,13 @@
 }
 
 .vne-carousel-defeated {
+  opacity: 0.6;
+}
+.vne-carousel-defeated > img {
   filter: grayscale(1) brightness(0.45);
-  opacity: 0.55;
+}
+.vne-carousel-defeated .vne-carousel-footer {
+  opacity: 0.6;
 }
 
 /* NEXT / +2 turn indicators */
@@ -2384,4 +2471,23 @@
   height: 1px;
   background: rgba(200,155,60,0.22);
   margin: 3px 8px;
+}
+
+/* ── SEQUENCER VFX OVERLAYS ──────────────────────────────────────────────── */
+.vne-fx-overlay {
+  position: absolute;
+  inset: -20%;          /* overflow portrait bounds — VFX look better slightly larger */
+  z-index: 50;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.vne-fx-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  mix-blend-mode: screen;  /* black background of webm becomes transparent */
 }
