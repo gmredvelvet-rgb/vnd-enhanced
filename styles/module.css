@@ -2792,9 +2792,9 @@
   animation: vne-tc-portrait-in 0.55s cubic-bezier(0.22, 1.3, 0.36, 1) forwards;
 }
 .vne-tc-portrait {
-  max-height: 96vh;
-  max-width: 100%;
+  height: 100vh;
   width: auto;
+  max-width: none;
   object-fit: contain;
   object-position: bottom center;
   display: block;
@@ -2984,38 +2984,18 @@
   position: relative;
   z-index: 1;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
   animation: vne-crit-slam 0.38s cubic-bezier(0.22, 1.8, 0.36, 1) forwards;
 }
-.vne-crit-icon {
-  font-size: 4em;
-  line-height: 1;
-  filter: drop-shadow(0 0 16px currentColor);
+.vne-crit-img {
+  max-height: 80vh;
+  max-width: 80vw;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 0 40px rgba(0,0,0,0.8));
 }
-.vne-crit-text {
-  font-size: clamp(3em, 6vw, 5.5em);
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  text-shadow: 0 0 30px currentColor, 3px 3px 6px rgba(0,0,0,0.9);
-  line-height: 1;
-}
-.vne-crit-sub {
-  font-size: 1.1em;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  font-weight: 600;
-  opacity: 0.7;
-}
-
-.vne-crit-crit   .vne-crit-icon,
-.vne-crit-crit   .vne-crit-text,
-.vne-crit-crit   .vne-crit-sub  { color: #ffd700; }
-.vne-crit-fumble .vne-crit-icon,
-.vne-crit-fumble .vne-crit-text,
-.vne-crit-fumble .vne-crit-sub  { color: #ff5050; }
 
 @keyframes vne-crit-appear    { from { opacity: 0; } to { opacity: 1; } }
 @keyframes vne-crit-disappear { from { opacity: 1; } to { opacity: 0; } }

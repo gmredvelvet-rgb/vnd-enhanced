@@ -1123,16 +1123,15 @@ function _showCriticalAnimation(type, actorId = null) {
 
   document.getElementById("vne-crit-overlay")?.remove();
 
-  const isCrit   = type === "crit";
-  const overlay  = document.createElement("div");
+  const isCrit  = type === "crit";
+  const imgFile = isCrit ? "critsucc" : "critfail";
+  const overlay = document.createElement("div");
   overlay.id = "vne-crit-overlay";
   overlay.className = `vne-crit-overlay vne-crit-${type}`;
   overlay.innerHTML = `
     <div class="vne-crit-rays"></div>
     <div class="vne-crit-content">
-      <div class="vne-crit-icon">${isCrit ? "⚡" : "✗"}</div>
-      <div class="vne-crit-text">${isCrit ? "¡CRÍTICO!" : "¡PIFIA!"}</div>
-      <div class="vne-crit-sub">${isCrit ? "GOLPE CRÍTICO" : "FALLO CRÍTICO"}</div>
+      <img class="vne-crit-img" src="modules/vnd-enhanced/assets/imgs/${imgFile}.png" />
     </div>
   `;
   main.appendChild(overlay);
@@ -1142,8 +1141,8 @@ function _showCriticalAnimation(type, actorId = null) {
 
   setTimeout(() => {
     overlay.classList.add("vne-crit-fadeout");
-    setTimeout(() => overlay.remove(), 550);
-  }, 2200);
+    setTimeout(() => overlay.remove(), 500);
+  }, 1000);
 }
 
 // ── Chat Message Critical Parser ──────────────────────────────────────────────
@@ -1151,9 +1150,17 @@ function _showCriticalAnimation(type, actorId = null) {
 
 function _parseCritFromMessage(message) {
   // PF2e — uses structured outcome flags
-  const pf2eOutcome = message.flags?.pf2e?.context?.outcome;
-  if (pf2eOutcome === "criticalSuccess") return "crit";
-  if (pf2eOutcome === "criticalFailure") return "fumble";
+  const pf2eCtx     = message.flags?.pf2e?.context;
+  const pf2eOutcome = pf2eCtx?.outcome;
+  if (pf2eOutcome) {
+    // Skip flat checks — PF2e fires these automatically at turn start for
+    // persistent damage, recovery checks, etc. They are not dramatic moments.
+    const type = (pf2eCtx?.type ?? "").toLowerCase();
+    if (type.includes("flat")) return null;
+    if (pf2eOutcome === "criticalSuccess") return "crit";
+    if (pf2eOutcome === "criticalFailure") return "fumble";
+    return null;
+  }
 
   // D&D 5e — check dice terms for nat 20 / nat 1 on a d20 attack roll
   try {
