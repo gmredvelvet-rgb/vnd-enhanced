@@ -217,7 +217,7 @@ function templatePortrait(p, side, stageActorIds, worldOffsetY, editMode, combat
     isCombatTarget,
     isTargeted,
     isYourTurn,
-    imgStyle: `transform: scale(${scaleVal}) scaleX(${scaleX}); margin-top: ${oy}px; margin-left: ${ox}px;`,
+    imgStyle: `transform: scale(${scaleVal}) scaleX(${scaleX});`,
     editMode
   };
 }
@@ -2737,9 +2737,9 @@ function _livePreviewPortrait(actorId, side, { img, scale, offsetX, offsetY, mir
   const oy = (offsetY || 0) - worldOffsetY;
   const ox = offsetX || 0;
 
-  // Side-panel portrait — mirror logic matches templatePortrait (right side pre-flipped)
+  // Side-panel portrait — only scale + mirror, NO offsetX/Y (offset applies to stage/VS only)
   const panelScaleX = (side === "left" ? !mirrorX : mirrorX) ? 1 : -1;
-  const panelStyle  = `transform:scale(${scaleVal}) scaleX(${panelScaleX});margin-top:${oy}px;margin-left:${ox}px;`;
+  const panelStyle  = `transform:scale(${scaleVal}) scaleX(${panelScaleX});`;
   const panelImgEl  = document.querySelector(`.vne-cast-portrait[data-id="${actorId}"] .vne-cast-img`);
   if (panelImgEl) { panelImgEl.setAttribute("style", panelStyle); if (img) panelImgEl.src = img; }
 
