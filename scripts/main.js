@@ -432,8 +432,9 @@ async function _createGhostToken(actorId) {
   if (!actor || !canvas.scene) return null;
 
   // Stack ghost tokens at the bottom-right corner of the scene (inside canvas bounds).
-  // hidden:true keeps them invisible to players; on-canvas position lets Sequencer
-  // resolve coordinates without "Could not determine where to play" errors.
+  // NOT hidden — hidden tokens are not accessible on player clients so Sequencer
+  // can't resolve their position. alpha:0.001 makes them effectively invisible
+  // while remaining in canvas.tokens for all clients (Sequencer needs this).
   const gridSize  = canvas.scene.grid?.size ?? 100;
   const sceneW    = canvas.scene.width  ?? 4000;
   const sceneH    = canvas.scene.height ?? 3000;
@@ -445,7 +446,10 @@ async function _createGhostToken(actorId) {
     ...tokenData,
     actorId,
     actorLink: true,
-    hidden: true,
+    hidden: false,
+    alpha: 0.001,         // Practically invisible without being "hidden"
+    vision: false,        // Don't affect Fog of War (v11)
+    sight: { enabled: false }, // Don't affect Fog of War (v12+)
     x,
     y,
     name: actor.name,
@@ -949,7 +953,7 @@ function _vsDataFromPortrait(p, side = "left") {
   const worldOffsetY = game.settings.get?.(ID, "worldOffsetY") ?? 0;
   const oy = (p.offsetY || 0) - worldOffsetY;
   const ox = p.offsetX || 0;
-  const imgStyle = `transform:scale(${scaleVal}) scaleX(${scaleX});margin-top:${oy}px;margin-left:${ox}px;`;
+  const imgStyle = `transform:translateY(${oy}px) translateX(${ox}px) scale(${scaleVal}) scaleX(${scaleX});`;
   return { img: getPortraitImg(p), name: p.name, hp, hpMax, imgStyle };
 }
 
@@ -1059,7 +1063,7 @@ function _showTurnCard(combatant) {
 
   document.body.appendChild(card);
 
-  // Auto-dismiss: fade-out after 2.6s, remove after 3.1s
+  // Auto-dismiss: fade-out after 1.3s, remove after 1.8s (half the original duration)
   _lastTurnCardInnerTimer = null;
   _lastTurnCardTimer = setTimeout(() => {
     card.classList.add("vne-tc-out");
@@ -1067,7 +1071,7 @@ function _showTurnCard(combatant) {
       card.remove();
       _lastTurnCardInnerTimer = null;
     }, 500);
-  }, 2600);
+  }, 1300);
 }
 
 // ── Damage Floaters ───────────────────────────────────────────────────────────
@@ -2739,15 +2743,15 @@ function _livePreviewPortrait(actorId, side, { img, scale, offsetX, offsetY, mir
   const panelImgEl  = document.querySelector(`.vne-cast-portrait[data-id="${actorId}"] .vne-cast-img`);
   if (panelImgEl) { panelImgEl.setAttribute("style", panelStyle); if (img) panelImgEl.src = img; }
 
-  // RP stage portrait — mirror matches _patchVNStage (no pre-flip)
+  // RP stage portrait — translateY/X before scale so offsets are in screen pixels
   const stageScaleX = mirrorX ? -1 : 1;
-  const stageStyle  = `transform:scale(${scaleVal}) scaleX(${stageScaleX});margin-top:${oy}px;margin-left:${ox}px;`;
+  const stageStyle  = `transform:translateY(${oy}px) translateX(${ox}px) scale(${scaleVal}) scaleX(${stageScaleX});`;
   const stageImgEl  = document.querySelector(`.vne-rp-slot[data-id="${actorId}"] .vne-rp-img`);
   if (stageImgEl) { stageImgEl.setAttribute("style", stageStyle); if (img) stageImgEl.src = img; }
 
-  // VS combat display — update style and src (same mirror logic as templatePortrait)
+  // VS combat display — same translateY/X approach
   const vsScaleX = (side === "left" ? !mirrorX : mirrorX) ? 1 : -1;
-  const vsStyle  = `transform:scale(${scaleVal}) scaleX(${vsScaleX});margin-top:${oy}px;margin-left:${ox}px;`;
+  const vsStyle  = `transform:translateY(${oy}px) translateX(${ox}px) scale(${scaleVal}) scaleX(${vsScaleX});`;
   if (side === "left" && _vsLeft) {
     if (img) _vsLeft.img = img;
     _vsLeft.imgStyle = vsStyle;
@@ -2785,7 +2789,9 @@ function _patchVNStage(d, worldOffsetY) {
     const oy = (p.offsetY || 0) - worldOffsetY;
     const ox = p.offsetX || 0;
     const img      = getPortraitImg(p);
-    const imgStyle = `transform: scale(${scaleVal}) scaleX(${scaleX}); margin-top: ${oy}px; margin-left: ${ox}px;`;
+    // translateY/X come before scale so offsets are in screen pixels, not scaled px.
+    // margin-top has no effect on flex-end aligned items (wrap uses align-items:flex-end).
+    const imgStyle = `transform: translateY(${oy}px) translateX(${ox}px) scale(${scaleVal}) scaleX(${scaleX});`;
     const canCtrl  = canControlActor(p.id);
 
     let reactionsHtml = "";
