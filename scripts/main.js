@@ -410,9 +410,12 @@ function getVNECastTokens(d = getData()) {
   const actorIds = new Set([
     ...(d.leftCast ?? []), ...(d.rightCast ?? [])
   ].map(p => p.id));
-  return (canvas.tokens?.placeables ?? []).filter(t =>
-    actorIds.has(t.document?.actorId ?? t.actor?.id)
-  );
+  return (canvas.tokens?.placeables ?? []).filter(t => {
+    if (!actorIds.has(t.document?.actorId ?? t.actor?.id)) return false;
+    // Exclude ghost tokens created by VNE — they exist for VFX only and must not enter the combat tracker
+    if (t.document?.flags?.[ID]?.isGhost) return false;
+    return true;
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -928,7 +931,7 @@ function _renderVSDisplay() {
     </div><div class="vne-vs-hp-text">${p.hp}/${p.hpMax}</div>`;
   };
   const mkSide = (p) => p
-    ? `<img class="vne-vs-img" src="${_esc(p.img || 'icons/svg/mystery-man.svg')}" onerror="this.src='icons/svg/mystery-man.svg'" /><div class="vne-vs-name">${_esc(p.name)}</div>${mkHpBar(p)}`
+    ? `<div class="vne-vs-img-wrap"><img class="vne-vs-img" src="${_esc(p.img || 'icons/svg/mystery-man.svg')}" style="${p.imgStyle || ''}" onerror="this.src='icons/svg/mystery-man.svg'" /></div><div class="vne-vs-name">${_esc(p.name)}</div>${mkHpBar(p)}`
     : "";
   const showVS = !!(_vsLeft || _vsRight);
   vsEl.innerHTML = `
@@ -937,11 +940,17 @@ function _renderVSDisplay() {
     <div class="vne-vs-side vne-vs-right">${mkSide(_vsRight)}</div>`;
 }
 
-function _vsDataFromPortrait(p) {
+function _vsDataFromPortrait(p, side = "left") {
   const actor = game.actors.get(p.id);
   const hp    = actor?.system?.attributes?.hp?.value ?? null;
   const hpMax = actor?.system?.attributes?.hp?.max   ?? null;
-  return { img: getPortraitImg(p), name: p.name, hp, hpMax };
+  const scaleVal = (p.scale || 100) / 100;
+  const scaleX   = (side === "left" ? !p.mirrorX : p.mirrorX) ? 1 : -1;
+  const worldOffsetY = game.settings.get?.(ID, "worldOffsetY") ?? 0;
+  const oy = (p.offsetY || 0) - worldOffsetY;
+  const ox = p.offsetX || 0;
+  const imgStyle = `transform:scale(${scaleVal}) scaleX(${scaleX});margin-top:${oy}px;margin-left:${ox}px;`;
+  return { img: getPortraitImg(p), name: p.name, hp, hpMax, imgStyle };
 }
 
 // Called on turn change — updates the side that corresponds to the active combatant.
@@ -961,19 +970,19 @@ function _updateVSFromCombat() {
   if (currentId) {
     const leftP  = d.leftCast.find(p => p.id === currentId);
     const rightP = d.rightCast.find(p => p.id === currentId);
-    if (leftP)  _vsLeft  = _vsDataFromPortrait(leftP);
-    if (rightP) _vsRight = _vsDataFromPortrait(rightP);
+    if (leftP)  _vsLeft  = _vsDataFromPortrait(leftP,  "left");
+    if (rightP) _vsRight = _vsDataFromPortrait(rightP, "right");
   }
   // Seed any side that is still empty from the full turn order
   if (!_vsLeft || !_vsRight) {
     for (const turn of (combat.turns ?? [])) {
       if (!_vsLeft) {
         const p = d.leftCast.find(q => q.id === turn.actorId);
-        if (p) _vsLeft  = _vsDataFromPortrait(p);
+        if (p) _vsLeft  = _vsDataFromPortrait(p, "left");
       }
       if (!_vsRight) {
         const p = d.rightCast.find(q => q.id === turn.actorId);
-        if (p) _vsRight = _vsDataFromPortrait(p);
+        if (p) _vsRight = _vsDataFromPortrait(p, "right");
       }
       if (_vsLeft && _vsRight) break;
     }
@@ -989,7 +998,7 @@ function _updateVSOnTarget(actorId, side) {
     ? d.rightCast.find(p => p.id === actorId)
     : d.leftCast.find(p => p.id === actorId);
   if (!castP) return;
-  const portrait = _vsDataFromPortrait(castP);  // preserves hp/hpMax for HP bars
+  const portrait = _vsDataFromPortrait(castP, side);  // preserves hp/hpMax for HP bars
   if (side === "right") _vsRight = portrait;
   else                  _vsLeft  = portrait;
   _renderVSDisplay();
@@ -2736,19 +2745,20 @@ function _livePreviewPortrait(actorId, side, { img, scale, offsetX, offsetY, mir
   const stageImgEl  = document.querySelector(`.vne-rp-slot[data-id="${actorId}"] .vne-rp-img`);
   if (stageImgEl) { stageImgEl.setAttribute("style", stageStyle); if (img) stageImgEl.src = img; }
 
-  // VS combat display — only src matters (VS doesn't apply scale/offset)
-  if (img) {
-    const d = getData();
-    if (d.leftCast.some(p => p.id === actorId) && _vsLeft) {
-      _vsLeft.img = img;
-      const vsEl = document.querySelector(".vne-vs-left .vne-vs-img");
-      if (vsEl) vsEl.src = img;
-    }
-    if (d.rightCast.some(p => p.id === actorId) && _vsRight) {
-      _vsRight.img = img;
-      const vsEl = document.querySelector(".vne-vs-right .vne-vs-img");
-      if (vsEl) vsEl.src = img;
-    }
+  // VS combat display — update style and src (same mirror logic as templatePortrait)
+  const vsScaleX = (side === "left" ? !mirrorX : mirrorX) ? 1 : -1;
+  const vsStyle  = `transform:scale(${scaleVal}) scaleX(${vsScaleX});margin-top:${oy}px;margin-left:${ox}px;`;
+  if (side === "left" && _vsLeft) {
+    if (img) _vsLeft.img = img;
+    _vsLeft.imgStyle = vsStyle;
+    const vsEl = document.querySelector(".vne-vs-left .vne-vs-img");
+    if (vsEl) { if (img) vsEl.src = img; vsEl.setAttribute("style", vsStyle); }
+  }
+  if (side === "right" && _vsRight) {
+    if (img) _vsRight.img = img;
+    _vsRight.imgStyle = vsStyle;
+    const vsEl = document.querySelector(".vne-vs-right .vne-vs-img");
+    if (vsEl) { if (img) vsEl.src = img; vsEl.setAttribute("style", vsStyle); }
   }
 }
 

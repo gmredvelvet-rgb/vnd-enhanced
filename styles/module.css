@@ -2252,12 +2252,19 @@
   filter: drop-shadow(0 8px 28px rgba(0,0,0,0.9));
 }
 
-.vne-vs-left .vne-vs-img {
-  animation: vne-vs-enter-left 0.45s cubic-bezier(0.2, 0, 0.2, 1.3) both;
+/* Wrapper takes the slide-in animation so the img can carry its own portrait transform */
+.vne-vs-img-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
 }
-.vne-vs-right .vne-vs-img {
-  animation: vne-vs-enter-right 0.45s cubic-bezier(0.2, 0, 0.2, 1.3) both;
-}
+.vne-vs-left  .vne-vs-img-wrap { animation: vne-vs-enter-left  0.45s cubic-bezier(0.2, 0, 0.2, 1.3) both; }
+.vne-vs-right .vne-vs-img-wrap { animation: vne-vs-enter-right 0.45s cubic-bezier(0.2, 0, 0.2, 1.3) both; }
+/* Animation moved to wrapper above; img is free to hold its own transform */
+.vne-vs-left  .vne-vs-img,
+.vne-vs-right .vne-vs-img { animation: none; max-height: 100%; }
 
 @keyframes vne-vs-enter-left {
   from { opacity: 0; transform: translateX(-40px) scale(0.9); }
