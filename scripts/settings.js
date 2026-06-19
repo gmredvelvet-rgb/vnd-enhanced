@@ -92,4 +92,12 @@ export function registerSettings() {
     config:  true,
     default: "vnd-enhanced/ai-generated"
   });
+
+  // Cast Presets — saved cast configurations (leftCast + rightCast + portraits)
+  game.settings.register(ID, "castPresets", {
+    scope:   "world",
+    type:    Object,
+    config:  false,
+    default: {}
+  });
 }
