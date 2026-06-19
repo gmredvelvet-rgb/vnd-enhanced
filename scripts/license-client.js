@@ -38,8 +38,9 @@ export class VndLicenseClient {
   #fingerprint      = null;
   #features         = [];
   #tier             = 'none';
-  #heartbeatTimer   = null;
-  #lastHeartbeat    = 0;
+  #heartbeatTimer        = null;
+  #initialHeartbeatTimer = null;
+  #lastHeartbeat         = 0;
   #gracePeriodMs    = 5 * 60 * 1000;
   #degraded         = false;
   #rsaPublicKey     = null;   // cached CryptoKey — imported once, reused
@@ -275,11 +276,18 @@ export class VndLicenseClient {
     this.#lastHeartbeat = Date.now();
 
     // First heartbeat after 1 minute (let Foundry finish loading)
-    setTimeout(() => this.#doHeartbeat(), 60_000);
+    this.#initialHeartbeatTimer = setTimeout(() => {
+      this.#initialHeartbeatTimer = null;
+      this.#doHeartbeat();
+    }, 60_000);
     this.#heartbeatTimer = setInterval(() => this.#doHeartbeat(), INTERVAL);
   }
 
   #stopHeartbeat() {
+    if (this.#initialHeartbeatTimer) {
+      clearTimeout(this.#initialHeartbeatTimer);
+      this.#initialHeartbeatTimer = null;
+    }
     if (this.#heartbeatTimer) {
       clearInterval(this.#heartbeatTimer);
       this.#heartbeatTimer = null;

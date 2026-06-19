@@ -36,7 +36,7 @@ let _timerDurationMs  = 0;       // total duration in ms
 
 // ── Combat state ─────────────────────────────────────────────────────────────
 let _lastCombatTurns = [];       // snapshot { actorId, defeated }[] for deleteCombat victory check
-let _autoReactionDebounceTimer = null;
+const _autoReactionTimers = new Map();  // actorId → debounce timeout handle
 
 // ── Ghost Token Bridge state ──────────────────────────────────────────────────
 // actorId → TokenDocument: hidden off-screen canvas tokens for VFX system compatibility
@@ -45,7 +45,8 @@ let _ghostTokens = new Map();
 // ── Persona / Fire Emblem combat effects state ────────────────────────────────
 const _lastKnownHP       = new Map();  // actorId → last observed HP value
 const _nextHpChangeCrit  = new Set();  // actorIds whose next HP change was preceded by a crit roll
-let   _lastTurnCardTimer = null;       // setTimeout handle for auto-dismiss of turn card
+let   _lastTurnCardTimer      = null;  // setTimeout handle for auto-dismiss of turn card
+let   _lastTurnCardInnerTimer = null;  // setTimeout handle for card fade-out (inner removal)
 
 // Seed _lastKnownHP for all current cast members so the first delta is tracked correctly.
 // Safe to call multiple times — only writes entries that don't already exist.
@@ -104,10 +105,14 @@ function _startTurnTimer(minutes) {
   const btn = document.getElementById("vne-timer-toggle-btn");
   if (btn) { btn.classList.add("vne-active"); btn.title = "Stop timer"; const i = btn.querySelector("i"); if (i) i.className = "fas fa-hourglass-half"; }
   // 250ms tick with Date.now() — immune to tab throttling drift
+  let _timerLastDisplayedSecs = _timerSecondsLeft;
   _timerInterval = setInterval(() => {
     const elapsed = Date.now() - _timerStartedAt;
     _timerSecondsLeft = Math.max(0, Math.ceil((_timerDurationMs - elapsed) / 1000));
-    _patchTimerDisplay();
+    if (_timerSecondsLeft !== _timerLastDisplayedSecs) {
+      _timerLastDisplayedSecs = _timerSecondsLeft;
+      _patchTimerDisplay();
+    }
     if (_timerSecondsLeft === 0) {
       _stopTurnTimer();
       game.combat?.nextTurn().catch(() => {});
@@ -423,10 +428,14 @@ async function _createGhostToken(actorId) {
   const actor = game.actors.get(actorId);
   if (!actor || !canvas.scene) return null;
 
-  // Place tokens far off-screen; stagger X so they don't overlap each other
-  const gridSize = canvas.scene.grid?.size ?? 100;
-  const x = -gridSize * 10 - (_ghostTokens.size * gridSize * 2);
-  const y = -gridSize * 10;
+  // Stack ghost tokens at the bottom-right corner of the scene (inside canvas bounds).
+  // hidden:true keeps them invisible to players; on-canvas position lets Sequencer
+  // resolve coordinates without "Could not determine where to play" errors.
+  const gridSize  = canvas.scene.grid?.size ?? 100;
+  const sceneW    = canvas.scene.width  ?? 4000;
+  const sceneH    = canvas.scene.height ?? 3000;
+  const x = Math.max(0, sceneW - gridSize * 2 - (_ghostTokens.size * gridSize));
+  const y = Math.max(0, sceneH - gridSize * 2);
 
   const tokenData = actor.prototypeToken?.toObject?.() ?? {};
   const createData = {
@@ -536,6 +545,7 @@ function _getPortraitScreenCenter(actorId) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function _playVNEScreenEffect(actorId, file, { durationMs = 2000, scale = 1.5 } = {}) {
+  if (typeof durationMs !== "number" || !isFinite(durationMs) || durationMs <= 0) durationMs = 2000;
   if (!game.modules.get("sequencer")?.active) {
     _playVNFx(actorId, file, durationMs, getData());
     return;
@@ -1014,9 +1024,10 @@ function _showTurnCard(combatant) {
   const theme = isPlayer ? "vne-tc-player" : "vne-tc-enemy";
   const label = isPlayer ? "TURNO DEL JUGADOR" : "TURNO DEL ENEMIGO";
 
-  // Remove any existing card immediately
-  document.getElementById("vne-turn-card")?.remove();
+  // Remove any existing card immediately (cancel both pending timers first)
   clearTimeout(_lastTurnCardTimer);
+  clearTimeout(_lastTurnCardInnerTimer);
+  document.getElementById("vne-turn-card")?.remove();
 
   const card = document.createElement("div");
   card.id = "vne-turn-card";
@@ -1040,9 +1051,13 @@ function _showTurnCard(combatant) {
   document.body.appendChild(card);
 
   // Auto-dismiss: fade-out after 2.6s, remove after 3.1s
+  _lastTurnCardInnerTimer = null;
   _lastTurnCardTimer = setTimeout(() => {
     card.classList.add("vne-tc-out");
-    setTimeout(() => card.remove(), 500);
+    _lastTurnCardInnerTimer = setTimeout(() => {
+      card.remove();
+      _lastTurnCardInnerTimer = null;
+    }, 500);
   }, 2600);
 }
 
@@ -1363,10 +1378,14 @@ function openPortraitEditor(portraitId, side = null) {
         label: "<i class='fas fa-check'></i> Save",
         callback: async (html) => {
           const d2 = getData();
+          // Prefer data-picked so onerror fallback path is never saved as the portrait image
+          const imgEl  = html.find("#pe-img");
+          const newImg = imgEl.attr("data-picked") || imgEl.attr("src");
+          const imgChanged = newImg !== p.img;
           const updates = {
             name:    html.find("#pe-name").val().trim() || p.name,
             title:   html.find("#pe-title").val().trim(),
-            img:     html.find("#pe-img").attr("src"),
+            img:     newImg,
             scale:   Number.parseInt(html.find("#pe-scale").val(), 10),
             offsetX: Number.parseInt(html.find("#pe-ox").val(), 10),
             offsetY: Number.parseInt(html.find("#pe-oy").val(), 10),
@@ -1375,23 +1394,45 @@ function openPortraitEditor(portraitId, side = null) {
           // Update portrait in every cast that contains this actor
           for (const key of ["leftCast", "rightCast"]) {
             const idx = (d2[key] || []).findIndex(x => x.id === portraitId);
-            if (idx >= 0) Object.assign(d2[key][idx], updates);
+            if (idx >= 0) {
+              Object.assign(d2[key][idx], updates);
+              // Keep reactions.default in sync when the portrait image changes
+              if (imgChanged && d2[key][idx].reactions?.default === p.img)
+                d2[key][idx].reactions.default = newImg;
+            }
           }
-          d2.portraits[portraitId] = { ...(d2.portraits[portraitId] || p), ...updates };
+          const stored = d2.portraits[portraitId] || p;
+          d2.portraits[portraitId] = { ...stored, ...updates };
+          if (imgChanged && d2.portraits[portraitId].reactions?.default === p.img)
+            d2.portraits[portraitId].reactions = { ...d2.portraits[portraitId].reactions, default: newImg };
           await saveData(d2, { change: "castChange" });
         }
       },
       cancel: { label: "Cancel" }
     },
     render: (html) => {
-      html.find("#pe-scale").on("input", function() { html.find("#pe-scale-v").text(this.value); });
-      html.find("#pe-ox").on("input", function()    { html.find("#pe-ox-v").text(this.value); });
-      html.find("#pe-oy").on("input", function()    { html.find("#pe-oy-v").text(this.value); });
+      function livePreview() {
+        const imgEl = html.find("#pe-img");
+        _livePreviewPortrait(portraitId, side, {
+          img:     imgEl.attr("data-picked") || imgEl.attr("src"),
+          scale:   Number.parseInt(html.find("#pe-scale").val(), 10),
+          offsetX: Number.parseInt(html.find("#pe-ox").val(), 10),
+          offsetY: Number.parseInt(html.find("#pe-oy").val(), 10),
+          mirrorX: html.find("#pe-mirror").is(":checked"),
+        });
+      }
+      html.find("#pe-scale").on("input", function() { html.find("#pe-scale-v").text(this.value); livePreview(); });
+      html.find("#pe-ox").on("input",    function() { html.find("#pe-ox-v").text(this.value);    livePreview(); });
+      html.find("#pe-oy").on("input",    function() { html.find("#pe-oy-v").text(this.value);    livePreview(); });
+      html.find("#pe-mirror").on("change", livePreview);
       html.find("#pe-pick-img").on("click", () => {
         new FilePicker({
           type: "image",
           current: game.settings.get(ID, "portraitFolderPath") || "",
-          callback: (path) => html.find("#pe-img").attr("src", path)
+          callback: (path) => {
+            html.find("#pe-img").attr("src", path).attr("data-picked", path);
+            livePreview();
+          }
         }).render(true);
       });
       html.find("#pe-reactions-btn").on("click", () => openReactionManager(portraitId));
@@ -2207,6 +2248,7 @@ Hooks.on("updateSetting", (setting, _value, options) => {
         // Sidebar mount happens in activateListeners after render
       } else {
         _unmountSidebar();
+        _stopTurnTimer();
       }
     }
     if (change === "combatMode") {
@@ -2269,6 +2311,11 @@ Hooks.on("updateSetting", (setting, _value, options) => {
     if (game.user.isGM && d.combatMode) _syncGhostTokens(d);
     // Seed HP map for any newly added cast member so first HP delta shows correctly
     _seedCastHP(d);
+    // Prune HP map for actors no longer in any cast to avoid unbounded growth
+    const castIds = new Set([...(d.leftCast ?? []), ...(d.rightCast ?? [])].map(p => p.id));
+    for (const id of _lastKnownHP.keys()) {
+      if (!castIds.has(id)) _lastKnownHP.delete(id);
+    }
   }
 
   if (change === "stageChange") {
@@ -2390,6 +2437,7 @@ function openScenesPanel() {
         if (!loc) return;
         d2.location = { ...loc };
         await saveData(d2, { change: "location" });
+        d.location = { ...loc };   // keep closure in sync so refreshGrid() marks correct active card
         // Immediately reflect active state in grid without full rebuild
         grid.querySelectorAll(".vne-sp-card").forEach(c => c.classList.remove("vne-sp-card-active"));
         card.classList.add("vne-sp-card-active");
@@ -2668,6 +2716,42 @@ function _patchCast(d) {
   _patchSidePanel("right", d, worldOffsetY, editMode);
 }
 
+// Live portrait preview — patches only the affected DOM elements without writing to settings.
+// Called on every slider input in openPortraitEditor for instant visual feedback.
+function _livePreviewPortrait(actorId, side, { img, scale, offsetX, offsetY, mirrorX }) {
+  const worldOffsetY = game.settings.get(ID, "worldOffsetY") || 0;
+  const scaleVal = (scale || 100) / 100;
+  const oy = (offsetY || 0) - worldOffsetY;
+  const ox = offsetX || 0;
+
+  // Side-panel portrait — mirror logic matches templatePortrait (right side pre-flipped)
+  const panelScaleX = (side === "left" ? !mirrorX : mirrorX) ? 1 : -1;
+  const panelStyle  = `transform:scale(${scaleVal}) scaleX(${panelScaleX});margin-top:${oy}px;margin-left:${ox}px;`;
+  const panelImgEl  = document.querySelector(`.vne-cast-portrait[data-id="${actorId}"] .vne-cast-img`);
+  if (panelImgEl) { panelImgEl.setAttribute("style", panelStyle); if (img) panelImgEl.src = img; }
+
+  // RP stage portrait — mirror matches _patchVNStage (no pre-flip)
+  const stageScaleX = mirrorX ? -1 : 1;
+  const stageStyle  = `transform:scale(${scaleVal}) scaleX(${stageScaleX});margin-top:${oy}px;margin-left:${ox}px;`;
+  const stageImgEl  = document.querySelector(`.vne-rp-slot[data-id="${actorId}"] .vne-rp-img`);
+  if (stageImgEl) { stageImgEl.setAttribute("style", stageStyle); if (img) stageImgEl.src = img; }
+
+  // VS combat display — only src matters (VS doesn't apply scale/offset)
+  if (img) {
+    const d = getData();
+    if (d.leftCast.some(p => p.id === actorId) && _vsLeft) {
+      _vsLeft.img = img;
+      const vsEl = document.querySelector(".vne-vs-left .vne-vs-img");
+      if (vsEl) vsEl.src = img;
+    }
+    if (d.rightCast.some(p => p.id === actorId) && _vsRight) {
+      _vsRight.img = img;
+      const vsEl = document.querySelector(".vne-vs-right .vne-vs-img");
+      if (vsEl) vsEl.src = img;
+    }
+  }
+}
+
 function _patchVNStage(d, worldOffsetY) {
   const stage = document.getElementById("vne-rp-stage");
   if (!stage) return;
@@ -2739,8 +2823,10 @@ function _patchVNStage(d, worldOffsetY) {
   }
 
   stage.innerHTML = html;
-  // The spotlight overlay is wiped by innerHTML — re-inject if still active
-  if (_spotlightActorId) _enterSpotlight(_spotlightActorId);
+  // The spotlight overlay is wiped by innerHTML — re-inject only if actor is still on stage
+  if (_spotlightActorId && stage.querySelector(`.vne-rp-slot[data-id="${_spotlightActorId}"]`))
+    _enterSpotlight(_spotlightActorId);
+  else if (_spotlightActorId) _spotlightActorId = null;
 
   stage.querySelectorAll(".vne-rp-slot").forEach(slot => {
     // Double-click → enter/exit spotlight mode
@@ -3121,6 +3207,7 @@ Hooks.on("updateCombatant",  (combatant, changes) => {
   if (changes.defeated === true) _checkVictoryCondition(_lastCombatTurns);
 });
 Hooks.on("deleteCombat",     () => {
+  _stopTurnTimer();
   renderVNECombatCarousel();
   _checkVictoryCondition(_lastCombatTurns); // use pre-delete snapshot
   _lastCombatTurns = [];                    // clear after use
@@ -3148,8 +3235,11 @@ Hooks.on("updateActor", (actor, changes) => {
     if (_vsLeft  && d.leftCast.some(p => p.id === actor.id))  { _vsLeft  = { ..._vsLeft,  hp, hpMax }; vsChanged = true; }
     if (_vsRight && d.rightCast.some(p => p.id === actor.id)) { _vsRight = { ..._vsRight, hp, hpMax }; vsChanged = true; }
     if (vsChanged) _renderVSDisplay();
-    clearTimeout(_autoReactionDebounceTimer);
-    _autoReactionDebounceTimer = setTimeout(() => _applyAutoReaction(actor.id), 150);
+    clearTimeout(_autoReactionTimers.get(actor.id));
+    _autoReactionTimers.set(actor.id, setTimeout(() => {
+      _autoReactionTimers.delete(actor.id);
+      _applyAutoReaction(actor.id);
+    }, 150));
   }
 
   // ── Damage Floaters + Hit Shake ─────────────────────────────────────────────
@@ -3502,7 +3592,8 @@ function _initSequencerHook() {
         } catch { return; }
       }
 
-      const durationMs = effect?.data?.duration ?? effect?.duration ?? 2000;
+      const _rawDur = effect?.data?.duration ?? effect?.duration;
+      const durationMs = (typeof _rawDur === "number" && isFinite(_rawDur) && _rawDur > 0) ? _rawDur : 2000;
       const allCast    = [...(d.leftCast ?? []), ...(d.rightCast ?? [])];
 
       // ── Detect projectile (stretchTo present) vs overlay (attachTo/source only) ─
@@ -3823,13 +3914,30 @@ Hooks.on("getSceneControlButtons", (controls) => {
   }
 });
 
+// Remove deleted actors from VN cast so they don't leave zombie entries
+Hooks.on("deleteActor", (actor) => {
+  if (!game.user.isGM) return;
+  const d = getData();
+  const id = actor.id;
+  let changed = false;
+  for (const key of ["leftCast", "rightCast"]) {
+    const before = d[key].length;
+    d[key] = d[key].filter(p => p.id !== id);
+    if (d[key].length !== before) changed = true;
+  }
+  d.stagePlayers = d.stagePlayers.filter(i => i !== id);
+  d.stageNPCs    = d.stageNPCs.filter(i => i !== id);
+  if (d.portraits) delete d.portraits[id];
+  if (changed) saveData(d, { change: "castChange" });
+});
+
 // Refresh ghost tokens when the canvas scene changes (scene navigation)
-Hooks.on("canvasReady", () => {
+Hooks.on("canvasReady", async () => {
   if (!game.user.isGM) return;
   const d = getData();
   if (!d.showVN || !d.combatMode) return;
-  // Old TokenDocuments are invalid after scene change — clear and recreate
-  _ghostTokens.clear();
+  // Old TokenDocuments are invalid after scene change — destroy physically then recreate
+  await _destroyGhostTokens();
   _syncGhostTokens(d);
 });
 
