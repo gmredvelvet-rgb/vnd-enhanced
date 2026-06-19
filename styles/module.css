@@ -586,7 +586,6 @@
 }
 
 .vne-rp-row.vne-rp-row-top {
-  align-items: flex-start;
   border-bottom: 1px solid rgba(200,155,60,0.08);
 }
 
@@ -597,20 +596,6 @@
 .vne-rp-stage.vne-two-rows .vne-rp-slot[data-slot-count="3"] .vne-rp-img { max-height: 44vh; }
 .vne-rp-stage.vne-two-rows .vne-rp-slot[data-slot-count="4"] .vne-rp-img { max-height: 42vh; }
 .vne-rp-stage.vne-two-rows .vne-rp-slot[data-slot-count="5"] .vne-rp-img { max-height: 40vh; }
-
-/* Top-row: nameplate sits just below the image (not pinned to bottom) */
-.vne-rp-row.vne-rp-row-top .vne-rp-slot {
-  justify-content: flex-start;
-}
-.vne-rp-row.vne-rp-row-top .vne-rp-portrait-wrap {
-  align-items: flex-start;
-  flex: 0 0 auto;
-  max-height: 100%;
-}
-.vne-rp-row.vne-rp-row-top .vne-rp-img {
-  object-position: top center;
-  max-height: 100%;
-}
 
 .vne-rp-slot.vne-rp-speaking::after {
   content: '';
@@ -2950,9 +2935,9 @@
 /* ── Critical / Fumble Overlay ──────────────────────────────────────────── */
 
 .vne-crit-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 250;
+  z-index: 100000;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -45,6 +45,8 @@ let _ghostTokens = new Map();
 // ── Persona / Fire Emblem combat effects state ────────────────────────────────
 const _lastKnownHP       = new Map();  // actorId → last observed HP value
 const _nextHpChangeCrit  = new Set();  // actorIds whose next HP change was preceded by a crit roll
+let _lastTurnChangeMs    = 0;          // timestamp of last turn change — used to suppress auto turn-start rolls
+const _pendingFloaters   = new Map();  // actorId → { delta, isCrit, timerId } — delayed to allow PF2e raw-damage override
 let   _lastTurnCardTimer      = null;  // setTimeout handle for auto-dismiss of turn card
 let   _lastTurnCardInnerTimer = null;  // setTimeout handle for card fade-out (inner removal)
 
@@ -382,28 +384,33 @@ async function setSpeaker(actorId) {
 // ── Combat Stage helpers ──────────────────────────────────────────────────────
 
 function targetActorToken(actorId) {
-  // In VN combat mode, prefer ghost tokens so AA/Sequencer systems resolve a real TokenDocument
-  const d = getData();
-  if (d.showVN && d.combatMode && _ghostTokens.has(actorId)) {
-    const ghostDoc = _ghostTokens.get(actorId);
-    if (ghostDoc?.id) {
-      const ids = [...(game.user.targets ?? [])].map(t => t.id);
-      const idx = ids.indexOf(ghostDoc.id);
-      if (idx >= 0) ids.splice(idx, 1); else ids.push(ghostDoc.id);
-      game.user.updateTokenTargets(ids);
-      return;
+  // Ghost tokens exist only for Sequencer/AA VFX routing — PF2e damage targeting
+  // requires the real map token. Prefer real tokens; ghost is last resort only.
+  let token = canvas.tokens?.placeables?.find(
+    t => (t.document?.actorId ?? t.actor?.id) === actorId
+      && !t.document?.flags?.[ID]?.isGhost
+  ) ?? null;
+
+  if (!token) {
+    const d = getData();
+    if (d.showVN && d.combatMode) {
+      const ghostDoc = _ghostTokens.get(actorId);
+      if (ghostDoc?.id) token = canvas.tokens?.get(ghostDoc.id) ?? null;
+      if (!token) {
+        token = canvas.tokens?.placeables?.find(
+          t => t.document?.flags?.[ID]?.isGhost && t.document?.actorId === actorId
+        ) ?? null;
+      }
     }
   }
-  // Match by document.actorId to support unlinked tokens (t.actor?.id may be synthetic)
-  const tokens = canvas.tokens?.placeables?.filter(t =>
-    (t.document?.actorId ?? t.actorId ?? t.actor?.id) === actorId
-  ) ?? [];
-  if (!tokens.length) { ui.notifications?.warn("No token on the active scene for this actor."); return; }
-  const token = tokens[0];
-  const ids = [...(game.user.targets ?? [])].map(t => t.id);
-  const idx = ids.indexOf(token.id);
-  if (idx >= 0) ids.splice(idx, 1); else ids.push(token.id);
-  game.user.updateTokenTargets(ids);
+
+  if (!token) {
+    ui.notifications?.warn("VNE: No token found on this scene for that actor.");
+    return;
+  }
+
+  const alreadyTargeted = [...(game.user.targets ?? [])].some(t => t.id === token.id);
+  token.setTarget(!alreadyTargeted, { user: game.user, releaseOthers: false });
 }
 
 function getVNECastTokens(d = getData()) {
@@ -527,8 +534,9 @@ async function _syncGhostTokens(d) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function _getPortraitContainer(actorId) {
-  return document.querySelector(`.vne-cast-portrait[data-id="${actorId}"]`)
-      ?? document.querySelector(`.vne-rp-slot[data-id="${actorId}"]`)
+  // Prefer the big stage portrait over the small panel card
+  return document.querySelector(`.vne-rp-slot[data-id="${actorId}"]`)
+      ?? document.querySelector(`.vne-cast-portrait[data-id="${actorId}"]`)
       ?? null;
 }
 
@@ -923,25 +931,26 @@ function _renderVSDisplay() {
     vsEl.className = "vne-combat-vs";
     stage.appendChild(vsEl);
   }
-  const mkHpBar = (p) => {
-    if (!game.user.isGM) return "";
+  const mkHpBar = (p, side) => {
     if (p.hp == null || p.hpMax == null || p.hpMax <= 0) return "";
-    const pct   = Math.max(0, Math.min(100, Math.round((p.hp / p.hpMax) * 100)));
-    const color = pct > 50 ? "#4caf50" : pct > 25 ? "#ff9800" : "#f44336";
-    const fillW   = pct === 0 ? "100%" : `${pct}%`;
-    const fillOp  = pct === 0 ? "0.28"  : "1";
+    const pct    = Math.max(0, Math.min(100, Math.round((p.hp / p.hpMax) * 100)));
+    const color  = pct > 50 ? "#4caf50" : pct > 25 ? "#ff9800" : "#f44336";
+    const fillW  = pct === 0 ? "100%" : `${pct}%`;
+    const fillOp = pct === 0 ? "0.28"  : "1";
+    // Numbers: GM always sees them; players only see their own side (left = PCs)
+    const showNums = game.user.isGM || side === "left";
     return `<div class="vne-vs-hp-bar-wrap" title="${p.hp}/${p.hpMax} HP">
       <div class="vne-vs-hp-bar" style="width:${fillW};background:${color};opacity:${fillOp};"></div>
-    </div><div class="vne-vs-hp-text">${p.hp}/${p.hpMax}</div>`;
+    </div>${showNums ? `<div class="vne-vs-hp-text">${p.hp}/${p.hpMax}</div>` : ""}`;
   };
-  const mkSide = (p) => p
-    ? `<div class="vne-vs-img-wrap"><img class="vne-vs-img" src="${_esc(p.img || 'icons/svg/mystery-man.svg')}" style="${p.imgStyle || ''}" onerror="this.src='icons/svg/mystery-man.svg'" /></div><div class="vne-vs-name">${_esc(p.name)}</div>${mkHpBar(p)}`
+  const mkSide = (p, side) => p
+    ? `<div class="vne-vs-img-wrap"><img class="vne-vs-img" src="${_esc(p.img || 'icons/svg/mystery-man.svg')}" style="${p.imgStyle || ''}" onerror="this.src='icons/svg/mystery-man.svg'" /></div><div class="vne-vs-name">${_esc(p.name)}</div>${mkHpBar(p, side)}`
     : "";
   const showVS = !!(_vsLeft || _vsRight);
   vsEl.innerHTML = `
-    <div class="vne-vs-side vne-vs-left">${mkSide(_vsLeft)}</div>
+    <div class="vne-vs-side vne-vs-left">${mkSide(_vsLeft, "left")}</div>
     <div class="vne-vs-sep">${showVS ? "<span>VS</span>" : ""}</div>
-    <div class="vne-vs-side vne-vs-right">${mkSide(_vsRight)}</div>`;
+    <div class="vne-vs-side vne-vs-right">${mkSide(_vsRight, "right")}</div>`;
 }
 
 function _vsDataFromPortrait(p, side = "left") {
@@ -1118,8 +1127,8 @@ function _applyPortraitHitShake(actorId, isCrit = false) {
 // Full-screen overlay with "¡CRÍTICO!" or "¡PIFIA!" + radial burst.
 
 function _showCriticalAnimation(type, actorId = null) {
-  const main = document.getElementById("vne-main");
-  if (!main || main.style.display === "none") return;
+  const d = getData();
+  if (!d.showVN) return;
 
   document.getElementById("vne-crit-overlay")?.remove();
 
@@ -1131,10 +1140,11 @@ function _showCriticalAnimation(type, actorId = null) {
   overlay.innerHTML = `
     <div class="vne-crit-rays"></div>
     <div class="vne-crit-content">
-      <img class="vne-crit-img" src="modules/vnd-enhanced/assets/imgs/${imgFile}.png" />
+      <img class="vne-crit-img" src="modules/${ID}/assets/imgs/${imgFile}.png" />
     </div>
   `;
-  main.appendChild(overlay);
+  // Append to body so it floats above character sheets and all Foundry windows
+  document.body.appendChild(overlay);
 
   // Flash shake on target portrait (or source for fumble)
   if (actorId) _applyPortraitHitShake(actorId, isCrit);
@@ -3159,11 +3169,7 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
     if (action === "sheet") {
       actor?.sheet?.render(true);
     } else if (action === "select") {
-      const tokens = canvas.tokens?.placeables?.filter(t => t.actor?.id === actorId) ?? [];
-      if (tokens.length) {
-        tokens[0].control({ releaseOthers: true });
-        canvas.animatePan({ x: tokens[0].x, y: tokens[0].y, duration: 250 });
-      }
+      targetActorToken(actorId);
     } else if (action === "addToStage") {
       await addToStage(actorId);
     } else if (action === "removeFromStage") {
@@ -3280,8 +3286,16 @@ Hooks.on("updateActor", (actor, changes) => {
         const delta  = newHpValue - oldHp;
         const isCrit = _nextHpChangeCrit.has(actor.id);
         if (isCrit) _nextHpChangeCrit.delete(actor.id);
-        _showDamageFloater(actor.id, delta, isCrit);
         if (delta < 0) _applyPortraitHitShake(actor.id, isCrit);
+        // Defer floater 300ms — PF2e posts an appliedDamage chat message shortly after
+        // the actor update; the createChatMessage hook will override with the raw amount.
+        const existing = _pendingFloaters.get(actor.id);
+        if (existing) clearTimeout(existing.timerId);
+        const timerId = setTimeout(() => {
+          _pendingFloaters.delete(actor.id);
+          _showDamageFloater(actor.id, delta, isCrit);
+        }, 300);
+        _pendingFloaters.set(actor.id, { delta, isCrit, timerId });
       }
     } else {
       // Keep map up-to-date even when not in cast (actor might be added later)
@@ -3824,6 +3838,31 @@ Hooks.on("targetToken", (user, token, targeted) => {
   }
 });
 
+// PF2e applied-damage intercept — override the pending floater with raw damage amount.
+// PF2e posts a chat message with flags.pf2e.appliedDamage shortly after the actor HP
+// update, so we can correct the overkill-clamped HP delta with the actual damage dealt.
+Hooks.on("createChatMessage", (message) => {
+  const pf2eApplied = message.flags?.pf2e?.appliedDamage;
+  if (pf2eApplied) {
+    const targetId = pf2eApplied.actorId
+                  ?? pf2eApplied.updates?.[0]?.actorId
+                  ?? null;
+    // total is always a positive number in PF2e; isHealing flips the sign
+    const rawAmt   = pf2eApplied.total
+                  ?? pf2eApplied.updates?.[0]?.finalDamage
+                  ?? null;
+    if (targetId && rawAmt != null) {
+      const pending = _pendingFloaters.get(targetId);
+      if (pending) {
+        clearTimeout(pending.timerId);
+        _pendingFloaters.delete(targetId);
+        const rawDelta = pf2eApplied.isHealing ? Math.abs(rawAmt) : -Math.abs(rawAmt);
+        _showDamageFloater(targetId, rawDelta, pending.isCrit);
+      }
+    }
+  }
+});
+
 // Crit / Fumble detection — fires before updateActor so the flag is ready
 Hooks.on("createChatMessage", (message) => {
   const d = getData();
@@ -3833,6 +3872,11 @@ Hooks.on("createChatMessage", (message) => {
   if (!critType) return;
 
   const speakerActorId = message.speaker?.actor ?? null;
+
+  // Suppress rolls that fire automatically at turn start (PF2e processes conditions,
+  // persistent damage, aura saves, etc. within ~500ms of a turn change).
+  // Manual attack/save rolls always happen after the player has had time to act.
+  if (Date.now() - _lastTurnChangeMs < 2500) return;
 
   // Mark the next HP change for this actor as crit-sourced
   if (speakerActorId) _nextHpChangeCrit.add(speakerActorId);
@@ -3861,6 +3905,7 @@ Hooks.on("updateCombat", async (combat, changed) => {
   }
 
   if (turnChanged) {
+    _lastTurnChangeMs = Date.now();
     _updateVSFromCombat();
     // Persona-style turn card — shown on ALL clients (no socket needed, all have combat state)
     _showTurnCard(combat.combatant);
@@ -3954,14 +3999,27 @@ Hooks.on("deleteActor", (actor) => {
   if (changed) saveData(d, { change: "castChange" });
 });
 
-// Refresh ghost tokens when the canvas scene changes (scene navigation)
+// Refresh ghost tokens when the canvas scene changes (scene navigation or page reload).
+// _ghostTokens Map starts empty on every page load, so _destroyGhostTokens() (which
+// checks Map.size) would be a no-op, leaving orphaned tokens from the previous session.
+// We must scan the scene by flag instead.
 Hooks.on("canvasReady", async () => {
   if (!game.user.isGM) return;
   const d = getData();
   if (!d.showVN || !d.combatMode) return;
-  // Old TokenDocuments are invalid after scene change — destroy physically then recreate
-  await _destroyGhostTokens();
-  _syncGhostTokens(d);
+
+  // Delete ALL ghost tokens in the scene by flag (covers stale tokens after page reload)
+  const scene = canvas.scene;
+  if (scene) {
+    const staleIds = scene.tokens
+      .filter(t => t.flags?.[ID]?.isGhost)
+      .map(t => t.id);
+    if (staleIds.length) {
+      try { await scene.deleteEmbeddedDocuments("Token", staleIds); } catch { /* ignore */ }
+    }
+  }
+  _ghostTokens.clear();
+  await _syncGhostTokens(d);
 });
 
 // Token state swap logic is now merged into the consolidated updateActor hook above.
