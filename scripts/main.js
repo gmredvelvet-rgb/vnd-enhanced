@@ -296,7 +296,7 @@ async function setSpeaker(actorId) {
 function targetActorToken(actorId) {
   // Match by document.actorId to support unlinked tokens (t.actor?.id may be synthetic)
   const tokens = canvas.tokens?.placeables?.filter(t =>
-    (t.document?.actorId ?? t.actorId ?? t.actor?.id) === actorId
+    _tokenActorId(t) === actorId && !_isVNEGhostLikeToken(t)
   ) ?? [];
   if (!tokens.length) { ui.notifications?.warn("No token on the active scene for this actor."); return; }
   const token = tokens[0];
@@ -306,9 +306,38 @@ function targetActorToken(actorId) {
   game.user.updateTokenTargets(ids);
 }
 
+function _tokenActorId(tokenOrDoc) {
+  return tokenOrDoc?.document?.actorId
+      ?? tokenOrDoc?.actorId
+      ?? tokenOrDoc?.data?.actorId
+      ?? tokenOrDoc?.actor?.id
+      ?? null;
+}
+
+function _isVNEGhostLikeToken(tokenOrDoc) {
+  const doc = tokenOrDoc?.document ?? tokenOrDoc;
+  return !!doc?.getFlag?.(ID, "isGhost")
+      || doc?.flags?.[ID]?.isGhost === true
+      || doc?.hidden === true;
+}
+
+function _preferRealToken(a, b) {
+  const aGhost = _isVNEGhostLikeToken(a);
+  const bGhost = _isVNEGhostLikeToken(b);
+  if (aGhost !== bGhost) return aGhost ? b : a;
+  return a;
+}
+
 function getVNECastTokens(d = getData()) {
   const actorIds = new Set([...(d.leftCast ?? []), ...(d.rightCast ?? [])].map(p => p.id));
-  return (canvas.tokens?.placeables ?? []).filter(t => actorIds.has(t.actor?.id));
+  const byActor = new Map();
+  for (const token of (canvas.tokens?.placeables ?? [])) {
+    const actorId = _tokenActorId(token);
+    if (!actorIds.has(actorId)) continue;
+    if (!byActor.has(actorId)) byActor.set(actorId, token);
+    else byActor.set(actorId, _preferRealToken(byActor.get(actorId), token));
+  }
+  return [...byActor.values()].filter(t => !_isVNEGhostLikeToken(t));
 }
 
 function getCollectionArray(collection) {
@@ -339,15 +368,50 @@ async function ensureActiveEncounterForVNE() {
     return combat;
   }
 
+  await _cleanupVNECombatants(combat, scene);
+
   const existingTokenIds = new Set(getCollectionArray(combat.combatants).map(c => c.tokenId));
+  const existingActorIds = new Set(getCollectionArray(combat.combatants).map(c => c.actorId).filter(Boolean));
   const combatants = castTokens.filter(t => !existingTokenIds.has(t.document?.id ?? t.id)).map(t => ({
     tokenId: t.document?.id ?? t.id,
     sceneId: scene.id,
-    actorId: t.actor?.id,
+    actorId: _tokenActorId(t),
     hidden: t.document?.hidden ?? false
-  }));
+  })).filter(c => !existingActorIds.has(c.actorId));
   if (combatants.length) await combat.createEmbeddedDocuments("Combatant", combatants);
   return combat;
+}
+
+async function _cleanupVNECombatants(combat, scene) {
+  const d = getData();
+  const castActorIds = new Set([...(d.leftCast ?? []), ...(d.rightCast ?? [])].map(p => p.id));
+  const keepByActor = new Map();
+  const deleteIds = [];
+
+  for (const c of getCollectionArray(combat?.combatants)) {
+    if (!castActorIds.has(c.actorId)) continue;
+    const tokenDoc = scene?.tokens?.get?.(c.tokenId);
+    const candidate = { combatant: c, tokenDoc };
+    if (!keepByActor.has(c.actorId)) {
+      keepByActor.set(c.actorId, candidate);
+      continue;
+    }
+
+    const kept = keepByActor.get(c.actorId);
+    const keptGhost = _isVNEGhostLikeToken(kept.tokenDoc) || kept.combatant.hidden;
+    const currentGhost = _isVNEGhostLikeToken(tokenDoc) || c.hidden;
+
+    if (keptGhost && !currentGhost) {
+      deleteIds.push(kept.combatant.id);
+      keepByActor.set(c.actorId, candidate);
+    } else {
+      deleteIds.push(c.id);
+    }
+  }
+
+  if (deleteIds.length) {
+    await combat.deleteEmbeddedDocuments("Combatant", deleteIds).catch(() => {});
+  }
 }
 
 async function toggleHideUI() {
@@ -446,6 +510,7 @@ function showPortraitActionMenu(trigger, actorId, side) {
   }
 
   const inCombat = !!game.combat?.combatants.find(c => c.actorId === actorId);
+  const editPortraitBtn = game.user.isGM ? `<button type="button" data-action="editPortrait"><i class="fas fa-pencil"></i><span>Editar portrait</span></button>` : "";
   const initiativeBtn = `<button type="button" data-action="initiative"><i class="fas fa-dice-d20"></i><span>Roll Initiative</span></button>`;
   const removeVNBtn    = game.user.isGM ? `<button type="button" data-action="removeVN"><i class="fas fa-user-minus"></i><span>Remover del VN</span></button>` : "";
   const removeCombatBtn = (game.user.isGM && inCombat) ? `<button type="button" data-action="removeCombat"><i class="fas fa-skull"></i><span>Remover del combate</span></button>` : "";
@@ -458,6 +523,7 @@ function showPortraitActionMenu(trigger, actorId, side) {
     <button type="button" data-action="target"><i class="fas fa-crosshairs"></i><span>Seleccionar objetivo</span></button>
     ${inCombat ? initiativeBtn : ""}
     <button type="button" data-action="speaker"><i class="fas fa-comment-dots"></i><span>Hacer hablante</span></button>
+    ${editPortraitBtn}
     ${removeVNBtn}
     ${removeCombatBtn}`;
 
@@ -487,6 +553,11 @@ function showPortraitActionMenu(trigger, actorId, side) {
       const d = getData();
       d.activeSpeakerId = d.activeSpeakerId === actorId ? null : actorId;
       await saveData(d, { change: "activeSpeaker" });
+      return;
+    }
+    if (action === "editPortrait") {
+      if (!game.user.isGM) return;
+      openPortraitEditor(actorId, side);
       return;
     }
     if (action === "removeVN") {
@@ -623,7 +694,7 @@ function _renderVSDisplay() {
     </div><div class="vne-vs-hp-text">${p.hp}/${p.hpMax}</div>`;
   };
   const mkSide = (p) => p
-    ? `<img class="vne-vs-img" src="${p.img}" /><div class="vne-vs-name">${p.name}</div>${mkHpBar(p)}`
+    ? `<div class="vne-vs-img-wrap"><img class="vne-vs-img" data-id="${p.id}" src="${p.img}" style="${p.imgStyle ?? ""}" /></div><div class="vne-vs-name">${p.name}</div>${mkHpBar(p)}`
     : "";
   const showVS = !!(_vsLeft || _vsRight);
   vsEl.innerHTML = `
@@ -636,7 +707,21 @@ function _vsDataFromPortrait(p) {
   const actor = game.actors.get(p.id);
   const hp    = actor?.system?.attributes?.hp?.value ?? null;
   const hpMax = actor?.system?.attributes?.hp?.max   ?? null;
-  return { img: getPortraitImg(p), name: p.name, hp, hpMax };
+  return { id: p.id, img: getPortraitImg(p), name: p.name, hp, hpMax, imgStyle: _portraitImageStyle(p, sideForPortrait(p)) };
+}
+
+function sideForPortrait(p, d = getData()) {
+  if (d.leftCast?.some(q => q.id === p.id)) return "left";
+  if (d.rightCast?.some(q => q.id === p.id)) return "right";
+  return "left";
+}
+
+function _portraitImageStyle(p, side, worldOffsetY = game.settings.get(ID, "worldOffsetY") || 0) {
+  const scaleX = (side === "left" ? !p.mirrorX : p.mirrorX) ? 1 : -1;
+  const scaleVal = (p.scale || 100) / 100;
+  const oy = (p.offsetY || 0) - worldOffsetY;
+  const ox = p.offsetX || 0;
+  return `transform: scale(${scaleVal}) scaleX(${scaleX}); margin-top: ${oy}px; margin-left: ${ox}px;`;
 }
 
 // Called on turn change — updates the side that corresponds to the active combatant.
@@ -682,6 +767,17 @@ function _updateVSOnTarget(actorId, side) {
   const portrait = _vsDataFromPortrait(castP);  // preserves hp/hpMax for HP bars
   if (side === "right") _vsRight = portrait;
   else                  _vsLeft  = portrait;
+  _renderVSDisplay();
+}
+
+function _refreshVSDisplayedPortraits(d = getData()) {
+  const refresh = (state) => {
+    if (!state?.id) return state ?? null;
+    const castP = [...(d.leftCast ?? []), ...(d.rightCast ?? [])].find(p => p.id === state.id);
+    return castP ? _vsDataFromPortrait(castP) : null;
+  };
+  _vsLeft = refresh(_vsLeft);
+  _vsRight = refresh(_vsRight);
   _renderVSDisplay();
 }
 
@@ -851,6 +947,40 @@ function openPortraitEditor(portraitId, side) {
   const p = d[`${side}Cast`].find(x => x.id === portraitId);
   if (!p) return;
 
+  const previewValues = (html) => ({
+    ...p,
+    img: html.find("#pe-img").attr("src"),
+    scale: Number.parseInt(html.find("#pe-scale").val(), 10),
+    offsetX: Number.parseInt(html.find("#pe-ox").val(), 10),
+    offsetY: Number.parseInt(html.find("#pe-oy").val(), 10),
+    mirrorX: html.find("#pe-mirror").is(":checked"),
+  });
+
+  const applyPreview = (html) => {
+    const pv = previewValues(html);
+    const imgStyle = _portraitImageStyle(pv, side);
+    const imgSrc = getPortraitImg(pv);
+    document.querySelectorAll(`.vne-cast-portrait[data-id="${CSS.escape(portraitId)}"] .vne-cast-img`).forEach(img => {
+      img.src = imgSrc;
+      img.style.cssText = imgStyle;
+    });
+    document.querySelectorAll(`.vne-rp-slot[data-id="${CSS.escape(portraitId)}"] .vne-rp-img`).forEach(img => {
+      img.src = imgSrc;
+      img.style.cssText = imgStyle;
+    });
+    document.querySelectorAll(`.vne-vs-img[data-id="${CSS.escape(portraitId)}"]`).forEach(img => {
+      img.src = imgSrc;
+      img.style.cssText = imgStyle;
+    });
+    const dNow = getData();
+    if (dNow.activeSpeakerId === portraitId) {
+      document.querySelectorAll(".vne-center-img").forEach(img => {
+        img.src = imgSrc;
+        img.style.cssText = imgStyle;
+      });
+    }
+  };
+
   new Dialog({
     title: `Edit: ${p.name}`,
     content: `<div class="vne-pe-form">
@@ -899,17 +1029,26 @@ function openPortraitEditor(portraitId, side) {
       cancel: { label: "Cancel" }
     },
     render: (html) => {
-      html.find("#pe-scale").on("input", function() { html.find("#pe-scale-v").text(this.value); });
-      html.find("#pe-ox").on("input", function()    { html.find("#pe-ox-v").text(this.value); });
-      html.find("#pe-oy").on("input", function()    { html.find("#pe-oy-v").text(this.value); });
+      html.find("#pe-scale").on("input", function() { html.find("#pe-scale-v").text(this.value); applyPreview(html); });
+      html.find("#pe-ox").on("input", function()    { html.find("#pe-ox-v").text(this.value); applyPreview(html); });
+      html.find("#pe-oy").on("input", function()    { html.find("#pe-oy-v").text(this.value); applyPreview(html); });
+      html.find("#pe-mirror").on("change", () => applyPreview(html));
       html.find("#pe-pick-img").on("click", () => {
         new FilePicker({
           type: "image",
           current: game.settings.get(ID, "portraitFolderPath") || "",
-          callback: (path) => html.find("#pe-img").attr("src", path)
+          callback: (path) => {
+            html.find("#pe-img").attr("src", path);
+            applyPreview(html);
+          }
         }).render(true);
       });
       html.find("#pe-reactions-btn").on("click", () => openReactionManager(portraitId));
+    },
+    close: () => {
+      const fresh = getData();
+      _patchCast(fresh);
+      _refreshVSDisplayedPortraits(fresh);
     }
   }).render(true, { width: 560 });
 }
@@ -2567,15 +2706,6 @@ Hooks.on("ready", () => {
     showActionImage: (data) => _showActionImageOverlay(data),
   };
 });
-
-// Helper: get base actor ID from a token (works for linked AND unlinked tokens, v11-v13)
-function _tokenActorId(token) {
-  return token?.document?.actorId  // PlaceableObject in v11/v12/v13
-      ?? token?.actorId            // TokenDocument in v13
-      ?? token?.data?.actorId      // v11 fallback
-      ?? token?.actor?.id          // last resort (may be synthetic for unlinked tokens)
-      ?? null;
-}
 
 // Refresh targeted portrait ring when user targeting changes
 Hooks.on("targetToken", (user, token, targeted) => {
