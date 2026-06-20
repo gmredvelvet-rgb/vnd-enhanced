@@ -2988,7 +2988,7 @@ function _carouselEffectsHtml(actor) {
   const effects = actor?.temporaryEffects?.filter(e => !e.disabled) ?? [];
   if (!effects.length) return "";
   const icons = effects.slice(0, 6).map(e =>
-    `<img class="vne-ce-icon" src="${_esc(e.icon)}" title="${_esc(e.name)}" onerror="this.style.display='none'">`
+    `<img class="vne-ce-icon" src="${_esc(e.img ?? e.icon)}" title="${_esc(e.name)}" onerror="this.style.display='none'">`
   ).join("");
   return `<div class="vne-carousel-effects">${icons}</div>`;
 }
