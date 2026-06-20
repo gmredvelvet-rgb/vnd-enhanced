@@ -172,7 +172,8 @@ export class VndLicenseClient {
     this.#accessToken  = localStorage.getItem(SK.accessToken);
     this.#refreshToken = localStorage.getItem(SK.refreshToken);
     this.#tokenExpiry  = Number.parseInt(localStorage.getItem(SK.tokenExpiry) ?? '0', 10);
-    this.#features     = JSON.parse(localStorage.getItem(SK.features) ?? '[]');
+    const rawFeatures  = JSON.parse(localStorage.getItem(SK.features) ?? '[]');
+    this.#features     = Array.isArray(rawFeatures) ? rawFeatures : [];
     this.#tier         = localStorage.getItem(SK.tier) ?? 'none';
   }
 

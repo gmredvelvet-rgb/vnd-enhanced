@@ -151,20 +151,30 @@ function _patchCombatDisplay() {
 
 function getData() {
   const d = foundry.utils.deepClone(game.settings.get(ID, "vnData"));
-  if (!Array.isArray(d.stagePlayers)) d.stagePlayers = [];
-  if (!Array.isArray(d.stageNPCs))    d.stageNPCs    = [];
+  if (!Array.isArray(d.stagePlayers))  d.stagePlayers  = [];
+  if (!Array.isArray(d.stageNPCs))     d.stageNPCs     = [];
+  if (!Array.isArray(d.leftCast))      d.leftCast      = [];
+  if (!Array.isArray(d.rightCast))     d.rightCast     = [];
+  if (!Array.isArray(d.locationList))  d.locationList  = [];
+  if (d.portraits == null || typeof d.portraits !== "object") d.portraits = {};
+  if (d.location  == null || typeof d.location  !== "object") d.location  = {
+    id: "", name: "???", parent: "", backgroundImage: "", weather: "", time: ""
+  };
   return d;
 }
 
 async function saveData(data, opts = {}) {
-  if (game.user.isGM) {
-    await game.settings.set(ID, "vnData", data, opts);
-  } else {
-    game.socket.emit(`module.${ID}`, { type: "vnDataSet", data, options: opts });
+  if (!game.user.isGM) {
+    // Non-GM clients must use specific socket messages (vnAddToStage, vnRemoveFromStage, vnReaction).
+    // Direct data injection via saveData is not permitted for non-GM users.
+    console.warn("VNE | saveData() called by non-GM — ignored. Use specific socket events.");
+    return;
   }
+  await game.settings.set(ID, "vnData", data, opts);
 }
 
 function defaultPortrait(actor) {
+  if (!actor) return null;
   const actorImg = (actor.img && !actor.img.includes("mystery-man")) ? actor.img : null;
   const tokenImg = (actor.prototypeToken?.texture?.src && !actor.prototypeToken.texture.src.includes("mystery-man"))
     ? actor.prototypeToken.texture.src : null;
@@ -251,6 +261,9 @@ async function removeFromStage(actorId) {
   if (!actorId) return;
   if (game.user.isGM) {
     const d = getData();
+    const wasInPlayers = d.stagePlayers.includes(actorId);
+    const wasInNPCs    = d.stageNPCs.includes(actorId);
+    if (!wasInPlayers && !wasInNPCs) return;
     d.stagePlayers = d.stagePlayers.filter(id => id !== actorId);
     d.stageNPCs    = d.stageNPCs.filter(id => id !== actorId);
     await saveData(d, { change: "stageChange" });
@@ -641,9 +654,19 @@ async function ensureActiveEncounterForVNE() {
     combat = getCollectionArray(game.combats).find(c => c.scene?.id === scene.id) ?? null;
   }
   if (!combat) {
-    combat = await Combat.create({ scene: scene.id, active: true });
+    try {
+      combat = await Combat.create({ scene: scene.id, active: true });
+    } catch (e) {
+      console.error("VNE | Failed to create combat encounter:", e);
+      ui.notifications?.error("VNE: No se pudo crear el encuentro de combate.");
+      return null;
+    }
   } else if (!combat.active) {
-    await combat.update({ active: true });
+    try {
+      await combat.update({ active: true });
+    } catch (e) {
+      console.warn("VNE | Failed to activate combat:", e);
+    }
   }
 
   const castTokens = getVNECastTokens();
@@ -653,13 +676,21 @@ async function ensureActiveEncounterForVNE() {
   }
 
   const existingTokenIds = new Set(getCollectionArray(combat.combatants).map(c => c.tokenId));
-  const combatants = castTokens.filter(t => !existingTokenIds.has(t.document?.id ?? t.id)).map(t => ({
-    tokenId: t.document?.id ?? t.id,
-    sceneId: scene.id,
-    actorId: t.document?.actorId ?? t.actor?.id,  // always the original actor id (works for unlinked tokens)
-    hidden: t.document?.hidden ?? false
-  }));
-  if (combatants.length) await combat.createEmbeddedDocuments("Combatant", combatants);
+  const combatants = castTokens
+    .filter(t => !existingTokenIds.has(t.document?.id ?? t.id))
+    .map(t => ({
+      tokenId: t.document?.id ?? t.id,
+      sceneId: scene.id,
+      actorId: t.document?.actorId ?? t.actor?.id,
+      hidden: t.document?.hidden ?? false
+    }));
+  if (combatants.length) {
+    try {
+      await combat.createEmbeddedDocuments("Combatant", combatants);
+    } catch (e) {
+      console.warn("VNE | Failed to add combatants:", e);
+    }
+  }
   return combat;
 }
 
@@ -718,14 +749,12 @@ function _unmountSidebar() {
   }
 }
 
-// In Foundry v13, sidebar state is ui.sidebar.expanded (boolean), not a CSS class.
 function _toggleFoundrySidebar() {
   if (!ui.sidebar) return;
-  if (ui.sidebar.expanded) {
-    ui.sidebar.collapse();
-  } else {
-    ui.sidebar.expand();
-  }
+  // v12: ui.sidebar._collapsed (boolean); v13: ui.sidebar.expanded (boolean, inverted logic)
+  const isOpen = ui.sidebar.expanded ?? !ui.sidebar._collapsed ?? true;
+  if (isOpen) ui.sidebar.collapse();
+  else ui.sidebar.expand();
 }
 
 async function toggleCombatStage() {
@@ -733,7 +762,12 @@ async function toggleCombatStage() {
   const d = getData();
   d.combatMode = !d.combatMode;
   if (d.combatMode) {
-    await ensureActiveEncounterForVNE();
+    const combat = await ensureActiveEncounterForVNE();
+    if (!combat) {
+      d.combatMode = false;
+      ui.notifications?.warn("VNE: No se pudo activar Combat Stage — fallo al crear el encuentro.");
+      return;
+    }
     await _syncGhostTokens(d);
   } else {
     await _destroyGhostTokens();
@@ -1132,11 +1166,12 @@ function _showCriticalAnimation(type, actorId = null) {
 
   document.getElementById("vne-crit-overlay")?.remove();
 
-  const isCrit  = type === "crit";
-  const imgFile = isCrit ? "critsucc" : "critfail";
-  const overlay = document.createElement("div");
+  const safeType = type === "fumble" ? "fumble" : "crit";
+  const isCrit   = safeType === "crit";
+  const imgFile  = isCrit ? "critsucc" : "critfail";
+  const overlay  = document.createElement("div");
   overlay.id = "vne-crit-overlay";
-  overlay.className = `vne-crit-overlay vne-crit-${type}`;
+  overlay.className = `vne-crit-overlay vne-crit-${safeType}`;
   overlay.innerHTML = `
     <div class="vne-crit-rays"></div>
     <div class="vne-crit-content">
@@ -1276,10 +1311,10 @@ function _isVideoBg(src) { return /\.(mp4|webm)$/i.test(src || ""); }
 function _scenePreviewHtml(src) {
   if (!src) return `<img id="se-preview" style="display:none;max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;"/>`;
   if (_isVideoBg(src)) {
-    return `<video id="se-preview" src="${src}" autoplay loop muted playsinline
+    return `<video id="se-preview" src="${_esc(src)}" autoplay loop muted playsinline
       style="max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;display:block;"></video>`;
   }
-  return `<img id="se-preview" src="${src}" style="max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;display:block;"/>`;
+  return `<img id="se-preview" src="${_esc(src)}" style="max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;display:block;"/>`;
 }
 
 function _updateScenePreview(html, src) {
@@ -1290,8 +1325,8 @@ function _updateScenePreview(html, src) {
   if (prev.prop("tagName")?.toLowerCase() !== tag) {
     // Replace element type
     const newEl = isVid
-      ? `<video id="se-preview" src="${src}" autoplay loop muted playsinline style="max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;display:block;"></video>`
-      : `<img id="se-preview" src="${src}" style="max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;display:block;"/>`;
+      ? `<video id="se-preview" src="${_esc(src)}" autoplay loop muted playsinline style="max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;display:block;"></video>`
+      : `<img id="se-preview" src="${_esc(src)}" style="max-width:100%;max-height:100px;margin-top:6px;border-radius:6px;display:block;"/>`;
     prev.replaceWith(newEl);
   } else {
     prev.attr("src", src).show();
@@ -1306,20 +1341,20 @@ function openSceneEditor(existing, callback) {
   };
   const content = `<div class="vne-scene-editor">
     <div class="vne-se-row"><label>Scene Name</label>
-      <input id="se-name" type="text" value="${loc.name}" placeholder="Tavern, Forest..."/></div>
+      <input id="se-name" type="text" value="${_esc(loc.name)}" placeholder="Tavern, Forest..."/></div>
     <div class="vne-se-row"><label>Region / Parent</label>
-      <input id="se-parent" type="text" value="${loc.parent}" placeholder="Neverwinter..."/></div>
+      <input id="se-parent" type="text" value="${_esc(loc.parent)}" placeholder="Neverwinter..."/></div>
     <div class="vne-se-row"><label>Background (image / GIF / WebP / MP4 / WebM)</label>
       <div style="display:flex;gap:6px;align-items:center;">
-        <input id="se-bg" type="text" value="${loc.backgroundImage}" placeholder="Path to file..."/>
+        <input id="se-bg" type="text" value="${_esc(loc.backgroundImage)}" placeholder="Path to file..."/>
         <button type="button" id="se-bg-pick"><i class="fas fa-folder-open"></i></button>
       </div>
       ${_scenePreviewHtml(loc.backgroundImage)}
     </div>
     <div class="vne-se-row"><label>Weather</label>
-      <input id="se-weather" type="text" value="${loc.weather}" placeholder="Sunny, Rainy..."/></div>
+      <input id="se-weather" type="text" value="${_esc(loc.weather)}" placeholder="Sunny, Rainy..."/></div>
     <div class="vne-se-row"><label>Time</label>
-      <input id="se-time" type="text" value="${loc.time}" placeholder="12:00"/></div>
+      <input id="se-time" type="text" value="${_esc(loc.time)}" placeholder="12:00"/></div>
   </div>`;
 
   new Dialog({
@@ -1380,14 +1415,14 @@ function openPortraitEditor(portraitId, side = null) {
     title: `Edit: ${p.name}`,
     content: `<div class="vne-pe-form">
       <div class="vne-pe-preview">
-        <img id="pe-img" src="${p.img || 'icons/svg/mystery-man.svg'}" style="max-height:180px;border-radius:8px;" onerror="this.src='icons/svg/mystery-man.svg'"/>
+        <img id="pe-img" src="${_esc(p.img || 'icons/svg/mystery-man.svg')}" style="max-height:180px;border-radius:8px;" onerror="this.src='icons/svg/mystery-man.svg'"/>
         <button type="button" id="pe-pick-img" class="vne-pe-pick-btn"><i class="fas fa-image"></i> Change Image</button>
       </div>
       <div class="vne-pe-fields">
         <label>Name</label>
-        <input id="pe-name" type="text" value="${p.name}"/>
+        <input id="pe-name" type="text" value="${_esc(p.name)}"/>
         <label>Title / Role</label>
-        <input id="pe-title" type="text" value="${p.title || ""}"/>
+        <input id="pe-title" type="text" value="${_esc(p.title || "")}"/>
         <label>Scale: <span id="pe-scale-v">${p.scale ?? 100}</span>%</label>
         <input id="pe-scale" type="range" min="20" max="300" value="${p.scale ?? 100}"/>
         <label>Offset X: <span id="pe-ox-v">${p.offsetX ?? 0}</span>px</label>
@@ -1493,7 +1528,7 @@ function openReactionManager(actorId) {
   function tplOptions(tpls) {
     const keys = Object.keys(tpls).sort();
     if (!keys.length) return `<option value="" disabled>Sin templates guardados</option>`;
-    return keys.map(k => `<option value="${k}">${k}</option>`).join("");
+    return keys.map(k => `<option value="${_esc(k)}">${_esc(k)}</option>`).join("");
   }
 
   function collectRows(html) {
@@ -2031,7 +2066,8 @@ export class VNE extends FormApplication {
           showPortraitActionMenu(e.currentTarget, id, side);
           return;
         }
-        // VN mode: single click = toggle stage
+        // VN mode: single click = toggle stage (block the second click that precedes a dblclick)
+        if (e.detail === 2) { e.stopPropagation(); return; }
         e.stopPropagation();
         if (isOnStage(id, d)) await removeFromStage(id);
         else                  await addToStage(id);
@@ -2203,7 +2239,7 @@ export class VNE extends FormApplication {
         return;
       } else {
         // Dropping on a side panel → leftCast / rightCast only, no speaker
-        if (!toSide) return;
+        if (!toSide || !["left", "right"].includes(toSide)) return;
         const key = `${toSide}Cast`;
         if (!d[key].some(p => p.id === actor.id)) {
           if (d[key].length >= 10) d[key].shift();
@@ -2221,13 +2257,14 @@ export class VNE extends FormApplication {
 
     // ── Internal portrait drag ──────────────────────────────────────────────
     if (raw.type === "vne-portrait") {
+      if (!["left", "right"].includes(raw.side)) return;
       // Portrait dragged to center → add to stage
       if (isCenter) {
         await addToStage(raw.id);
         return;
       }
       // Portrait dragged to a different side panel → move between panels
-      if (toSide && raw.side !== toSide) {
+      if (toSide && ["left", "right"].includes(toSide) && raw.side !== toSide) {
         const d = getData();
         const fromKey = `${raw.side}Cast`;
         const toKey   = `${toSide}Cast`;
@@ -2303,7 +2340,7 @@ Hooks.on("updateSetting", (setting, _value, options) => {
     const vidEl = document.getElementById("vne-background-vid");
     if (imgEl) { imgEl.src = isVid ? "" : bgSrc; imgEl.style.display = isVid ? "none" : ""; }
     if (vidEl) {
-      if (isVid) { vidEl.innerHTML = `<source src="${bgSrc}"/>`; vidEl.load(); vidEl.style.display = ""; }
+      if (isVid) { vidEl.innerHTML = `<source src="${_esc(bgSrc)}"/>`; vidEl.load(); vidEl.style.display = ""; }
       else { vidEl.style.display = "none"; vidEl.innerHTML = ""; }
     }
     const nameEl = document.getElementById("vne-loc-name");
@@ -2615,14 +2652,17 @@ function _bindCastPortrait(div, p, side, editMode) {
   // Single click: toggle stage presence (same as template-rendered portrait behavior)
   div.addEventListener("click", async (e) => {
     if (e.target.closest(".vne-remove-cast-btn, .vne-portrait-quick-ctrl")) return;
-    e.stopPropagation();
     const d = getData();
     if (d.combatMode) {
+      e.stopPropagation();
       showPortraitActionMenu(div, p.id, side);
-    } else {
-      if (isOnStage(p.id, d)) await removeFromStage(p.id);
-      else                    await addToStage(p.id);
+      return;
     }
+    // Don't toggle stage when user is double-clicking (block the second "click" of a dblclick)
+    if (e.detail === 2) { e.stopPropagation(); return; }
+    e.stopPropagation();
+    if (isOnStage(p.id, d)) await removeFromStage(p.id);
+    else                    await addToStage(p.id);
   });
 
   // Double-click: full context menu
@@ -2728,9 +2768,9 @@ function _buildReactionsHTML(sp) {
   if (!sp.canControl && !game.user.isGM) return "";
   const btns = sp.reactions.map(r => `
     <div class="vne-reaction-btn${r.isActive ? " vne-active" : ""}"
-         data-reaction="${r.name}" data-actor-id="${sp.id}" title="${r.label}">
-      <img src="${r.img}" loading="lazy"/>
-      <span>${r.label}</span>
+         data-reaction="${_esc(r.name)}" data-actor-id="${_esc(sp.id)}" title="${_esc(r.label)}">
+      <img src="${_esc(r.img)}" loading="lazy"/>
+      <span>${_esc(r.label)}</span>
     </div>`).join("");
   const manage = game.user.isGM
     ? `<div class="vne-reaction-manage-btn" data-actor-id="${sp.id}" title="Manage Reactions"><i class="fas fa-cog"></i></div>`
@@ -2816,7 +2856,7 @@ function _patchVNStage(d, worldOffsetY) {
       const btns = Object.entries(reactionMap).map(([name, rImg]) => {
         const label  = name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ");
         const active = name === activeReaction ? " vne-active" : "";
-        return `<div class="vne-reaction-btn${active}" data-reaction="${name}" data-actor-id="${p.id}" title="${label}"><img src="${rImg}" loading="lazy"/><span>${label}</span></div>`;
+        return `<div class="vne-reaction-btn${active}" data-reaction="${_esc(name)}" data-actor-id="${_esc(p.id)}" title="${_esc(label)}"><img src="${_esc(rImg)}" loading="lazy"/><span>${_esc(label)}</span></div>`;
       }).join("");
       const manageBtnHtml = game.user.isGM
         ? `<div class="vne-reaction-manage-btn" data-actor-id="${p.id}" title="Manage reactions"><i class="fas fa-cog"></i></div>` : "";
@@ -2948,7 +2988,7 @@ function _carouselEffectsHtml(actor) {
   const effects = actor?.temporaryEffects?.filter(e => !e.disabled) ?? [];
   if (!effects.length) return "";
   const icons = effects.slice(0, 6).map(e =>
-    `<img class="vne-ce-icon" src="${e.icon}" title="${e.name}" onerror="this.style.display='none'">`
+    `<img class="vne-ce-icon" src="${_esc(e.icon)}" title="${_esc(e.name)}" onerror="this.style.display='none'">`
   ).join("");
   return `<div class="vne-carousel-effects">${icons}</div>`;
 }
@@ -3182,6 +3222,7 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
       if (!d2.leftCast.some(p => p.id === actorId)) {
         const saved = d2.portraits[actorId];
         const portrait = (saved?.img) ? { ...saved } : defaultPortrait(actor);
+        if (!portrait) { ui.notifications?.warn("VNE: Actor not found."); return; }
         if (d2.leftCast.length >= 10) d2.leftCast.shift();
         d2.leftCast.push(portrait);
         d2.portraits[actorId] = portrait;
@@ -3193,6 +3234,7 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
       if (!d2.rightCast.some(p => p.id === actorId)) {
         const saved = d2.portraits[actorId];
         const portrait = (saved?.img) ? { ...saved } : defaultPortrait(actor);
+        if (!portrait) { ui.notifications?.warn("VNE: Actor not found."); return; }
         if (d2.rightCast.length >= 10) d2.rightCast.shift();
         d2.rightCast.push(portrait);
         d2.portraits[actorId] = portrait;
@@ -3362,22 +3404,33 @@ Hooks.once("setup", async () => {
 
   // Socket handler (lets players trigger GM-side saves)
   game.socket.on(`module.${ID}`, async (msg) => {
-    // vnVictory — broadcast to all clients, no GM restriction
+    // SECURITY NOTE: msg.senderId is client-supplied and cannot be authenticated
+    // without socketlib. All handlers validate server-side game state instead of
+    // trusting the senderId field.
+
+    // vnVictory — broadcast to all clients when VN is active
     if (msg.type === "vnVictory") {
-      const senderUser = game.users.get(msg.senderId);
-      if (!senderUser?.isGM) return;             // only trust GM-originated victories
+      // Guard with server-side state: module must be licensed and VN visible
+      if (!game.settings.get(ID, "worldLicensed")) return;
+      if (!getData().showVN) return;
       _showVictoryOverlay();
       return;
     }
 
     // vnProjectile — CSS projectile animation broadcast to all clients
     if (msg.type === "vnProjectile") {
-      const senderUser = game.users.get(msg.senderId);
-      if (!senderUser?.isGM) return;             // only trust GM-originated projectiles
+      if (!game.settings.get(ID, "worldLicensed")) return;
+      if (!getData().showVN) return;
+      // Validate file has a safe media extension (prevents arbitrary URL injection)
+      const safeFile = (typeof msg.file === "string" &&
+        /\.(webm|gif|mp4|png|jpg|jpeg|webp)$/i.test(msg.file)) ? msg.file : null;
+      if (!safeFile) return;
+      const durationMs = (typeof msg.durationMs === "number" && isFinite(msg.durationMs))
+        ? Math.min(Math.max(msg.durationMs, 100), 5000) : 800;
       const srcPos = _getPortraitScreenCenter(msg.sourceActorId);
       const tgtPos = _getPortraitScreenCenter(msg.targetActorId);
       if (srcPos && tgtPos) {
-        _renderProjectileCSS(srcPos, tgtPos, msg.file, { durationMs: msg.durationMs ?? 800 });
+        _renderProjectileCSS(srcPos, tgtPos, safeFile, { durationMs });
       }
       return;
     }
@@ -3386,26 +3439,29 @@ Hooks.once("setup", async () => {
     if (!game.user.isGM) return;
 
     if (msg.type === "vnReaction") {
-      const actor  = game.actors.get(msg.actorId);
-      const sender = game.users.get(msg.senderId);
-      if (!actor || !sender) return;
-      const ownerLevel = actor.ownership[msg.senderId] ?? actor.ownership.default ?? 0;
-      if (ownerLevel < CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER) return;
+      const actor = game.actors.get(msg.actorId);
+      if (!actor) return;
+      // senderId cannot be trusted — verify the actor is in the GM-controlled cast
+      // and _applyReaction whitelists reactionName against GM-defined reactions
       const d = getData();
+      const inCast = [...d.leftCast, ...d.rightCast].some(p => p.id === msg.actorId);
+      if (!inCast) return;
       _applyReaction(d, msg.actorId, msg.reactionName);
       await game.settings.set(ID, "vnData", d, { change: "castChange" });
       return;
     }
 
     if (msg.type === "vnAddToStage" || msg.type === "vnRemoveFromStage") {
-      if (!game.user.isGM) return;
-      const sender = game.users.get(msg.senderId);
-      if (!sender) return;
       const actor = game.actors.get(msg.actorId);
       if (!actor) return;
-      if (!actor.testUserPermission(sender, "OWNER")) return;
-      if (msg.type === "vnAddToStage")      await addToStage(msg.actorId);
-      else                                  await removeFromStage(msg.actorId);
+      // senderId cannot be trusted — verify the actor has at least one non-GM owner
+      // (ensures only player-owned actors can be stage-toggled via socket)
+      const hasPlayerOwner = Object.entries(actor.ownership)
+        .some(([userId, lvl]) => lvl >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER &&
+          !game.users.get(userId)?.isGM);
+      if (!hasPlayerOwner) return;
+      if (msg.type === "vnAddToStage")    await addToStage(msg.actorId);
+      else                                await removeFromStage(msg.actorId);
       return;
     }
     // vnDataSet removed — direct data injection is no longer permitted
@@ -3479,6 +3535,7 @@ Hooks.on("ready", () => {
     setReaction:  (actorId, reactionName) => setReaction(actorId, reactionName),
     // Cast management
     addActor:     async (actorId, side = "left") => {
+      if (!["left", "right"].includes(side)) { console.warn(`VNEnhanced | addActor: invalid side "${side}"`); return; }
       const actor = game.actors.get(actorId);
       if (!actor) return;
       const d = getData();
@@ -3513,7 +3570,12 @@ Hooks.on("ready", () => {
     setCombatMode: async (on) => {
       const d = getData(); d.combatMode = !!on;
       if (d.combatMode) {
-        await ensureActiveEncounterForVNE();
+        const combat = await ensureActiveEncounterForVNE();
+        if (!combat) {
+          d.combatMode = false;
+          ui.notifications?.warn("VNEnhanced | setCombatMode: could not create encounter.");
+          return;
+        }
       }
       await saveData(d, { change: "combatMode" });
     },
@@ -3919,15 +3981,14 @@ Hooks.on("updateCombat", async (combat, changed) => {
       const owner = game.users.find(u => !u.isGM && actor?.testUserPermission(u, "OWNER"));
       if (owner && actor) {
         const portrait = actor.img
-          ? `<img src="${actor.img}" style="width:48px;height:48px;border-radius:4px;vertical-align:middle;margin-right:8px;" />`
+          ? `<img src="${_esc(actor.img)}" style="width:48px;height:48px;border-radius:4px;vertical-align:middle;margin-right:8px;" />`
           : "";
         ChatMessage.create({
-          content: `${portrait}<strong>${actor.name}</strong>, ¡es tu turno!`,
+          content: `${portrait}<strong>${_esc(actor.name)}</strong>, ¡es tu turno!`,
           whisper: [owner.id],
           speaker: { alias: "VND Enhanced" },
           flags: { "vnd-enhanced": { type: "turn-notification" } }
         });
-        ui.notifications?.info(`VNE: Turno notificado a ${owner.name}`);
       }
     }
   }

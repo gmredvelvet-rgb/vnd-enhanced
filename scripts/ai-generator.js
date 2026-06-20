@@ -8,6 +8,12 @@ const MODULE_ID      = 'vnd-enhanced';
 const API_BASE       = 'https://vnd-license.gmredvelvet.workers.dev';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 
+function _esc(str) {
+  const d = document.createElement('div');
+  d.textContent = String(str ?? '');
+  return d.innerHTML;
+}
+
 // RSA public key — safe to embed; only the server's private key can produce valid signatures.
 const RSA_PUBLIC_KEY = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3-hTzuHo9lgENNQiA4-Fm7VIdalqisZ5NhqrBioXmIXSMbEhYpy1TnPkCBAdAzXAsyX1YdTYLcMADETPnERvceLsDoAWHFZzHGxoXBkOGw0ukAyHJyrwBZxCf_bY_FSbip_-XQuTS4YuyhLPVNjbGMZdVarkegh7BKwW4CR9MDb1DMtf_NxtfNqJ3MxhfAiTxIod4AWer8esisr0IekQlPLmMPA2KggzQw9rFj61B4DAVk2F_TAXPMOKyEcX_zVGpp00JTurTsfwK2023UHKO9t98R0rG17oX0rK_x2EOBiW2Nla3NChZyR4yi8zHe0vjYhprqcwozv9wN0wbANnzwIDAQAB';
 let _rsaKey = null;
@@ -246,7 +252,7 @@ async function _saveToFoundry(b64, index, subfolder = 'character-studio') {
 function _buildTag(text, onRemove) {
   const tag = document.createElement('span');
   tag.className = 'vnd-ai-tag';
-  tag.innerHTML = `<span class="vnd-ai-tag-text">${text}</span><button type="button" class="vnd-ai-tag-rm" title="Eliminar"><i class="fas fa-xmark"></i></button>`;
+  tag.innerHTML = `<span class="vnd-ai-tag-text">${_esc(text)}</span><button type="button" class="vnd-ai-tag-rm" title="Eliminar"><i class="fas fa-xmark"></i></button>`;
   tag.querySelector('.vnd-ai-tag-rm').addEventListener('click', () => {
     tag.remove();
     onRemove?.();
@@ -604,7 +610,7 @@ _updateSceneGenBtn(root) {
       await this._renderSceneResults(root, results, data);
       ui.notifications?.info(`VND AI: ${data.images.length} escena(s) generada(s). Generaciones restantes: ${data.generationsRemaining}`);
     } catch (err) {
-      if (results) results.innerHTML = `<div class="vnd-ai-error"><i class="fas fa-exclamation-triangle"></i> ${err.message}</div>`;
+      if (results) results.innerHTML = `<div class="vnd-ai-error"><i class="fas fa-exclamation-triangle"></i> ${_esc(err.message)}</div>`;
       ui.notifications?.error(`VND AI: ${err.message}`);
     } finally {
       this.#sceneGenerating = false;
@@ -900,7 +906,7 @@ _updateGenerateBar(root) {
       await this._renderCharResults(root, data);
       ui.notifications?.info(`VND AI: ${data.images.length} imagen(es) generada(s). Generaciones restantes: ${data.generationsRemaining}`);
     } catch (err) {
-      if (results) results.innerHTML = `<div class="vnd-ai-error"><i class="fas fa-exclamation-triangle"></i> ${err.message}</div>`;
+      if (results) results.innerHTML = `<div class="vnd-ai-error"><i class="fas fa-exclamation-triangle"></i> ${_esc(err.message)}</div>`;
       ui.notifications?.error(`VND AI: ${err.message}`);
     } finally {
       this.#generating = false;
@@ -948,7 +954,7 @@ _updateGenerateBar(root) {
     card.className = 'vnd-ai-result-card';
 
     const copyBtn = saved
-      ? `<button type="button" class="vnd-ai-result-btn vnd-ai-copy-btn" title="${saved}">
+      ? `<button type="button" class="vnd-ai-result-btn vnd-ai-copy-btn" title="${_esc(saved)}">
            <i class="fas fa-clipboard"></i> Copiar ruta
          </button>`
       : '';
@@ -957,7 +963,7 @@ _updateGenerateBar(root) {
            <i class="fas fa-user-shield"></i> Asignar al token
          </button>`
       : '';
-    const pathEl = saved ? `<div class="vnd-ai-result-path" title="${saved}">${saved}</div>` : '';
+    const pathEl = saved ? `<div class="vnd-ai-result-path" title="${_esc(saved)}">${_esc(saved)}</div>` : '';
 
     card.innerHTML = `
       <div class="vnd-ai-result-label">${label}</div>
@@ -1044,7 +1050,7 @@ _updateGenerateBar(root) {
       this._updateTokenBar(root, data);
     } catch (err) {
       const bar = root.querySelector('.vnd-ai-token-bar');
-      if (bar) bar.innerHTML = `<span class="vnd-ai-bar-error"><i class="fas fa-exclamation-triangle"></i> ${err.message}</span>`;
+      if (bar) bar.innerHTML = `<span class="vnd-ai-bar-error"><i class="fas fa-exclamation-triangle"></i> ${_esc(err.message)}</span>`;
     }
   }
 
@@ -1107,7 +1113,7 @@ this._updateSceneGenBtn(root);
         list.appendChild(this._buildHistoryRow(root, entry));
       }
     } catch (err) {
-      list.innerHTML = `<div class="vnd-ai-error"><i class="fas fa-exclamation-triangle"></i> ${err.message}</div>`;
+      list.innerHTML = `<div class="vnd-ai-error"><i class="fas fa-exclamation-triangle"></i> ${_esc(err.message)}</div>`;
     }
   }
 
@@ -1129,8 +1135,8 @@ this._updateSceneGenBtn(root);
         <span class="vnd-ai-hist-cost">−1 gen</span>
         <span class="vnd-ai-hist-quality">${qualityLabel} · ${entry.image_count} img</span>
       </div>
-      <div class="vnd-ai-hist-action">${entry.prompt.slice(0, 120)}${entry.prompt.length > 120 ? '…' : ''}</div>
-      ${entry.preset_id ? `<span class="vnd-ai-hist-preset">${entry.preset_id}</span>` : ''}
+      <div class="vnd-ai-hist-action">${_esc(entry.prompt.slice(0, 120))}${entry.prompt.length > 120 ? '…' : ''}</div>
+      ${entry.preset_id ? `<span class="vnd-ai-hist-preset">${_esc(entry.preset_id)}</span>` : ''}
     `;
 
     row.addEventListener('click', () => {
