@@ -74,10 +74,10 @@ VN Dialogues Enhanced transforms your Foundry VTT sessions into a cinematic expe
 
 | Foundry VTT | Status |
 |---|---|
-| v13 | ✅ Verified |
+| v14 | ✅ Verified |
+| v13 | ✅ Supported |
 | v12 | ✅ Supported |
 | v11 | ✅ Supported |
-| v14+ | ⚠️ Not yet tested |
 
 **Game systems:** System-agnostic. HP tracking and crit detection include native support for **PF2e** and **D&D 5e**. Other systems work with the generic text-pattern fallback.
 
