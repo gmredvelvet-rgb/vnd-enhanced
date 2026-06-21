@@ -248,7 +248,7 @@ async function addToStage(actorId) {
     if (!inLeft && !inRight) return;
     if (inLeft  && d.stagePlayers.length < 5) d.stagePlayers.push(actorId);
     else if (inRight && d.stageNPCs.length < 5) d.stageNPCs.push(actorId);
-    else { ui.notifications?.warn("El escenario está lleno (máx. 5 por fila)."); return; }
+    else { ui.notifications?.warn("VNE: Stage is full (max 5 per row)."); return; }
     await saveData(d, { change: "stageChange" });
   } else {
     const actor = game.actors.get(actorId);
@@ -360,9 +360,9 @@ async function _quickAdjustPortrait(actorId, changes) {
 // Returns the HTML string for the inline quick-control toolbar.
 function _portraitQuickCtrlHtml() {
   return `<div class="vne-portrait-quick-ctrl">
-    <div class="vne-portrait-qbtn" data-action="scale-down" title="Reducir tamaño (−10%)"><i class="fas fa-search-minus"></i></div>
+    <div class="vne-portrait-qbtn" data-action="scale-down" title="Shrink (−10%)"><i class="fas fa-search-minus"></i></div>
     <div class="vne-portrait-qbtn" data-action="mirror"     title="Voltear izq/der"><i class="fas fa-arrows-alt-h"></i></div>
-    <div class="vne-portrait-qbtn" data-action="scale-up"   title="Aumentar tamaño (+10%)"><i class="fas fa-search-plus"></i></div>
+    <div class="vne-portrait-qbtn" data-action="scale-up"   title="Enlarge (+10%)"><i class="fas fa-search-plus"></i></div>
   </div>`;
 }
 
@@ -658,7 +658,7 @@ async function ensureActiveEncounterForVNE() {
       combat = await Combat.create({ scene: scene.id, active: true });
     } catch (e) {
       console.error("VNE | Failed to create combat encounter:", e);
-      ui.notifications?.error("VNE: No se pudo crear el encuentro de combate.");
+      ui.notifications?.error("VNE: Could not create combat encounter.");
       return null;
     }
   } else if (!combat.active) {
@@ -765,7 +765,7 @@ async function toggleCombatStage() {
     const combat = await ensureActiveEncounterForVNE();
     if (!combat) {
       d.combatMode = false;
-      ui.notifications?.warn("VNE: No se pudo activar Combat Stage — fallo al crear el encuentro.");
+      ui.notifications?.warn("VNE: Could not activate Combat Stage — encounter creation failed.");
       return;
     }
     await _syncGhostTokens(d);
@@ -1078,7 +1078,7 @@ function _showTurnCard(combatant) {
                           : (actor?.img ?? "icons/svg/mystery-man.svg");
   const name  = combatant.name || actor?.name || "???";
   const theme = isPlayer ? "vne-tc-player" : "vne-tc-enemy";
-  const label = isPlayer ? "TURNO DEL JUGADOR" : "TURNO DEL ENEMIGO";
+  const label = isPlayer ? "PLAYER TURN" : "ENEMY TURN";
 
   // Remove any existing card immediately (cancel both pending timers first)
   clearTimeout(_lastTurnCardTimer);
@@ -1527,7 +1527,7 @@ function openReactionManager(actorId) {
 
   function tplOptions(tpls) {
     const keys = Object.keys(tpls).sort();
-    if (!keys.length) return `<option value="" disabled>Sin templates guardados</option>`;
+    if (!keys.length) return `<option value="" disabled>No saved templates</option>`;
     return keys.map(k => `<option value="${_esc(k)}">${_esc(k)}</option>`).join("");
   }
 
@@ -1550,13 +1550,13 @@ function openReactionManager(actorId) {
       <div class="vne-rm-section-label"><i class="fas fa-bookmark"></i> Templates</div>
       <div class="vne-rm-tpl-bar">
         <select id="vne-rm-tpl-select" class="vne-rm-tpl-select">
-          <option value="">— Seleccionar template —</option>
+          <option value="">— Select template —</option>
           ${tplOptions(getTpls())}
         </select>
-        <button type="button" id="vne-rm-tpl-apply" class="vne-rm-tpl-btn vne-rm-tpl-btn-apply" title="Aplicar template">
+        <button type="button" id="vne-rm-tpl-apply" class="vne-rm-tpl-btn vne-rm-tpl-btn-apply" title="Apply template">
           <i class="fas fa-check"></i>
         </button>
-        <button type="button" id="vne-rm-tpl-del" class="vne-rm-tpl-btn vne-rm-tpl-btn-del" title="Eliminar template">
+        <button type="button" id="vne-rm-tpl-del" class="vne-rm-tpl-btn vne-rm-tpl-btn-del" title="Delete template">
           <i class="fas fa-trash"></i>
         </button>
       </div>
@@ -1564,20 +1564,20 @@ function openReactionManager(actorId) {
       <div class="vne-rm-divider"></div>
 
       <p class="vne-rm-hint">
-        <i class="fas fa-theater-masks"></i> Cada fila = una expresión. Los jugadores dueños del actor pueden cambiarla durante la sesión.<br>
-        <span style="color:#7a5e00"><i class="fas fa-heart-broken"></i> Auto-HP:</span>
-        nombra una reacción <code>hurt</code>/<code>wounded</code> (≤50%) o <code>critical</code>/<code>ko</code> (≤25%) para activación automática.
+        <i class="fas fa-theater-masks"></i> Each row = one expression. Actor owners can switch it during the session.<br>
+        <span class="vne-rm-hint-autohp"><i class="fas fa-heart-broken"></i> Auto-HP:</span>
+        name a reaction <code>hurt</code>/<code>wounded</code> (≤50%) or <code>critical</code>/<code>ko</code> (≤25%) for automatic activation.
       </p>
       <div id="vne-rm-rows">${initialRows}</div>
       <button type="button" id="vne-rm-add" class="vne-rm-add-btn"><i class="fas fa-plus"></i> Add Reaction</button>
 
       <div class="vne-rm-divider"></div>
-      <div class="vne-rm-section-label"><i class="fas fa-tag"></i> Guardar como template</div>
+      <div class="vne-rm-section-label"><i class="fas fa-tag"></i> Save as template</div>
       <div class="vne-rm-tpl-save-bar">
         <input id="vne-rm-tpl-name-input" class="vne-rm-tpl-name" type="text"
-               placeholder="Nombre (ej: Bandido, Guardia, Elemental…)" autocomplete="off"/>
+               placeholder="Name (e.g. Bandit, Guard, Elemental…)" autocomplete="off"/>
         <button type="button" id="vne-rm-tpl-save" class="vne-rm-tpl-btn vne-rm-tpl-btn-save"
-                title="Guardar como template">
+                title="Save as template">
           <i class="fas fa-bookmark"></i>
         </button>
       </div>
@@ -1619,39 +1619,39 @@ function openReactionManager(actorId) {
       // ── Apply template ──
       html.find("#vne-rm-tpl-apply").on("click", () => {
         const key = html.find("#vne-rm-tpl-select").val();
-        if (!key) { ui.notifications?.warn("VNE: Selecciona un template primero."); return; }
+        if (!key) { ui.notifications?.warn("VNE: Select a template first."); return; }
         const tpl = getTpls()[key];
         if (!tpl || !Object.keys(tpl).length) return;
         html.find("#vne-rm-rows").html(Object.entries(tpl).map(([n,i]) => buildRow(n,i)).join(""));
-        ui.notifications?.info(`VNE: Template "${key}" aplicado. Pulsa Save para confirmar.`);
+        ui.notifications?.info(`VNE: Template "${key}" applied. Click Save to confirm.`);
       });
 
       // ── Delete template ──
       html.find("#vne-rm-tpl-del").on("click", async () => {
         const key = html.find("#vne-rm-tpl-select").val();
-        if (!key) { ui.notifications?.warn("VNE: Selecciona un template para eliminar."); return; }
+        if (!key) { ui.notifications?.warn("VNE: Select a template to delete."); return; }
         const tpls = getTpls();
         delete tpls[key];
         await game.settings.set(ID, "vnReactionTemplates", tpls);
-        html.find("#vne-rm-tpl-select").html(`<option value="">— Cargar Template —</option>${tplOptions(tpls)}`);
-        ui.notifications?.info(`VNE: Template "${key}" eliminado.`);
+        html.find("#vne-rm-tpl-select").html(`<option value="">— Select template —</option>${tplOptions(tpls)}`);
+        ui.notifications?.info(`VNE: Template "${key}" deleted.`);
       });
 
       // ── Save as template ──
       html.find("#vne-rm-tpl-save").on("click", async () => {
         const name = html.find("#vne-rm-tpl-name-input").val().trim();
-        if (!name) { ui.notifications?.warn("VNE: Escribe un nombre para el template."); return; }
+        if (!name) { ui.notifications?.warn("VNE: Enter a name for the template."); return; }
         const tplReactions = collectRows(html);
         if (!Object.keys(tplReactions).length) {
-          ui.notifications?.warn("VNE: No hay reacciones con imagen para guardar."); return;
+          ui.notifications?.warn("VNE: No reactions with images to save."); return;
         }
         const tpls = getTpls();
         const isOverwrite = !!tpls[name];
         tpls[name] = tplReactions;
         await game.settings.set(ID, "vnReactionTemplates", tpls);
-        html.find("#vne-rm-tpl-select").html(`<option value="">— Cargar Template —</option>${tplOptions(tpls)}`);
+        html.find("#vne-rm-tpl-select").html(`<option value="">— Select template —</option>${tplOptions(tpls)}`);
         html.find("#vne-rm-tpl-name-input").val("");
-        ui.notifications?.info(`VNE: Template "${name}" ${isOverwrite ? "actualizado" : "guardado"} (${Object.keys(tplReactions).length} reacciones).`);
+        ui.notifications?.info(`VNE: Template "${name}" ${isOverwrite ? "updated" : "saved"} (${Object.keys(tplReactions).length} reactions).`);
       });
     }
   }).render(true, { width: 520, height: "auto" });
@@ -1722,47 +1722,47 @@ function openCastPresetsDialog() {
 
   function presetOptions(presets) {
     const keys = Object.keys(presets).sort();
-    if (!keys.length) return `<option value="" disabled>Sin presets guardados</option>`;
+    if (!keys.length) return `<option value="" disabled>No saved presets</option>`;
     return keys.map(k => `<option value="${_esc(k)}">${_esc(k)}</option>`).join("");
   }
 
   const presets = _getCastPresets();
   const content = `<div class="vne-presets-dialog">
-    <p class="vne-presets-hint"><i class="fas fa-users"></i> Los presets guardan el elenco completo (izquierda + derecha + retratos + reacciones) y permiten restaurarlo en un clic.</p>
+    <p class="vne-presets-hint"><i class="fas fa-users"></i> Presets save the full cast (left + right + portraits + reactions) and let you restore it in one click.</p>
 
     <div class="vne-presets-section">
-      <div class="vne-presets-label"><i class="fas fa-bookmark"></i> Cargar preset</div>
+      <div class="vne-presets-label"><i class="fas fa-bookmark"></i> Load preset</div>
       <div class="vne-presets-row">
         <select id="vne-preset-select" class="vne-preset-select">
-          <option value="">— Seleccionar —</option>
+          <option value="">— Select —</option>
           ${presetOptions(presets)}
         </select>
-        <button type="button" id="vne-preset-load" class="vne-preset-btn" title="Cargar"><i class="fas fa-check"></i></button>
-        <button type="button" id="vne-preset-del"  class="vne-preset-btn vne-preset-btn-del" title="Eliminar"><i class="fas fa-trash"></i></button>
+        <button type="button" id="vne-preset-load" class="vne-preset-btn" title="Load"><i class="fas fa-check"></i></button>
+        <button type="button" id="vne-preset-del"  class="vne-preset-btn vne-preset-btn-del" title="Delete"><i class="fas fa-trash"></i></button>
       </div>
     </div>
 
     <div class="vne-presets-divider"></div>
 
     <div class="vne-presets-section">
-      <div class="vne-presets-label"><i class="fas fa-save"></i> Guardar elenco actual como preset</div>
+      <div class="vne-presets-label"><i class="fas fa-save"></i> Save current cast as preset</div>
       <div class="vne-presets-row">
-        <input id="vne-preset-name" type="text" class="vne-preset-name-input" placeholder="Nombre (ej: Grupo principal, Escena taberna…)" autocomplete="off"/>
-        <button type="button" id="vne-preset-save" class="vne-preset-btn vne-preset-btn-save" title="Guardar"><i class="fas fa-bookmark"></i></button>
+        <input id="vne-preset-name" type="text" class="vne-preset-name-input" placeholder="Name (e.g. Main group, Tavern scene…)" autocomplete="off"/>
+        <button type="button" id="vne-preset-save" class="vne-preset-btn vne-preset-btn-save" title="Save"><i class="fas fa-bookmark"></i></button>
       </div>
     </div>
   </div>`;
 
   const dialog = new Dialog({
-    title: "Cast Presets — Elencos Guardados",
+    title: "Cast Presets",
     content,
-    buttons: { close: { label: "Cerrar" } },
+    buttons: { close: { label: "Close" } },
     render: (html) => {
 
       // Load preset
       html.find("#vne-preset-load").on("click", async () => {
         const key = html.find("#vne-preset-select").val();
-        if (!key) { ui.notifications?.warn("VNE: Selecciona un preset primero."); return; }
+        if (!key) { ui.notifications?.warn("VNE: Select a preset first."); return; }
         const p = _getCastPresets()[key];
         if (!p) return;
         const d = getData();
@@ -1772,28 +1772,28 @@ function openCastPresetsDialog() {
         d.stagePlayers = [];
         d.stageNPCs   = [];
         await saveData(d, { change: "castChange" });
-        ui.notifications?.info(`VNE: Preset "${key}" cargado (${d.leftCast.length + d.rightCast.length} actores).`);
+        ui.notifications?.info(`VNE: Preset "${key}" loaded (${d.leftCast.length + d.rightCast.length} actors).`);
         dialog.close();
       });
 
       // Delete preset
       html.find("#vne-preset-del").on("click", async () => {
         const key = html.find("#vne-preset-select").val();
-        if (!key) { ui.notifications?.warn("VNE: Selecciona un preset para eliminar."); return; }
+        if (!key) { ui.notifications?.warn("VNE: Select a preset to delete."); return; }
         const p2 = _getCastPresets();
         delete p2[key];
         await _saveCastPresets(p2);
-        html.find("#vne-preset-select").html(`<option value="">— Seleccionar —</option>${presetOptions(p2)}`);
-        ui.notifications?.info(`VNE: Preset "${key}" eliminado.`);
+        html.find("#vne-preset-select").html(`<option value="">— Select —</option>${presetOptions(p2)}`);
+        ui.notifications?.info(`VNE: Preset "${key}" deleted.`);
       });
 
       // Save current cast as preset
       html.find("#vne-preset-save").on("click", async () => {
         const name = html.find("#vne-preset-name").val().trim();
-        if (!name) { ui.notifications?.warn("VNE: Escribe un nombre para el preset."); return; }
+        if (!name) { ui.notifications?.warn("VNE: Enter a name for the preset."); return; }
         const d = getData();
         if (!d.leftCast.length && !d.rightCast.length) {
-          ui.notifications?.warn("VNE: El elenco está vacío, no hay nada que guardar."); return;
+          ui.notifications?.warn("VNE: The cast is empty, nothing to save."); return;
         }
         const p2 = _getCastPresets();
         const isOverwrite = !!p2[name];
@@ -1804,9 +1804,9 @@ function openCastPresetsDialog() {
           savedAt:   new Date().toISOString()
         };
         await _saveCastPresets(p2);
-        html.find("#vne-preset-select").html(`<option value="">— Seleccionar —</option>${presetOptions(p2)}`);
+        html.find("#vne-preset-select").html(`<option value="">— Select —</option>${presetOptions(p2)}`);
         html.find("#vne-preset-name").val("");
-        ui.notifications?.info(`VNE: Preset "${name}" ${isOverwrite ? "actualizado" : "guardado"} (${d.leftCast.length + d.rightCast.length} actores).`);
+        ui.notifications?.info(`VNE: Preset "${name}" ${isOverwrite ? "updated" : "saved"} (${d.leftCast.length + d.rightCast.length} actors).`);
       });
     }
   }, { width: 480 });
@@ -2182,7 +2182,7 @@ export class VNE extends FormApplication {
       const d = getData();
       const key = `${side}Cast`;
       if (d[key].some(p => p.id === actorId)) {
-        ui.notifications?.info(`${actor.name} ya está en el panel.`);
+        ui.notifications?.info(`${actor.name} is already in the panel.`);
         if (d.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
         return;
       }
@@ -2455,7 +2455,7 @@ function openScenesPanel() {
     const locs = getVisible();
     return locs.length
       ? locs.map(cardHtml).join("")
-      : `<div class="vne-sp-empty"><i class="fas fa-map"></i><span>No hay escenas${activeFilter || searchQ ? " con ese filtro" : ""}</span></div>`;
+      : `<div class="vne-sp-empty"><i class="fas fa-map"></i><span>No scenes${activeFilter || searchQ ? " matching the filter" : ""}</span></div>`;
   }
 
   function refreshGrid() {
@@ -2466,7 +2466,7 @@ function openScenesPanel() {
   }
 
   const tabsHtml = [
-    `<div class="vne-sp-tab vne-sp-tab-active" data-filter="">Todas</div>`,
+    `<div class="vne-sp-tab vne-sp-tab-active" data-filter="">All</div>`,
     ...categories.map(c => `<div class="vne-sp-tab" data-filter="${esc(c)}">${esc(c)}</div>`)
   ].join("");
 
@@ -2474,20 +2474,20 @@ function openScenesPanel() {
   panel.id = "vne-scenes-panel";
   panel.innerHTML = `
     <div class="vne-sp-header">
-      <span class="vne-sp-title"><i class="fas fa-map-marked-alt"></i> Escenas</span>
+      <span class="vne-sp-title"><i class="fas fa-map-marked-alt"></i> Scenes</span>
       <div class="vne-sp-header-btns">
-        ${game.user.isGM ? `<div id="vne-sp-import-btn" class="vne-sp-hbtn" title="Importar desde JSON"><i class="fas fa-file-import"></i></div>` : ""}
-        ${game.user.isGM ? `<div id="vne-sp-export-btn" class="vne-sp-hbtn" title="Exportar a JSON"><i class="fas fa-file-export"></i></div>` : ""}
-        <div id="vne-sp-close" class="vne-sp-hbtn" title="Cerrar"><i class="fas fa-times"></i></div>
+        ${game.user.isGM ? `<div id="vne-sp-import-btn" class="vne-sp-hbtn" title="Import from JSON"><i class="fas fa-file-import"></i></div>` : ""}
+        ${game.user.isGM ? `<div id="vne-sp-export-btn" class="vne-sp-hbtn" title="Export to JSON"><i class="fas fa-file-export"></i></div>` : ""}
+        <div id="vne-sp-close" class="vne-sp-hbtn" title="Close"><i class="fas fa-times"></i></div>
       </div>
     </div>
     <div class="vne-sp-controls">
-      <input id="vne-sp-search" class="vne-sp-search" type="text" placeholder="🔍 Buscar escena..." autocomplete="off"/>
+      <input id="vne-sp-search" class="vne-sp-search" type="text" placeholder="🔍 Search scene..." autocomplete="off"/>
       <div class="vne-sp-tabs">${tabsHtml}</div>
     </div>
     <div class="vne-sp-grid" id="vne-sp-grid">${buildGrid()}</div>
     ${game.user.isGM ? `<div class="vne-sp-footer">
-      <div id="vne-sp-new-btn" class="vne-sp-new-btn"><i class="fas fa-plus"></i> Nueva Escena</div>
+      <div id="vne-sp-new-btn" class="vne-sp-new-btn"><i class="fas fa-plus"></i> New Scene</div>
     </div>` : ""}
     <input type="file" id="vne-sp-file" accept=".json" style="display:none"/>
   `;
@@ -2596,7 +2596,7 @@ function openScenesPanel() {
       const parsed  = JSON.parse(await file.text());
       const incoming = parsed.scenes ?? parsed.locationList ?? [];
       if (!Array.isArray(incoming) || !incoming.length) {
-        ui.notifications?.warn("VNE: No se encontraron escenas en el archivo."); return;
+        ui.notifications?.warn("VNE: No scenes found in the file."); return;
       }
       const d2 = getData();
       let added = 0;
@@ -2608,8 +2608,8 @@ function openScenesPanel() {
       await saveData(d2, { change: "locationList" });
       d.locationList = d2.locationList;
       refreshGrid();
-      ui.notifications?.info(`VNE: ${added} escena(s) importada(s).`);
-    } catch { ui.notifications?.error("VNE: Error al leer el archivo JSON."); }
+      ui.notifications?.info(`VNE: ${added} scene(s) imported.`);
+    } catch { ui.notifications?.error("VNE: Error reading JSON file."); }
     e.target.value = "";
   });
 
@@ -4023,7 +4023,7 @@ Hooks.on("updateCombat", async (combat, changed) => {
           ? `<img src="${_esc(actor.img)}" style="width:48px;height:48px;border-radius:4px;vertical-align:middle;margin-right:8px;" />`
           : "";
         ChatMessage.create({
-          content: `${portrait}<strong>${_esc(actor.name)}</strong>, ¡es tu turno!`,
+          content: `${portrait}<strong>${_esc(actor.name)}</strong>, it's your turn!`,
           whisper: [owner.id],
           speaker: { alias: "VND Enhanced" },
           flags: { "vnd-enhanced": { type: "turn-notification" } }

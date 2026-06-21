@@ -1821,8 +1821,12 @@
 .vne-rm-hint {
   margin: 0 0 8px;
   font-size: 0.78em;
-  color: #c8b896;
+  color: #d6c99a;
   line-height: 1.4;
+}
+.vne-rm-hint-autohp {
+  color: #f0c060;
+  font-weight: 600;
 }
 
 #vne-rm-rows {
