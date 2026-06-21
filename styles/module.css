@@ -1821,11 +1821,11 @@
 .vne-rm-hint {
   margin: 0 0 8px;
   font-size: 0.78em;
-  color: #d6c99a;
+  color: #3a3020;
   line-height: 1.4;
 }
 .vne-rm-hint-autohp {
-  color: #f0c060;
+  color: #7a5e00;
   font-weight: 600;
 }
 
@@ -1869,7 +1869,9 @@
   padding: 4px 7px;
   border-radius: 4px;
   font-size: 0.85em;
-  color: #e8dcc8;
+  color: #1a1a1a;
+  background: #f5f2ec;
+  border: 1px solid #c8b898;
 }
 
 /* Icon buttons (pick image / delete) */
@@ -1893,9 +1895,9 @@
   width: 100%;
   padding: 5px 0;
   border-radius: 4px;
-  border: 1px dashed rgba(200,155,60,0.4);
+  border: 1px dashed rgba(140,100,20,0.5);
   background: transparent;
-  color: #c8a060;
+  color: #7a5e00;
   cursor: pointer;
   font-size: 0.78em;
   text-align: center;
@@ -1903,7 +1905,7 @@
   display: flex; align-items: center; justify-content: center; gap: 5px;
   margin-bottom: 2px;
 }
-.vne-rm-add-btn:hover { background: rgba(200,155,60,0.08); }
+.vne-rm-add-btn:hover { background: rgba(140,100,20,0.08); }
 
 /* Template section divider + label */
 .vne-rm-divider {
@@ -1916,7 +1918,7 @@
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #c89b3c;
+  color: #6a4c00;
   margin: 0 0 4px;
   display: flex;
   align-items: center;
@@ -1937,7 +1939,9 @@
   border-radius: 4px;
   font-size: 0.8em;
   cursor: pointer;
-  color: #e8dcc8;
+  color: #1a1a1a;
+  background: #f5f2ec;
+  border: 1px solid #c8b898;
   /* override Foundry width constraints */
   width: auto !important;
   max-width: none !important;
@@ -1956,7 +1960,9 @@
   border-radius: 4px;
   font-size: 0.8em;
   font-family: inherit;
-  color: #e8dcc8;
+  color: #1a1a1a;
+  background: #f5f2ec;
+  border: 1px solid #c8b898;
   /* override Foundry width constraints */
   width: auto !important;
   max-width: none !important;
@@ -2641,11 +2647,11 @@
 .vne-presets-dialog {
   padding: 4px 0;
   font-size: 0.9em;
-  color: var(--vne-text, #e8dcc8);
+  color: #1a1a1a;
 }
 .vne-presets-hint {
   font-size: 0.82em;
-  color: rgba(200,185,160,0.65);
+  color: #4a4030;
   margin-bottom: 12px;
   line-height: 1.5;
 }
@@ -2656,7 +2662,7 @@
   font-size: 0.78em;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--vne-accent, #c89b3c);
+  color: #6a4c00;
   margin-bottom: 6px;
 }
 .vne-presets-divider {
@@ -2672,10 +2678,10 @@
 .vne-preset-select,
 .vne-preset-name-input {
   flex: 1;
-  background: rgba(0,0,0,0.4);
-  border: 1px solid rgba(200,155,60,0.3);
+  background: #f5f2ec;
+  border: 1px solid #c8b898;
   border-radius: 5px;
-  color: #ddd;
+  color: #1a1a1a;
   padding: 5px 8px;
   font-size: 0.88em;
 }
@@ -2685,10 +2691,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(200,155,60,0.35);
+  border: 1px solid rgba(140,100,20,0.45);
   border-radius: 5px;
-  background: rgba(200,155,60,0.1);
-  color: var(--vne-accent, #c89b3c);
+  background: #ede8dc;
+  color: #3a2800;
   cursor: pointer;
   font-size: 0.85em;
   flex-shrink: 0;
