@@ -86,7 +86,8 @@ router.post('/refresh',
     }
 
     // Issue new tokens
-    const features      = PatreonClient.featuresForTier(user.tier);
+    const moduleId      = installation.module_id ?? 'vnd-enhanced';
+    const features      = PatreonClient.featuresForTier(user.tier, moduleId);
     const jwtPayload    = buildAccessToken(user, installation, features);
     const accessToken   = await signJWT(jwtPayload, c.env);
     const { refreshToken: newRt } = await issueRefreshToken(
@@ -118,6 +119,7 @@ router.post('/heartbeat',
     const installation = await db.findOne('vnd_installations', {
       installation_id: installationId,
       user_id:         payload.sub,
+      module_id:       payload.mid ?? 'vnd-enhanced',
       status:          'active'
     });
 
@@ -176,7 +178,8 @@ router.post('/heartbeat',
       }
     }
 
-    const features    = PatreonClient.featuresForTier(tier);
+    const moduleId    = payload.mid ?? 'vnd-enhanced';
+    const features    = PatreonClient.featuresForTier(tier, moduleId);
     const jwtPayload  = buildAccessToken({ ...user, tier }, installation, features);
     const accessToken = await signJWT(jwtPayload, c.env);
 
@@ -226,7 +229,8 @@ router.post('/license/release',
 
     const installation = await db.findOne('vnd_installations', {
       installation_id: installationId,
-      user_id:         payload.sub
+      user_id:         payload.sub,
+      module_id:       payload.mid ?? 'vnd-enhanced'
     });
 
     if (!installation) return c.json({ error: 'Installation not found', code: 'NOT_FOUND' }, 404);

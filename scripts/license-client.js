@@ -100,7 +100,7 @@ export class VndLicenseClient {
 
   async startOAuth() {
     // Send our origin so the callback page targets postMessage precisely (not '*')
-    const { url } = await this.#apiCall('/oauth/start', { origin: globalThis.location.origin });
+    const { url } = await this.#apiCall('/oauth/start', { origin: globalThis.location.origin, moduleId: MODULE_ID });
     const popup   = window.open(url, 'vnd-patreon-auth', 'width=600,height=700,popup=yes');
 
     return new Promise((resolve, reject) => {
@@ -137,7 +137,8 @@ export class VndLicenseClient {
     const result = await this.#apiCall('/oauth/exchange', {
       authCode,
       installationId:  this.#installationId,
-      fingerprintHash: this.#fingerprint
+      fingerprintHash: this.#fingerprint,
+      moduleId:        MODULE_ID
     });
 
     this.#storeTokens(result.accessToken, result.refreshToken, result.expiresIn, result.tier, result.features);

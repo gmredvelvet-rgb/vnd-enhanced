@@ -68,6 +68,7 @@ export function buildAccessToken(user, installation, features) {
   return {
     sub:      user.id,
     iid:      installation.installation_id,
+    mid:      installation.module_id ?? 'vnd-enhanced',
     fph:      installation.fingerprint_hash.substring(0, 16),
     tier:     user.tier,
     features,

@@ -24,10 +24,15 @@ router.post('/start',
       ? body.origin
       : null;
 
+    // Validate moduleId — reject unknown modules to prevent token abuse
+    const moduleId = typeof body.moduleId === 'string' && PatreonClient.isValidModuleId(body.moduleId)
+      ? body.moduleId
+      : 'vnd-enhanced';
+
     const state = crypto.randomUUID();
     await c.env.KV.put(
       `oauth:state:${state}`,
-      JSON.stringify({ origin, createdAt: Date.now() }),
+      JSON.stringify({ origin, moduleId, createdAt: Date.now() }),
       { expirationTtl: 600 }
     );
 
@@ -50,7 +55,11 @@ router.get('/callback', async (c) => {
   const stateRaw = await c.env.KV.get(`oauth:state:${state}`);
   if (!stateRaw) return serveErrorPage(c, 'Invalid or expired OAuth state.');
   await c.env.KV.delete(`oauth:state:${state}`);
-  const allowedOrigin = (() => { try { return JSON.parse(stateRaw).origin ?? null; } catch { return null; } })();
+  const stateData     = (() => { try { return JSON.parse(stateRaw); } catch { return {}; } })();
+  const allowedOrigin = stateData.origin ?? null;
+  const moduleId      = typeof stateData.moduleId === 'string' && PatreonClient.isValidModuleId(stateData.moduleId)
+    ? stateData.moduleId
+    : 'vnd-enhanced';
 
   try {
     const patreon = new PatreonClient(c.env);
@@ -81,8 +90,12 @@ router.get('/callback', async (c) => {
     // Opaque random auth code — does NOT embed user data (avoids info leak via base64 decode)
     const authCode = crypto.randomUUID().replaceAll('-', '') + crypto.randomUUID().replaceAll('-', '');
 
-    // Store auth code → user_id mapping in KV (5-minute TTL, single-use)
-    await c.env.KV.put(`authcode:${authCode}`, user.id, { expirationTtl: 300 });
+    // Store auth code → { userId, moduleId } in KV (5-minute TTL, single-use)
+    await c.env.KV.put(
+      `authcode:${authCode}`,
+      JSON.stringify({ userId: user.id, moduleId }),
+      { expirationTtl: 300 }
+    );
 
     return serveSuccessPage(c, { authCode, tier, username: user.username, allowedOrigin });
   } catch (err) {
@@ -101,11 +114,29 @@ router.post('/exchange', async (c) => {
   }
 
   const { authCode, installationId, fingerprintHash } = body;
+  // Accept moduleId from client; fall back to vnd-enhanced for old clients
+  const moduleId = typeof body.moduleId === 'string' && PatreonClient.isValidModuleId(body.moduleId)
+    ? body.moduleId
+    : 'vnd-enhanced';
 
   // Validate and consume the auth code
-  const userId = await c.env.KV.get(`authcode:${authCode}`);
-  if (!userId) return c.json({ error: 'Invalid or expired auth code', code: 'INVALID_CODE' }, 400);
+  const authCodeRaw = await c.env.KV.get(`authcode:${authCode}`);
+  if (!authCodeRaw) return c.json({ error: 'Invalid or expired auth code', code: 'INVALID_CODE' }, 400);
   await c.env.KV.delete(`authcode:${authCode}`);
+
+  // Auth code stores { userId, moduleId } — verify the client's moduleId matches what was requested
+  let userId;
+  try {
+    const parsed = JSON.parse(authCodeRaw);
+    userId = parsed.userId;
+    // If the stored code has a moduleId (new format), verify it matches the client's claim
+    if (parsed.moduleId && parsed.moduleId !== moduleId) {
+      return c.json({ error: 'Module ID mismatch', code: 'MODULE_MISMATCH' }, 400);
+    }
+  } catch {
+    // Legacy format: raw userId string (old auth codes issued before multi-module support)
+    userId = authCodeRaw;
+  }
 
   const db   = new Supabase(c.env);
   const user = await db.findOne('vnd_users', { id: userId });
@@ -115,9 +146,11 @@ router.post('/exchange', async (c) => {
 
   const MAX_SLOTS = 2;
 
-  // Fetch ALL rows for this user (any status) — UNIQUE constraint applies to all rows,
-  // so we must count total rows (not just active) before deciding INSERT vs UPDATE.
-  const allInstalls = await db.findMany('vnd_installations', { user_id: userId });
+  // Fetch ALL rows for this user across ALL modules — needed to assign globally unique
+  // slot_numbers (avoiding unique constraint conflicts between modules).
+  const allUserInstalls = await db.findMany('vnd_installations', { user_id: userId });
+  // Per-module view: used for MAX_SLOTS enforcement and re-activation detection.
+  const allInstalls = allUserInstalls.filter(i => (i.module_id ?? 'vnd-enhanced') === moduleId);
 
   // Check if this installation_id already exists on this user (re-activation)
   let installation = allInstalls.find(i => i.installation_id === installationId) ?? null;
@@ -168,12 +201,14 @@ router.post('/exchange', async (c) => {
       updated_at:        new Date().toISOString()
     });
   } else {
-    // Truly fresh — find first slot_number not already taken
-    const usedSlots = new Set(allInstalls.map(i => i.slot_number));
-    const slotNumber = [1, 2, 3, 4].find(n => !usedSlots.has(n)) ?? (allInstalls.length + 1);
+    // Truly fresh — pick a slot_number not used by ANY module for this user
+    // (avoids unique constraint conflicts when user activates multiple modules)
+    const usedSlots = new Set(allUserInstalls.map(i => i.slot_number));
+    const slotNumber = [1, 2, 3, 4, 5, 6, 7, 8].find(n => !usedSlots.has(n)) ?? (allUserInstalls.length + 1);
     installation = await db.insert('vnd_installations', {
       installation_id:  installationId,
       user_id:          userId,
+      module_id:        moduleId,
       slot_number:      slotNumber,
       fingerprint_hash: fingerprintHash,
       status:           'active'
@@ -185,7 +220,7 @@ router.post('/exchange', async (c) => {
   }
 
   // Issue access + refresh tokens
-  const features    = PatreonClient.featuresForTier(user.tier);
+  const features    = PatreonClient.featuresForTier(user.tier, moduleId);
   const jwtPayload  = buildAccessToken(user, installation, features);
   const accessToken = await signJWT(jwtPayload, c.env);
   const { refreshToken } = await issueRefreshToken(db, user.id, installation.id, fingerprintHash);
@@ -194,7 +229,7 @@ router.post('/exchange', async (c) => {
     event_type:      'activation',
     user_id:         user.id,
     installation_id: installation.id,
-    details:         { slot: installation.slot_number }
+    details:         { slot: installation.slot_number, module_id: moduleId }
   });
 
   return c.json({

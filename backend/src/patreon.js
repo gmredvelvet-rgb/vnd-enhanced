@@ -127,13 +127,27 @@ export class PatreonClient {
 
   // ── Feature list per tier ─────────────────────────────────────────────────
 
-  static featuresForTier(tier) {
-    const map = {
-      none:    [],
-      basic:   ['dnd-shops', 'vn-core', 'combat-stage', 'reactions'],
-      premium: ['dnd-shops', 'vn-core', 'combat-stage', 'reactions', 'vs-display', 'victory-overlay',
-                'action-overlay', 'rp-stage', 'timer-auto']
+  static featuresForTier(tier, moduleId = 'vnd-enhanced') {
+    const allFeatures = {
+      'vnd-enhanced': {
+        none:    [],
+        basic:   ['dnd-shops', 'vn-core', 'combat-stage', 'reactions'],
+        premium: ['dnd-shops', 'vn-core', 'combat-stage', 'reactions', 'vs-display', 'victory-overlay',
+                  'action-overlay', 'rp-stage', 'timer-auto']
+      },
+      'sf2e-cyber-sheet': {
+        none:    [],
+        basic:   ['cyber-sheet'],
+        premium: ['cyber-sheet', 'cyber-sheet-fx', 'cyber-sheet-hologram']
+      }
     };
+    const map = allFeatures[moduleId] ?? allFeatures['vnd-enhanced'];
     return map[tier] ?? [];
+  }
+
+  // ── Whitelist of known module IDs ─────────────────────────────────────────
+
+  static isValidModuleId(moduleId) {
+    return ['vnd-enhanced', 'sf2e-cyber-sheet'].includes(moduleId);
   }
 }

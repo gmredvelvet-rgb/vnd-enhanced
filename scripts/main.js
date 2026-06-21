@@ -3850,26 +3850,65 @@ function _attachVNFxOverlay(container, file, durationMs) {
 function _initAAHook() {
   if (!game.modules.get("autoanimations")?.active) return;
 
+  // Pre-create a ghost token when any actor sheet opens and the actor has no real
+  // canvas token. This prevents "Could not determine where to play the effect!" errors
+  // from Automated Animations/Sequencer when rolling from custom sheets.
+  Hooks.on("renderActorSheet", async (sheet) => {
+    if (!game.user.isGM || !canvas.scene) return;
+    const actor = sheet.actor;
+    if (!actor?.id) return;
+    const hasRealToken = canvas.tokens?.placeables?.some(
+      t => (t.document?.actorId ?? t.actor?.id) === actor.id
+        && !t.document?.flags?.[ID]?.isGhost
+    );
+    if (!hasRealToken && !_ghostTokens.has(actor.id)) {
+      await _createGhostToken(actor.id);
+    }
+  });
+
+  // Clean up ghost tokens created for sheet support when the sheet closes,
+  // but only if the actor is NOT in the active VN cast (those are managed separately).
+  Hooks.on("closeActorSheet", async (sheet) => {
+    if (!game.user.isGM) return;
+    const actor = sheet.actor;
+    if (!actor?.id) return;
+    const d = getData();
+    const inVNCast = [...(d.leftCast ?? []), ...(d.rightCast ?? [])].some(p => p.id === actor.id);
+    if (inVNCast) return;
+    const doc = _ghostTokens.get(actor.id);
+    if (!doc) return;
+    _ghostTokens.delete(actor.id);
+    if (doc.id && canvas.scene) {
+      try { await canvas.scene.deleteEmbeddedDocuments("Token", [doc.id]); } catch { /* ignore */ }
+    }
+  });
+
   Hooks.on("aa.getRequiredData", (data) => {
     try {
-      const vneData = getData();
-      if (!vneData.showVN || !vneData.combatMode) return;
+      // For any actor with no real canvas token, redirect AA to its ghost token.
+      // Works regardless of VN/combat mode — ghost tokens may exist from sheet-open
+      // pre-creation (above) or from the VN combat sync system.
+      const _hasRealToken = (actorId) => !!canvas.tokens?.placeables?.some(
+        t => (t.document?.actorId ?? t.actor?.id) === actorId
+          && !t.document?.flags?.[ID]?.isGhost
+      );
 
-      // Replace sourceToken with its ghost counterpart if it's in the VN cast
       if (data.sourceToken) {
         const srcActorId = _tokenActorId(data.sourceToken);
-        if (srcActorId) {
+        if (srcActorId && !_hasRealToken(srcActorId)) {
           const ghostObj = getGhostTokenObject(srcActorId);
           if (ghostObj) data.sourceToken = ghostObj;
+          else _createGhostToken(srcActorId); // fire-and-forget: ready for the next roll
         }
       }
 
-      // Replace each target token with its ghost counterpart if applicable
       if (Array.isArray(data.allTargets)) {
         data.allTargets = data.allTargets.map(t => {
           const actorId = _tokenActorId(t);
-          if (!actorId) return t;
-          return getGhostTokenObject(actorId) ?? t;
+          if (!actorId || _hasRealToken(actorId)) return t;
+          const ghostObj = getGhostTokenObject(actorId);
+          if (!ghostObj) _createGhostToken(actorId); // fire-and-forget
+          return ghostObj ?? t;
         });
       }
     } catch (e) {
