@@ -37,13 +37,13 @@
             <div id="vne-combat-stage-btn" class="vne-ctrl-btn vne-combat-stage-toggle{{#if combatMode}} vne-active vne-combat-active{{/if}}" title="Combat Stage">
               <i class="fas fa-crosshairs"></i>
             </div>
-            <div id="vne-editmode-btn" class="vne-ctrl-btn{{#if editMode}} vne-active vne-editmode-active{{/if}}" title="{{#if editMode}}Salir del modo edición{{else}}Modo edición: reordenar, escalar y eliminar retratos{{/if}}">
+            <div id="vne-editmode-btn" class="vne-ctrl-btn{{#if editMode}} vne-active vne-editmode-active{{/if}}" title="{{#if editMode}}Exit edit mode{{else}}Edit mode: reorder, scale and remove portraits{{/if}}">
               <i class="fas fa-{{#if editMode}}lock-open{{else}}pencil-alt{{/if}}"></i>
             </div>
-            <div id="vne-ai-btn" class="vne-ctrl-btn" title="Generador de Imágenes IA (solo GM)">
+            <div id="vne-ai-btn" class="vne-ctrl-btn" title="AI Image Generator (GM only)">
               <i class="fas fa-wand-sparkles"></i>
             </div>
-            <div id="vne-presets-btn" class="vne-ctrl-btn" title="Cast Presets — guardar y cargar elencos">
+            <div id="vne-presets-btn" class="vne-ctrl-btn" title="Cast Presets — save and load casts">
               <i class="fas fa-layer-group"></i>
             </div>
           {{/if}}
@@ -92,7 +92,7 @@
       {{/if}}
 
       <div class="vne-round-block">
-        <div class="vne-round-label">RONDA</div>
+        <div class="vne-round-label">ROUND</div>
         <div id="vne-round-num" class="vne-round-num">{{combatRound}}</div>
         <div id="vne-turn-name" class="vne-turn-name">{{combatTurnName}}</div>
       </div>
@@ -110,7 +110,7 @@
             {{timerDisplay}}
           </div>
           <div id="vne-timer-auto-btn" class="vne-ctrl-btn vne-timer-auto{{#if timerAuto}} vne-active{{/if}}"
-               title="{{#if timerAuto}}Auto-reset ON — reinicia el timer en cada turno (click para desactivar){{else}}Auto-reset OFF — el timer no se reinicia solo (click para activar){{/if}}">
+               title="{{#if timerAuto}}Auto-reset ON — resets on each turn (click to disable){{else}}Auto-reset OFF — timer does not reset automatically (click to enable){{/if}}">
             <i class="fas fa-sync-alt"></i>
           </div>
         </div>
@@ -196,9 +196,9 @@
 
     {{!-- ── BOTTOM BAR: Scenes Pill ── --}}
     <div class="vne-bottom-bar">
-      <div id="vne-scenes-pill" class="vne-scenes-pill" title="Gestionar Escenas ({{locationList.length}} guardadas)">
+      <div id="vne-scenes-pill" class="vne-scenes-pill" title="Manage Scenes ({{locationList.length}} saved)">
         <i class="fas fa-map-marked-alt"></i>
-        <span class="vne-sp-pill-label">Escenas</span>
+        <span class="vne-sp-pill-label">Scenes</span>
         <span class="vne-sp-pill-sep" style="{{#unless locationName}}display:none{{/unless}}">›</span>
         <span id="vne-scenes-current" class="vne-sp-pill-current" style="{{#unless locationName}}display:none{{/unless}}">{{locationName}}</span>
         <span class="vne-sp-pill-count">({{locationList.length}})</span>
