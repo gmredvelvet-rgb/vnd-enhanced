@@ -1066,6 +1066,12 @@ function _showTurnCard(combatant) {
   if (!combatant) return;
   const d = getData();
   if (!d.showVN || !d.combatMode) return;
+  if (!game.user.isGM) {
+    // Normalize showForIds: empty array treated as null (same as visible computation)
+    const showForIds = (d.showForIds && d.showForIds.length > 0) ? d.showForIds : null;
+    if (showForIds && !showForIds.includes(game.user.id)) return;
+    if (_playerLocalHidden) return;
+  }
   // Only show for actors that belong to the VN cast
   const isPlayer = d.leftCast.some(p => p.id === combatant.actorId);
   const isEnemy  = d.rightCast.some(p => p.id === combatant.actorId);
@@ -1163,6 +1169,11 @@ function _applyPortraitHitShake(actorId, isCrit = false) {
 function _showCriticalAnimation(type, actorId = null) {
   const d = getData();
   if (!d.showVN) return;
+  if (!game.user.isGM) {
+    const showForIds = (d.showForIds && d.showForIds.length > 0) ? d.showForIds : null;
+    if (showForIds && !showForIds.includes(game.user.id)) return;
+    if (_playerLocalHidden) return;
+  }
 
   document.getElementById("vne-crit-overlay")?.remove();
 
@@ -1870,6 +1881,7 @@ export class VNE extends FormApplication {
           main?.style.setProperty("display", "none", "important");
         } else {
           main?.style.removeProperty("display");
+          main?.classList.remove("vne-hidden");
         }
       }
     });
@@ -1896,8 +1908,10 @@ export class VNE extends FormApplication {
     const worldOffsetY = game.settings.get(ID, "worldOffsetY") || 0;
     const editMode    = d.editMode && game.user.isGM;
 
+    // Treat showForIds=[] (empty) as null so an empty list never silently locks out all players
+    const showForIds = (d.showForIds && d.showForIds.length > 0) ? d.showForIds : null;
     const visible = d.showVN &&
-      (game.user.isGM || !d.showForIds || d.showForIds.includes(game.user.id)) &&
+      (game.user.isGM || !showForIds || showForIds.includes(game.user.id)) &&
       (game.user.isGM || !_playerLocalHidden);
 
     const combatMode = d.combatMode ?? false;
@@ -1906,7 +1920,7 @@ export class VNE extends FormApplication {
       id: u.id,
       name: u.name,
       color: u.color,
-      visible: !d.showForIds || d.showForIds.includes(u.id)
+      visible: !showForIds || showForIds.includes(u.id)
     }));
 
     const stageActorIds = combatMode
@@ -2129,7 +2143,8 @@ export class VNE extends FormApplication {
         const idx = d.showForIds.indexOf(userId);
         if (idx >= 0) d.showForIds.splice(idx, 1);
         else d.showForIds.push(userId);
-        if (d.showForIds.length >= allIds.length) d.showForIds = null;
+        // null means "all" — use null when all are included OR when none are (empty list is confusing)
+        if (d.showForIds.length === 0 || d.showForIds.length >= allIds.length) d.showForIds = null;
         await saveData(d, { change: "visibility" });
       });
     });
@@ -3383,6 +3398,7 @@ Hooks.once("init", () => {
             main?.style.setProperty("display", "none", "important");
           } else {
             main?.style.removeProperty("display");
+            main?.classList.remove("vne-hidden");
           }
         }
       }
@@ -3495,6 +3511,13 @@ Hooks.on("ready", () => {
   _initAAHook();
   // Seed HP baselines so the first damage event in a session shows floaters correctly
   _seedCastHP();
+
+  // Safety net: activate VNE for clients that missed the setup hook activation.
+  // This covers the race condition where worldLicensed=true was already persisted and
+  // the setup hook completed before the setting was readable by non-GM clients.
+  if (!VNE.instance && game.settings.get(ID, "worldLicensed")) {
+    VNE.activate();
+  }
 
   // Rich API for macros and Active Tile Triggers
   globalThis.VNEnhanced = {
