@@ -2,7 +2,7 @@
   "id": "vnd-enhanced",
   "title": "VN Dialogues Enhanced",
   "description": "Visual Novel style dialogue display for FoundryVTT. The active speaker always appears centered and large. Cinematic combat stage with turn cards, damage floaters, and crit animations. Scene management, portrait reactions, AI image generation, and more. Requires a Patreon subscription.",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "compatibility": {
     "minimum": "11",
     "verified": "14",

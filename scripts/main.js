@@ -1041,7 +1041,8 @@ async function openStatusEffectPicker(actorId) {
       <div class="vne-sfx-grid">
         ${allStatuses.map(s => {
           const sid = s.id ?? s.flags?.core?.statusId ?? s.name;
-          const isActive = activeIds.has(sid);
+          const slug = sid.includes(".") ? sid.split(".").pop() : sid;
+          const isActive = activeIds.has(sid) || activeIds.has(slug);
           const label = game.i18n.localize(s.name ?? s.label ?? sid);
           const iconSrc = s.img ?? s.icon ?? "";
           return `<div class="vne-sfx-cell${isActive ? " vne-sfx-active" : ""}" data-sid="${_esc(sid)}" title="${_esc(label)}">
@@ -1065,20 +1066,23 @@ async function openStatusEffectPicker(actorId) {
 
         cell.style.opacity = "0.5";
 
+        // PF2e stores conditions as slugs; strip any namespace prefix (e.g. "Pathfinder.blinded" → "blinded")
+        const slug = sid.includes(".") ? sid.split(".").pop() : sid;
+
         try {
-          // 1. PF2e + DnD5e v3+: toggleStatusEffect (handles both systems)
+          // 1. PF2e: toggleCondition is the authoritative method (must come before toggleStatusEffect)
+          if (typeof actor.toggleCondition === "function") {
+            await actor.toggleCondition(slug);
+            setTimeout(rebuildGrid, 500);
+            return;
+          }
+          // 2. DnD5e v3+ / generic Foundry: toggleStatusEffect
           if (typeof actor.toggleStatusEffect === "function") {
             await actor.toggleStatusEffect(sid, { overlay: false });
             setTimeout(rebuildGrid, 500);
             return;
           }
-          // 2. PF2e legacy: toggleCondition
-          if (typeof actor.toggleCondition === "function") {
-            await actor.toggleCondition(sid);
-            setTimeout(rebuildGrid, 500);
-            return;
-          }
-          // 3. Token API (PF2e v11, SWADE, otros)
+          // 3. Token API (SWADE, otros sistemas)
           const token = canvas.tokens?.placeables?.find(
             t => (t.document?.actorId ?? t.actor?.id) === actorId
               && !t.document?.flags?.[ID]?.isGhost
@@ -3726,6 +3730,29 @@ Hooks.on("deleteCombat",     () => {
   _stopTurnTimer();
   renderVNECombatCarousel();
   _checkVictoryCondition(_lastCombatTurns); // use pre-delete snapshot
+
+  // Fallback: if VNE was in combat mode and no animation fired (nobody was marked
+  // defeated in the tracker), determine outcome from live HP and show an animation.
+  // GM clicking "End Encounter" = encounter over → default to victory unless a PC is at 0 HP.
+  if (!_victoryTriggered && game.user.isGM) {
+    const d = getData();
+    if (d.showVN && d.combatMode) {
+      const anyPCDown = d.leftCast.some(p => {
+        const actor = game.actors.get(p.id);
+        const hp = actor?.system?.attributes?.hp?.value ?? actor?.system?.hp?.value;
+        return hp != null && hp <= 0;
+      });
+      _victoryTriggered = true;
+      if (anyPCDown) {
+        game.socket.emit(`module.${ID}`, { type: "vnDefeat", senderId: game.user.id });
+        _showDefeatOverlay();
+      } else {
+        game.socket.emit(`module.${ID}`, { type: "vnVictory", senderId: game.user.id });
+        _showVictoryOverlay();
+      }
+    }
+  }
+
   _lastCombatTurns = [];                    // clear after use
 });
 Hooks.on("createCombat",     () => {
