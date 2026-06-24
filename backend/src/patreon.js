@@ -139,6 +139,11 @@ export class PatreonClient {
         none:    [],
         basic:   ['cyber-sheet'],
         premium: ['cyber-sheet', 'cyber-sheet-fx', 'cyber-sheet-hologram']
+      },
+      'starfinderdashboard': {
+        none:    [],
+        basic:   ['dashboard'],
+        premium: ['dashboard']
       }
     };
     const map = allFeatures[moduleId] ?? allFeatures['vnd-enhanced'];
@@ -148,6 +153,6 @@ export class PatreonClient {
   // ── Whitelist of known module IDs ─────────────────────────────────────────
 
   static isValidModuleId(moduleId) {
-    return ['vnd-enhanced', 'sf2e-cyber-sheet'].includes(moduleId);
+    return ['vnd-enhanced', 'sf2e-cyber-sheet', 'starfinderdashboard'].includes(moduleId);
   }
 }

@@ -100,4 +100,19 @@ export function registerSettings() {
     config:  false,
     default: {}
   });
+
+  // Per-client turn timer preferences
+  game.settings.register(ID, "timerMinutes", {
+    scope:   "client",
+    type:    Number,
+    config:  false,
+    default: 2
+  });
+
+  game.settings.register(ID, "timerAutoReset", {
+    scope:   "client",
+    type:    Boolean,
+    config:  false,
+    default: false
+  });
 }

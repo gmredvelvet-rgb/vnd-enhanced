@@ -41,6 +41,10 @@ const _autoReactionTimers = new Map();  // actorId → debounce timeout handle
 // ── Ghost Token Bridge state ──────────────────────────────────────────────────
 // actorId → TokenDocument: hidden off-screen canvas tokens for VFX system compatibility
 let _ghostTokens = new Map();
+let _ghostTokenCounter = 0;  // monotonically increasing slot index — never reused, avoids Map.size gaps
+
+// ── Action overlay state ──────────────────────────────────────────────────────
+let _actionOverlayTimer = null;
 
 // ── Persona / Fire Emblem combat effects state ────────────────────────────────
 const _lastKnownHP       = new Map();  // actorId → last observed HP value
@@ -49,6 +53,7 @@ let _lastTurnChangeMs    = 0;          // timestamp of last turn change — used
 const _pendingFloaters   = new Map();  // actorId → { delta, isCrit, timerId } — delayed to allow PF2e raw-damage override
 let   _lastTurnCardTimer      = null;  // setTimeout handle for auto-dismiss of turn card
 let   _lastTurnCardInnerTimer = null;  // setTimeout handle for card fade-out (inner removal)
+let   _victoryTriggered       = false; // prevents double-fire when updateCombatant + deleteCombat both call _checkVictoryCondition
 
 // Seed _lastKnownHP for all current cast members so the first delta is tracked correctly.
 // Safe to call multiple times — only writes entries that don't already exist.
@@ -345,14 +350,13 @@ async function _quickAdjustPortrait(actorId, changes) {
   if (!game.user.isGM) return;
   const d = getData();
   let found = false;
-  for (const key of ["leftCast", "rightCast", "rpCast"]) {
+  for (const key of ["leftCast", "rightCast"]) {
     const idx = (d[key] || []).findIndex(p => p.id === actorId);
     if (idx >= 0) { Object.assign(d[key][idx], changes); found = true; }
   }
   if (!found) return;
   const p = d.leftCast.find(x => x.id === actorId)
-          || d.rightCast.find(x => x.id === actorId)
-          || (d.rpCast || []).find(x => x.id === actorId);
+          || d.rightCast.find(x => x.id === actorId);
   if (p) d.portraits[actorId] = { ...p };
   await saveData(d, { change: "castChange" });
 }
@@ -375,8 +379,7 @@ function _bindPortraitQuickCtrl(container, actorId) {
       if (!game.user.isGM) return;
       const d = getData();
       const p = d.leftCast.find(x => x.id === actorId)
-              || d.rightCast.find(x => x.id === actorId)
-              || (d.rpCast || []).find(x => x.id === actorId);
+              || d.rightCast.find(x => x.id === actorId);
       if (!p) return;
       const action = btn.dataset.action;
       if      (action === "scale-up")   await _quickAdjustPortrait(actorId, { scale: Math.min(300, (p.scale || 100) + 10) });
@@ -423,7 +426,9 @@ function targetActorToken(actorId) {
   }
 
   const alreadyTargeted = [...(game.user.targets ?? [])].some(t => t.id === token.id);
-  token.setTarget(!alreadyTargeted, { user: game.user, releaseOthers: false });
+  // Targeting a NEW actor: release all other targets first (clean single-target UX).
+  // Clicking the SAME actor again: untarget only that one, no side effects.
+  token.setTarget(!alreadyTargeted, { user: game.user, releaseOthers: !alreadyTargeted });
 }
 
 function getVNECastTokens(d = getData()) {
@@ -444,7 +449,7 @@ function getVNECastTokens(d = getData()) {
 // TokenDocument objects to attach effects to while visuals render on HTML portraits.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-async function _createGhostToken(actorId) {
+async function _createGhostToken(actorId, ghostType = "combat") {
   if (!game.user.isGM) return null;
   if (_ghostTokens.has(actorId)) return _ghostTokens.get(actorId);
 
@@ -458,22 +463,31 @@ async function _createGhostToken(actorId) {
   const gridSize  = canvas.scene.grid?.size ?? 100;
   const sceneW    = canvas.scene.width  ?? 4000;
   const sceneH    = canvas.scene.height ?? 3000;
-  const x = Math.max(0, sceneW - gridSize * 2 - (_ghostTokens.size * gridSize));
-  const y = Math.max(0, sceneH - gridSize * 2);
+  const col = _ghostTokenCounter % 10;
+  const row = Math.floor(_ghostTokenCounter / 10);
+  _ghostTokenCounter++;
+  const x = Math.max(0, sceneW - gridSize * 2 - (col * gridSize));
+  const y = Math.max(0, sceneH - gridSize * (2 + row));
 
   const tokenData = actor.prototypeToken?.toObject?.() ?? {};
+  // "sheet" ghosts only need to exist for AA/Sequencer to resolve actor references when
+  // rolling from a sheet with no real canvas token.  They don't need screen-space
+  // positioning, so hiding them prevents Foundry from treating them as targetable tokens.
+  // "combat" ghosts must remain visible (hidden:false + alpha:0.001) because Sequencer's
+  // screenSpacePosition() requires the token to be in canvas.tokens for all clients.
+  const isSheetGhost = ghostType === "sheet";
   const createData = {
     ...tokenData,
     actorId,
     actorLink: true,
-    hidden: false,
-    alpha: 0.001,         // Practically invisible without being "hidden"
+    hidden: isSheetGhost,
+    alpha: isSheetGhost ? 0 : 0.001,
     vision: false,        // Don't affect Fog of War (v11)
     sight: { enabled: false }, // Don't affect Fog of War (v12+)
     x,
     y,
     name: actor.name,
-    flags: { [ID]: { isGhost: true } },
+    flags: { [ID]: { isGhost: true, ghostType } },
   };
 
   try {
@@ -489,10 +503,14 @@ async function _createGhostToken(actorId) {
 async function _destroyGhostTokens() {
   if (!game.user.isGM || !_ghostTokens.size) return;
   const ids = [];
-  for (const doc of _ghostTokens.values()) {
-    if (doc?.id) ids.push(doc.id);
+  for (const [actorId, doc] of [..._ghostTokens.entries()]) {
+    // Only destroy combat ghosts — sheet ghosts (ghostType:"sheet") are managed by closeActorSheet
+    if (!doc?.id) continue;
+    const isCombatGhost = doc.flags?.[ID]?.ghostType === "combat";
+    if (!isCombatGhost) continue;
+    ids.push(doc.id);
+    _ghostTokens.delete(actorId);
   }
-  _ghostTokens.clear();
   if (ids.length && canvas.scene) {
     try {
       await canvas.scene.deleteEmbeddedDocuments("Token", ids);
@@ -694,6 +712,41 @@ async function ensureActiveEncounterForVNE() {
   return combat;
 }
 
+// Adds a single actor to the active combat tracker (used when the actor joins the VN cast
+// after combat mode is already running).  ensureActiveEncounterForVNE is for first-time
+// setup; this is for late arrivals.
+async function ensureCombatantForActor(actorId) {
+  if (!game.user.isGM) return;
+  const combat = game.combat;
+  if (!combat || !canvas.scene) return;
+  if (combat.combatants.find(c => c.actorId === actorId)) return;
+
+  // Prefer a real canvas token; fall back to an existing or freshly-created ghost.
+  let token = canvas.tokens?.placeables?.find(
+    t => (t.document?.actorId ?? t.actor?.id) === actorId
+      && !t.document?.flags?.[ID]?.isGhost
+  ) ?? null;
+
+  if (!token) {
+    let ghostDoc = _ghostTokens.get(actorId);
+    if (!ghostDoc) ghostDoc = await _createGhostToken(actorId, "combat");
+    if (ghostDoc?.id) token = canvas.tokens?.get(ghostDoc.id) ?? null;
+  }
+
+  if (!token) return;
+
+  try {
+    await combat.createEmbeddedDocuments("Combatant", [{
+      tokenId: token.document?.id ?? token.id,
+      sceneId: canvas.scene.id,
+      actorId,
+      hidden: token.document?.hidden ?? false,
+    }]);
+  } catch (e) {
+    console.warn("VNE | Failed to add late combatant:", e);
+  }
+}
+
 async function toggleHideUI() {
   if (!game.user.isGM) {
     _playerLocalUIHidden = !_playerLocalUIHidden;
@@ -788,6 +841,306 @@ function closePortraitActionMenu() {
   document.getElementById("vne-portrait-action-menu")?.remove();
 }
 
+// ── Help Overlay ──────────────────────────────────────────────────────────────
+
+function openHelpOverlay() {
+  document.getElementById("vne-help-overlay")?.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "vne-help-overlay";
+  overlay.innerHTML = `
+    <div class="vne-help-panel">
+      <div class="vne-help-header">
+        <i class="fas fa-question-circle"></i>
+        <span>VND Enhanced — How to Use</span>
+        <button type="button" class="vne-help-close"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="vne-help-tabs">
+        <button type="button" class="vne-help-tab vne-help-tab-active" data-tab="combat">⚔️ Combat</button>
+        <button type="button" class="vne-help-tab" data-tab="vn">🎭 Visual Novel</button>
+        <button type="button" class="vne-help-tab" data-tab="gm">🛠️ GM Tools</button>
+      </div>
+      <div class="vne-help-body">
+
+        <div class="vne-help-section" data-section="combat">
+          <div class="vne-help-block">
+            <div class="vne-help-step-title"><i class="fas fa-crosshairs"></i> How to Target an Enemy</div>
+            <ol class="vne-help-steps">
+              <li>Click any <strong>NPC portrait</strong> on the right panel.</li>
+              <li>In the menu that appears, click <strong>"Select as target"</strong>.</li>
+              <li>The portrait glows <span class="vne-help-red">red</span> — the enemy is now targeted.</li>
+              <li>Click the same portrait again → "Select as target" to <strong>deselect</strong>.</li>
+            </ol>
+          </div>
+          <div class="vne-help-block">
+            <div class="vne-help-step-title"><i class="fas fa-fist-raised"></i> How to Attack</div>
+            <ol class="vne-help-steps">
+              <li>Target the enemy (see above).</li>
+              <li>Open your <strong>character sheet</strong> and roll your attack (Strike, spell, etc.).</li>
+              <li>The attack roll chat card appears — PF2e auto-checks vs. the target's AC.</li>
+              <li>Click <strong>"Apply Damage"</strong> on the chat card to deal damage to the targeted token.</li>
+            </ol>
+          </div>
+          <div class="vne-help-block">
+            <div class="vne-help-step-title"><i class="fas fa-heart-broken"></i> How to Take Damage</div>
+            <ol class="vne-help-steps">
+              <li>The GM targets your character (your portrait may glow red).</li>
+              <li>The GM rolls the enemy's attack against your AC.</li>
+              <li>If it hits, the GM clicks "Apply Damage" — your HP bar updates automatically.</li>
+            </ol>
+          </div>
+          <div class="vne-help-block">
+            <div class="vne-help-step-title"><i class="fas fa-portrait"></i> Portrait Action Menu</div>
+            <p>Click any portrait in combat mode to open the quick menu:</p>
+            <ul class="vne-help-list">
+              <li><i class="fas fa-id-card"></i> <strong>Open Sheet</strong> — view/edit character stats</li>
+              <li><i class="fas fa-crosshairs"></i> <strong>Select as Target</strong> — set as combat target</li>
+              <li><i class="fas fa-dice-d20"></i> <strong>Roll Initiative</strong> — add to combat tracker</li>
+              <li><i class="fas fa-comment-dots"></i> <strong>Set as Speaker</strong> — show in center stage</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="vne-help-section vne-help-hidden" data-section="vn">
+          <div class="vne-help-block">
+            <div class="vne-help-step-title"><i class="fas fa-user-plus"></i> Adding Characters</div>
+            <ul class="vne-help-list">
+              <li>Drag an actor from the <strong>Actors sidebar</strong> onto the <strong>Players</strong> (left) or <strong>NPCs</strong> (right) panel.</li>
+              <li>Or click the <strong>+</strong> button at the top of each panel (GM only).</li>
+            </ul>
+          </div>
+          <div class="vne-help-block">
+            <div class="vne-help-step-title"><i class="fas fa-microphone"></i> Setting the Speaker</div>
+            <ul class="vne-help-list">
+              <li><strong>Single-click</strong> a portrait to make it the active speaker (large center portrait).</li>
+              <li>Click again to remove them from the spotlight.</li>
+              <li>Players can only activate their own characters.</li>
+            </ul>
+          </div>
+          <div class="vne-help-block">
+            <div class="vne-help-step-title"><i class="fas fa-ellipsis-h"></i> Portrait Options</div>
+            <ul class="vne-help-list">
+              <li><strong>Double-click</strong> — open options: remove, open sheet, set speaker.</li>
+              <li><strong>Right-click</strong> — open portrait editor (scale, offset, reactions) — GM only.</li>
+            </ul>
+          </div>
+          <div class="vne-help-block">
+            <div class="vne-help-step-title"><i class="fas fa-map-marked-alt"></i> Scenes</div>
+            <ul class="vne-help-list">
+              <li>Click <strong>Scenes</strong> in the bottom bar to manage locations.</li>
+              <li>Save the current background + cast as a named scene for quick recall.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="vne-help-section vne-help-hidden" data-section="gm">
+          <div class="vne-help-block">
+            <div class="vne-help-step-title">Top-Bar Buttons (GM)</div>
+            <ul class="vne-help-list">
+              <li><i class="fas fa-crosshairs"></i> <strong>Combat Stage</strong> — enter/exit combat display mode; shows HP bars and turn order.</li>
+              <li><i class="fas fa-pencil-alt"></i> <strong>Edit Mode</strong> — drag portraits to reorder, right-click to scale/offset individual portraits.</li>
+              <li><i class="fas fa-wand-sparkles"></i> <strong>AI Generator</strong> — generate portrait images with AI.</li>
+              <li><i class="fas fa-layer-group"></i> <strong>Cast Presets</strong> — save and reload full actor lineups instantly.</li>
+            </ul>
+          </div>
+          <div class="vne-help-block">
+            <div class="vne-help-step-title">Top-Bar Buttons (All Users)</div>
+            <ul class="vne-help-list">
+              <li><i class="fas fa-image"></i> <strong>Background</strong> — toggle the scene background on/off.</li>
+              <li><i class="fas fa-bars"></i> <strong>Sidebar</strong> — show/hide the Foundry chat sidebar.</li>
+              <li><i class="fas fa-eye-slash"></i> <strong>Hide UI</strong> — collapse all VN panels (background only view).</li>
+              <li><i class="fas fa-times"></i> <strong>Close</strong> — GM closes VN for everyone; players hide it locally.</li>
+            </ul>
+          </div>
+          <div class="vne-help-block">
+            <div class="vne-help-step-title"><i class="fas fa-users"></i> Player Visibility</div>
+            <ul class="vne-help-list">
+              <li>The <strong>Players</strong> panel (top-right) lets you show/hide the VN window per player.</li>
+              <li>Click the eye icon next to a player's name to toggle their view.</li>
+              <li>Click <strong>"Show All"</strong> to restore everyone at once.</li>
+            </ul>
+          </div>
+          <div class="vne-help-block">
+            <div class="vne-help-step-title"><i class="fas fa-hourglass-half"></i> Turn Timer (Combat)</div>
+            <ul class="vne-help-list">
+              <li>Set the minutes field next to the timer icon, then click the hourglass to start.</li>
+              <li>Click the <strong>sync icon</strong> to auto-reset the timer every turn.</li>
+              <li>The timer turns red when under 30 seconds.</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>`;
+
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.remove();
+    const tab = e.target.closest(".vne-help-tab");
+    if (tab) {
+      overlay.querySelectorAll(".vne-help-tab").forEach(t => t.classList.remove("vne-help-tab-active"));
+      overlay.querySelectorAll(".vne-help-section").forEach(s => s.classList.add("vne-help-hidden"));
+      tab.classList.add("vne-help-tab-active");
+      overlay.querySelector(`.vne-help-section[data-section="${tab.dataset.tab}"]`)?.classList.remove("vne-help-hidden");
+    }
+    if (e.target.closest(".vne-help-close")) overlay.remove();
+  });
+
+  document.body.appendChild(overlay);
+}
+
+// ─── STATUS EFFECT PICKER ────────────────────────────────────────────────────
+// Grid of system status effect icons (same source as the token HUD).
+// GM-only: clicking an icon toggles the ActiveEffect on the actor.
+
+async function openStatusEffectPicker(actorId) {
+  if (!game.user.isGM) return;
+  const actor = game.actors.get(actorId);
+  if (!actor) return;
+
+  document.getElementById("vne-status-picker")?.remove();
+
+  const allStatuses = CONFIG.statusEffects ?? [];
+  if (!allStatuses.length) {
+    ui.notifications?.warn("VNE | No status effects found for this system.");
+    return;
+  }
+
+  // Re-reads actor live every call — covers PF2e (Items) and generic (ActiveEffects)
+  function getActiveIds() {
+    const ids = new Set();
+    // PF2e: conditions stored as Items with type "condition", slug = id
+    for (const item of actor.items ?? []) {
+      if (item.type === "condition") {
+        if (item.slug)          ids.add(item.slug);
+        if (item.system?.slug)  ids.add(item.system.slug);
+        // kebab-case name as fallback
+        if (item.name) ids.add(item.name.toLowerCase().replace(/\s+/g, "-"));
+      }
+    }
+    // Generic / DnD5e: ActiveEffect
+    for (const e of actor.effects ?? []) {
+      if (e.disabled) continue;
+      if (e.statuses) for (const s of e.statuses) ids.add(s);
+      if (e.flags?.core?.statusId) ids.add(e.flags.core.statusId);
+    }
+    return ids;
+  }
+
+  const picker = document.createElement("div");
+  picker.id = "vne-status-picker";
+  picker.className = "vne-status-picker";
+
+  const rebuildGrid = () => {
+    const activeIds = getActiveIds();
+    picker.innerHTML = `
+      <div class="vne-sfx-header">
+        <i class="fas fa-shield-alt"></i>
+        <span>Status Effects — ${_esc(actor.name)}</span>
+        <button type="button" class="vne-sfx-close" title="Close"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="vne-sfx-grid">
+        ${allStatuses.map(s => {
+          const sid = s.id ?? s.flags?.core?.statusId ?? s.name;
+          const isActive = activeIds.has(sid);
+          const label = game.i18n.localize(s.name ?? s.label ?? sid);
+          const iconSrc = s.img ?? s.icon ?? "";
+          return `<div class="vne-sfx-cell${isActive ? " vne-sfx-active" : ""}" data-sid="${_esc(sid)}" title="${_esc(label)}">
+            <img src="${_esc(iconSrc)}" alt="${_esc(label)}" loading="lazy">
+            ${isActive ? `<i class="fas fa-check vne-sfx-check"></i>` : ""}
+          </div>`;
+        }).join("")}
+      </div>`;
+
+    picker.querySelector(".vne-sfx-close")?.addEventListener("click", e => {
+      e.stopPropagation();
+      picker.remove();
+    });
+
+    picker.querySelectorAll(".vne-sfx-cell").forEach(cell => {
+      cell.addEventListener("click", async e => {
+        e.stopPropagation();
+        const sid    = e.target.closest(".vne-sfx-cell")?.dataset.sid ?? cell.dataset.sid;
+        const status = allStatuses.find(s => (s.id ?? s.flags?.core?.statusId ?? s.name) === sid);
+        if (!status) return;
+
+        cell.style.opacity = "0.5";
+
+        try {
+          // 1. PF2e + DnD5e v3+: toggleStatusEffect (handles both systems)
+          if (typeof actor.toggleStatusEffect === "function") {
+            await actor.toggleStatusEffect(sid, { overlay: false });
+            setTimeout(rebuildGrid, 500);
+            return;
+          }
+          // 2. PF2e legacy: toggleCondition
+          if (typeof actor.toggleCondition === "function") {
+            await actor.toggleCondition(sid);
+            setTimeout(rebuildGrid, 500);
+            return;
+          }
+          // 3. Token API (PF2e v11, SWADE, otros)
+          const token = canvas.tokens?.placeables?.find(
+            t => (t.document?.actorId ?? t.actor?.id) === actorId
+              && !t.document?.flags?.[ID]?.isGhost
+          );
+          if (token && typeof token.toggleEffect === "function") {
+            const isNowActive = getActiveIds().has(sid);
+            await token.toggleEffect(status, { active: !isNowActive, overlay: false });
+            setTimeout(rebuildGrid, 500);
+            return;
+          }
+          // 4. Genérico: ActiveEffect directo
+          const isNowActive = getActiveIds().has(sid);
+          if (isNowActive) {
+            const effect = [...(actor.effects ?? [])].find(e2 =>
+              (e2.statuses && [...e2.statuses].includes(sid)) ||
+              e2.flags?.core?.statusId === sid
+            );
+            if (effect) await effect.delete();
+          } else {
+            const effectData = foundry.utils.deepClone(status);
+            delete effectData.id;
+            effectData.name  = effectData.name  ?? game.i18n.localize(effectData.label ?? sid);
+            effectData.label = effectData.label ?? effectData.name;
+            effectData.icon  = effectData.icon  ?? effectData.img;
+            effectData.img   = effectData.img   ?? effectData.icon;
+            if (!effectData.statuses) effectData.statuses = [sid];
+            effectData.flags             = effectData.flags ?? {};
+            effectData.flags.core        = effectData.flags.core ?? {};
+            effectData.flags.core.statusId = sid;
+            await actor.createEmbeddedDocuments("ActiveEffect", [effectData]);
+          }
+          setTimeout(rebuildGrid, 500);
+
+        } catch (err) {
+          console.error("VNE | Status effect toggle failed:", err);
+          ui.notifications?.error("VNE | Could not toggle status effect.");
+          cell.style.opacity = "";
+          rebuildGrid();
+        }
+      });
+    });
+  };
+
+  rebuildGrid();
+
+  const main = document.getElementById("vne-main");
+  (main ?? document.body).appendChild(picker);
+  picker.style.left = `${Math.max(8, (window.innerWidth  - 440) / 2)}px`;
+  picker.style.top  = `${Math.max(8, (window.innerHeight - 400) / 2)}px`;
+
+  let pickerReady = false;
+  setTimeout(() => { pickerReady = true; }, 200);
+
+  const onOutside = e => {
+    if (!pickerReady) return;
+    if (picker.contains(e.target)) return;
+    picker.remove();
+    document.removeEventListener("pointerdown", onOutside, true);
+  };
+  document.addEventListener("pointerdown", onOutside, true);
+}
+
 function showPortraitActionMenu(trigger, actorId, side) {
   closePortraitActionMenu();
   const actor = game.actors.get(actorId);
@@ -799,7 +1152,8 @@ function showPortraitActionMenu(trigger, actorId, side) {
   const inCombat = !!game.combat?.combatants.find(c => c.actorId === actorId);
   const initiativeBtn = `<button type="button" data-action="initiative"><i class="fas fa-dice-d20"></i><span>Roll Initiative</span></button>`;
   const removeVNBtn    = game.user.isGM ? `<button type="button" data-action="removeVN"><i class="fas fa-user-minus"></i><span>Remove from VN</span></button>` : "";
-  const removeCombatBtn = (game.user.isGM && inCombat) ? `<button type="button" data-action="removeCombat"><i class="fas fa-skull"></i><span>Remove from combat</span></button>` : "";
+  const removeCombatBtn    = (game.user.isGM && inCombat) ? `<button type="button" data-action="removeCombat"><i class="fas fa-skull"></i><span>Remove from combat</span></button>` : "";
+  const statusEffectsBtn   = game.user.isGM ? `<button type="button" data-action="statusEffects"><i class="fas fa-shield-alt"></i><span>Assign Status Effects</span></button>` : "";
 
   const menu = document.createElement("div");
   menu.id = "vne-portrait-action-menu";
@@ -810,7 +1164,8 @@ function showPortraitActionMenu(trigger, actorId, side) {
     ${inCombat ? initiativeBtn : ""}
     <button type="button" data-action="speaker"><i class="fas fa-comment-dots"></i><span>Set as speaker</span></button>
     ${removeVNBtn}
-    ${removeCombatBtn}`;
+    ${removeCombatBtn}
+    ${statusEffectsBtn}`;
 
   menu.addEventListener("click", async (event) => {
     const action = event.target.closest("button")?.dataset.action;
@@ -853,6 +1208,17 @@ function showPortraitActionMenu(trigger, actorId, side) {
       if (!game.user.isGM) return;
       const combatant = game.combat?.combatants?.find(c => c.actorId === actorId);
       if (combatant) await game.combat.deleteEmbeddedDocuments("Combatant", [combatant.id]);
+      const d = getData();
+      d.leftCast     = d.leftCast.filter(p => p.id !== actorId);
+      d.rightCast    = d.rightCast.filter(p => p.id !== actorId);
+      d.stagePlayers = d.stagePlayers.filter(id => id !== actorId);
+      d.stageNPCs    = d.stageNPCs.filter(id => id !== actorId);
+      await saveData(d, { change: "castChange" });
+      return;
+    }
+    if (action === "statusEffects") {
+      if (!game.user.isGM) return;
+      openStatusEffectPicker(actorId);
     }
   });
 
@@ -884,11 +1250,12 @@ function _showActionImageOverlay({ imagePath, actorName = "", actionName = "", r
       ${actorName ? `<span class="vne-ao-actor">${_esc(actorName)}</span>` : ""}
       ${actionName ? `<span class="vne-ao-action">${_esc(actionName)}</span>` : ""}
     </div>`;
-  // Fade out portraits (center speaker + VS sides) while overlay plays
   const portraitImgs = document.querySelectorAll(".vne-center-img, .vne-vs-img");
   portraitImgs.forEach(el => { el.style.transition = "opacity 0.2s"; el.style.opacity = "0"; });
   main.appendChild(overlay);
-  setTimeout(() => {
+  if (_actionOverlayTimer) clearTimeout(_actionOverlayTimer);
+  _actionOverlayTimer = setTimeout(() => {
+    _actionOverlayTimer = null;
     overlay.remove();
     portraitImgs.forEach(el => { el.style.transition = "opacity 0.5s"; el.style.opacity = ""; });
   }, 3500);
@@ -926,10 +1293,40 @@ function _showVictoryOverlay() {
   }, 4000);
 }
 
-// Determine victory: called when deleteCombat fires or all enemies are defeated.
+function _showDefeatOverlay() {
+  const main = document.getElementById("vne-main");
+  if (!main || main.style.display === "none") return;
+  document.getElementById("vne-victory-overlay")?.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "vne-victory-overlay";
+  overlay.className = "vne-victory-overlay vne-defeat-overlay";
+  overlay.innerHTML = `
+    <div class="vne-victory-rays"></div>
+    <div class="vne-victory-text">
+      <span class="vne-victory-title">¡DERROTA!</span>
+      <span class="vne-victory-sub">El combate ha concluido</span>
+    </div>`;
+  main.appendChild(overlay);
+
+  setTimeout(async () => {
+    overlay.classList.add("vne-victory-fadeout");
+    setTimeout(() => overlay.remove(), 600);
+    if (game.user.isGM) {
+      const d = getData();
+      if (d.combatMode) {
+        d.combatMode = false;
+        await saveData(d, { change: "combatMode" });
+      }
+    }
+  }, 4000);
+}
+
+// Determine victory/defeat: called when deleteCombat fires or all enemies are defeated.
 // Only triggers if VNE is open in combat mode. Broadcasts to all clients via socket.
 function _checkVictoryCondition(turnsSnapshot) {
   if (!game.user.isGM) return;
+  if (_victoryTriggered) return;
   const d = getData();
   if (!d.showVN || !d.combatMode) return;
 
@@ -937,14 +1334,20 @@ function _checkVictoryCondition(turnsSnapshot) {
   const leftIds  = new Set(d.leftCast.map(p => p.id));
   const rightIds = new Set(d.rightCast.map(p => p.id));
 
+  const leftAll          = turns.filter(c => leftIds.has(c.actorId));
   const leftAlive        = turns.some(c => leftIds.has(c.actorId)  && !c.defeated);
   const rightAll         = turns.filter(c => rightIds.has(c.actorId));
   const rightAllDefeated = rightAll.length > 0 && rightAll.every(c => c.defeated);
+  const leftAllDefeated  = leftAll.length  > 0 && leftAll.every(c => c.defeated);
 
   if (leftAlive && rightAllDefeated) {
-    // Broadcast to all clients — they each show the overlay locally
+    _victoryTriggered = true;
     game.socket.emit(`module.${ID}`, { type: "vnVictory", senderId: game.user.id });
-    _showVictoryOverlay(); // also show for GM (socket doesn't loop back to sender)
+    _showVictoryOverlay();
+  } else if (leftAllDefeated && leftAll.length > 0) {
+    _victoryTriggered = true;
+    game.socket.emit(`module.${ID}`, { type: "vnDefeat", senderId: game.user.id });
+    _showDefeatOverlay();
   }
 }
 
@@ -969,8 +1372,8 @@ function _renderVSDisplay() {
     if (p.hp == null || p.hpMax == null || p.hpMax <= 0) return "";
     const pct    = Math.max(0, Math.min(100, Math.round((p.hp / p.hpMax) * 100)));
     const color  = pct > 50 ? "#4caf50" : pct > 25 ? "#ff9800" : "#f44336";
-    const fillW  = pct === 0 ? "100%" : `${pct}%`;
-    const fillOp = pct === 0 ? "0.28"  : "1";
+    const fillW  = `${pct}%`;
+    const fillOp = "1";
     // Numbers: GM always sees them; players only see their own side (left = PCs)
     const showNums = game.user.isGM || side === "left";
     return `<div class="vne-vs-hp-bar-wrap" title="${p.hp}/${p.hpMax} HP">
@@ -989,8 +1392,8 @@ function _renderVSDisplay() {
 
 function _vsDataFromPortrait(p, side = "left") {
   const actor = game.actors.get(p.id);
-  const hp    = actor?.system?.attributes?.hp?.value ?? null;
-  const hpMax = actor?.system?.attributes?.hp?.max   ?? null;
+  const hp    = actor?.system?.attributes?.hp?.value ?? actor?.system?.hp?.value ?? null;
+  const hpMax = actor?.system?.attributes?.hp?.max   ?? actor?.system?.hp?.max   ?? null;
   const scaleVal = (p.scale || 100) / 100;
   const scaleX   = (side === "left" ? !p.mirrorX : p.mirrorX) ? 1 : -1;
   const worldOffsetY = game.settings.get?.(ID, "worldOffsetY") ?? 0;
@@ -1218,16 +1621,21 @@ function _parseCritFromMessage(message) {
     return null;
   }
 
-  // D&D 5e — check dice terms for nat 20 / nat 1 on a d20 attack roll
+  // D&D 5e — check dice terms for nat 20 / nat 1, but ONLY on attack rolls
   try {
-    const rolls = message.rolls ?? [];
-    for (const roll of rolls) {
-      for (const term of (roll?.terms ?? [])) {
-        if ((term.faces ?? term.denomination) === 20) {
-          for (const result of (term.results ?? [])) {
-            if (!result.active) continue;
-            if (result.result === 20) return "crit";
-            if (result.result === 1)  return "fumble";
+    const dnd5eRollType = message.flags?.dnd5e?.roll?.type ?? message.flags?.dnd5e?.rollType ?? "";
+    // Process d20 crits only when: no 5e roll-type flag at all (non-5e system), or flag explicitly says "attack"
+    const isDnd5eAttack = !dnd5eRollType || dnd5eRollType === "attack";
+    if (isDnd5eAttack) {
+      const rolls = message.rolls ?? [];
+      for (const roll of rolls) {
+        for (const term of (roll?.terms ?? [])) {
+          if ((term.faces ?? term.denomination) === 20) {
+            for (const result of (term.results ?? [])) {
+              if (!result.active) continue;
+              if (result.result === 20) return "crit";
+              if (result.result === 1)  return "fumble";
+            }
           }
         }
       }
@@ -1407,15 +1815,13 @@ function openSceneEditor(existing, callback) {
 
 function openPortraitEditor(portraitId, side = null) {
   const d = getData();
-  // Search the specified side first, then all casts (supports rpCast / stagePlayers / stageNPCs actors)
+  // Search the specified side first, then all casts
   let p = null;
   if (side) p = (d[`${side}Cast`] || []).find(x => x.id === portraitId);
   if (!p) {
-    for (const key of ["leftCast", "rightCast", "stagePlayers", "stageNPCs"]) {
-      const arr = Array.isArray(d[key])
-        ? (typeof d[key][0] === "string" ? null : d[key])  // stagePlayers is string[], skip
-        : null;
-      if (arr) { p = arr.find(x => x.id === portraitId); if (p) break; }
+    for (const key of ["leftCast", "rightCast"]) {
+      p = (d[key] || []).find(x => x.id === portraitId);
+      if (p) break;
     }
   }
   // Fall back to the shared portraits store
@@ -1783,6 +2189,11 @@ function openCastPresetsDialog() {
         d.stagePlayers = [];
         d.stageNPCs   = [];
         await saveData(d, { change: "castChange" });
+        if (d.combatMode && game.user.isGM) {
+          for (const actor of [...(d.leftCast ?? []), ...(d.rightCast ?? [])]) {
+            await ensureCombatantForActor(actor.id);
+          }
+        }
         ui.notifications?.info(`VNE: Preset "${key}" loaded (${d.leftCast.length + d.rightCast.length} actors).`);
         dialog.close();
       });
@@ -2021,6 +2432,11 @@ export class VNE extends FormApplication {
       if (game.user.isGM) VNDAIGenerator.open();
     });
 
+    // Help overlay (all users)
+    root.querySelector("#vne-help-btn")?.addEventListener("click", () => {
+      openHelpOverlay();
+    });
+
     // Previous / Next turn (GM only)
     root.querySelector("#vne-prev-turn-btn")?.addEventListener("click", async () => {
       if (!game.user.isGM) return;
@@ -2054,7 +2470,7 @@ export class VNE extends FormApplication {
     root.querySelector("#vne-timer-auto-btn")?.addEventListener("click", () => {
       if (!game.user.isGM) return;
       _timerAutoReset = !_timerAutoReset;
-      localStorage.setItem("vne-timerAutoReset", _timerAutoReset ? "1" : "0");
+      game.settings.set(ID, "timerAutoReset", _timerAutoReset).catch(() => {});
       _patchTimerAutoBtn();
     });
 
@@ -2063,7 +2479,7 @@ export class VNE extends FormApplication {
       if (!game.user.isGM) return;
       const minutes = parseInt(e.target.value) || 2;
       _timerMinutes = minutes;
-      localStorage.setItem("vne-timerMinutes", String(minutes));
+      game.settings.set(ID, "timerMinutes", minutes).catch(() => {});
       if (_timerEnabled) _startTurnTimer(minutes);
     });
 
@@ -2198,7 +2614,12 @@ export class VNE extends FormApplication {
       const key = `${side}Cast`;
       if (d[key].some(p => p.id === actorId)) {
         ui.notifications?.info(`${actor.name} is already in the panel.`);
-        if (d.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
+        if (d.combatMode && game.user.isGM) {
+          await ensureCombatantForActor(actorId);
+          if (!_ghostTokens.has(actorId)) await _createGhostToken(actorId, "combat");
+        }
+        const hp = actor?.system?.attributes?.hp?.value ?? actor?.system?.hp?.value ?? null;
+        if (hp !== null && !_lastKnownHP.has(actorId)) _lastKnownHP.set(actorId, hp);
         return;
       }
       const saved = d.portraits[actorId];
@@ -2207,7 +2628,7 @@ export class VNE extends FormApplication {
       d[key].push(portrait);
       d.portraits[actorId] = portrait;
       await saveData(d, { change: "castChange" });
-      if (d.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
+      if (d.combatMode && game.user.isGM) await ensureCombatantForActor(actorId);
     });
   }
 
@@ -2250,7 +2671,7 @@ export class VNE extends FormApplication {
           await saveData(d, { change: "castChange" });
         }
         await addToStage(actor.id);
-        if (d.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
+        if (d.combatMode && game.user.isGM) await ensureCombatantForActor(actor.id);
         return;
       } else {
         // Dropping on a side panel → leftCast / rightCast only, no speaker
@@ -2266,7 +2687,7 @@ export class VNE extends FormApplication {
       }
 
       await saveData(d, { change: "castChange" });
-      if (d.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
+      if (d.combatMode && game.user.isGM) await ensureCombatantForActor(actor.id);
       return;
     }
 
@@ -2336,6 +2757,7 @@ Hooks.on("updateSetting", (setting, _value, options) => {
     if (change === "combatMode") {
       _stopTurnTimer();
       _vsLeft = _vsRight = null;
+      _victoryTriggered = false;
       // Clear round-tier classes when leaving combat
       const main = document.getElementById("vne-main");
       main?.classList.remove("vne-round-tier-1", "vne-round-tier-2", "vne-round-tier-3");
@@ -2393,10 +2815,13 @@ Hooks.on("updateSetting", (setting, _value, options) => {
     if (game.user.isGM && d.combatMode) _syncGhostTokens(d);
     // Seed HP map for any newly added cast member so first HP delta shows correctly
     _seedCastHP(d);
-    // Prune HP map for actors no longer in any cast to avoid unbounded growth
+    // Prune HP map and reaction timers for actors no longer in any cast
     const castIds = new Set([...(d.leftCast ?? []), ...(d.rightCast ?? [])].map(p => p.id));
     for (const id of _lastKnownHP.keys()) {
       if (!castIds.has(id)) _lastKnownHP.delete(id);
+    }
+    for (const [id, handle] of _autoReactionTimers.entries()) {
+      if (!castIds.has(id)) { clearTimeout(handle); _autoReactionTimers.delete(id); }
     }
   }
 
@@ -2993,10 +3418,7 @@ function _carouselHpBarHtml(actor) {
   if (!hp) return "";
   const pct   = Math.round(hp.pct * 100);
   const color = hp.pct > 0.5 ? "#4caf50" : hp.pct > 0.25 ? "#f09800" : "#e53935";
-  // At 0 HP show full-width dimmed red so the bar doesn't disappear visually
-  const fillW  = pct === 0 ? "100%" : `${pct}%`;
-  const fillOp = pct === 0 ? "0.28" : "1";
-  return `<div class="vne-carousel-hp-bar"><div class="vne-carousel-hp-fill" style="width:${fillW};background:${color};opacity:${fillOp};"></div></div>`;
+  return `<div class="vne-carousel-hp-bar"><div class="vne-carousel-hp-fill" style="width:${pct}%;background:${color};"></div></div>`;
 }
 
 function _carouselEffectsHtml(actor) {
@@ -3204,8 +3626,10 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
     }
     if (inVN) {
       items.push({ separator: true });
-      items.push({ label: "Edit portrait",      icon: "fas fa-sliders-h", action: "editPortrait" });
+      items.push({ label: "Edit portrait",         icon: "fas fa-sliders-h",  action: "editPortrait" });
     }
+    items.push({ separator: true });
+    items.push({ label: "Assign Status Effects", icon: "fas fa-shield-alt", action: "statusEffects" });
   }
 
   const menu = document.createElement("div");
@@ -3243,7 +3667,7 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
         d2.portraits[actorId] = portrait;
         await saveData(d2, { change: "castChange" });
       }
-      if (d2.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
+      if (d2.combatMode && game.user.isGM) await ensureCombatantForActor(actorId);
     } else if (action === "addVNRight") {
       const d2 = getData();
       if (!d2.rightCast.some(p => p.id === actorId)) {
@@ -3255,7 +3679,7 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
         d2.portraits[actorId] = portrait;
         await saveData(d2, { change: "castChange" });
       }
-      if (d2.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
+      if (d2.combatMode && game.user.isGM) await ensureCombatantForActor(actorId);
     } else if (action === "removeVN") {
       const d2 = getData();
       d2.leftCast    = d2.leftCast.filter(p => p.id !== actorId);
@@ -3265,12 +3689,18 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
       await saveData(d2, { change: "castChange" });
     } else if (action === "removeCombat") {
       const combatant = game.combat?.combatants?.find(c => c.actorId === actorId);
-      if (combatant) {
-        await game.combat.deleteEmbeddedDocuments("Combatant", [combatant.id]);
-      }
+      if (combatant) await game.combat.deleteEmbeddedDocuments("Combatant", [combatant.id]);
+      const d2 = getData();
+      d2.leftCast    = d2.leftCast.filter(p => p.id !== actorId);
+      d2.rightCast   = d2.rightCast.filter(p => p.id !== actorId);
+      d2.stagePlayers = d2.stagePlayers.filter(id => id !== actorId);
+      d2.stageNPCs   = d2.stageNPCs.filter(id => id !== actorId);
+      await saveData(d2, { change: "castChange" });
     } else if (action === "editPortrait") {
       const side = inLeft ? "left" : inRight ? "right" : null;
       openPortraitEditor(actorId, side);
+    } else if (action === "statusEffects") {
+      openStatusEffectPicker(actorId);
     }
   });
 
@@ -3300,6 +3730,7 @@ Hooks.on("deleteCombat",     () => {
 });
 Hooks.on("createCombat",     () => {
   _lastCombatTurns = [];
+  _victoryTriggered = false;
   renderVNECombatCarousel();
 });
 
@@ -3312,10 +3743,11 @@ function _scheduleCarousel() {
 Hooks.on("updateActor", (actor, changes) => {
   _scheduleCarousel();
 
-  const hpChanged = changes?.system?.attributes?.hp !== undefined;
+  const hpChanged = changes?.system?.attributes?.hp !== undefined
+                 || changes?.system?.hp !== undefined;
   if (hpChanged) {
-    const hp    = actor.system?.attributes?.hp?.value ?? null;
-    const hpMax = actor.system?.attributes?.hp?.max   ?? null;
+    const hp    = actor.system?.attributes?.hp?.value ?? actor.system?.hp?.value ?? null;
+    const hpMax = actor.system?.attributes?.hp?.max   ?? actor.system?.hp?.max   ?? null;
     const d = getData();
     let vsChanged = false;
     if (_vsLeft  && d.leftCast.some(p => p.id === actor.id))  { _vsLeft  = { ..._vsLeft,  hp, hpMax }; vsChanged = true; }
@@ -3325,7 +3757,7 @@ Hooks.on("updateActor", (actor, changes) => {
     _autoReactionTimers.set(actor.id, setTimeout(() => {
       _autoReactionTimers.delete(actor.id);
       _applyAutoReaction(actor.id);
-    }, 150));
+    }, 400));
   }
 
   // ── Damage Floaters + Hit Shake ─────────────────────────────────────────────
@@ -3339,9 +3771,15 @@ Hooks.on("updateActor", (actor, changes) => {
     if (inCast) {
       const oldHp = _lastKnownHP.get(actor.id);
       _lastKnownHP.set(actor.id, newHpValue);
-      if (oldHp !== undefined && oldHp !== newHpValue) {
+      // First observed HP for this actor — seed without floater so the next change fires correctly.
+      // Clear any stale pending floater (actor may have been removed and re-added to cast).
+      if (oldHp === undefined) {
+        const stale = _pendingFloaters.get(actor.id);
+        if (stale) { clearTimeout(stale.timerId); _pendingFloaters.delete(actor.id); }
+      } else
+      if (oldHp !== newHpValue) {
         const delta  = newHpValue - oldHp;
-        const isCrit = _nextHpChangeCrit.has(actor.id);
+        const isCrit = delta < 0 && _nextHpChangeCrit.has(actor.id);
         if (isCrit) _nextHpChangeCrit.delete(actor.id);
         if (delta < 0) _applyPortraitHitShake(actor.id, isCrit);
         // Defer floater 300ms — PF2e posts an appliedDamage chat message shortly after
@@ -3412,11 +3850,9 @@ Hooks.once("init", () => {
 // Single async hook so the license check completes BEFORE VNE.activate() runs.
 // Non-GM players never call initialize() — they read the world-level flag the GM wrote.
 Hooks.once("setup", async () => {
-  // Restore per-client timer preferences from localStorage
-  const savedMinutes = parseInt(localStorage.getItem("vne-timerMinutes") ?? "") || 2;
-  const savedAuto    = localStorage.getItem("vne-timerAutoReset") === "1";
-  _timerMinutes   = savedMinutes;
-  _timerAutoReset = savedAuto;
+  // Restore per-client timer preferences from Foundry client settings
+  _timerMinutes   = game.settings.get(ID, "timerMinutes")   || 2;
+  _timerAutoReset = game.settings.get(ID, "timerAutoReset") ?? false;
 
   // Socket handler (lets players trigger GM-side saves)
   game.socket.on(`module.${ID}`, async (msg) => {
@@ -3426,10 +3862,16 @@ Hooks.once("setup", async () => {
 
     // vnVictory — broadcast to all clients when VN is active
     if (msg.type === "vnVictory") {
-      // Guard with server-side state: module must be licensed and VN visible
       if (!game.settings.get(ID, "worldLicensed")) return;
       if (!getData().showVN) return;
       _showVictoryOverlay();
+      return;
+    }
+
+    if (msg.type === "vnDefeat") {
+      if (!game.settings.get(ID, "worldLicensed")) return;
+      if (!getData().showVN) return;
+      _showDefeatOverlay();
       return;
     }
 
@@ -3572,7 +4014,7 @@ Hooks.on("ready", () => {
         d.portraits[actorId] = portrait;
       }
       await saveData(d, { change: "castChange" });
-      if (d.combatMode && game.user.isGM) await ensureActiveEncounterForVNE();
+      if (d.combatMode && game.user.isGM) await ensureCombatantForActor(actorId);
     },
     removeActor:  async (actorId) => {
       const d = getData();
@@ -3666,6 +4108,11 @@ Hooks.on("ready", () => {
       d.portraits = { ...d.portraits, ...(p.portraits ?? {}) };
       d.stagePlayers = []; d.stageNPCs = [];
       await saveData(d, { change: "castChange" });
+      if (d.combatMode && game.user.isGM) {
+        for (const actor of [...(d.leftCast ?? []), ...(d.rightCast ?? [])]) {
+          await ensureCombatantForActor(actor.id);
+        }
+      }
     },
     getCastPresets: () => _getCastPresets(),
   };
@@ -3885,7 +4332,13 @@ function _initAAHook() {
         && !t.document?.flags?.[ID]?.isGhost
     );
     if (!hasRealToken && !_ghostTokens.has(actor.id)) {
-      await _createGhostToken(actor.id);
+      // Do not create a sheet ghost while VN combat is active and targets are selected.
+      // Creating a token for the active combatant during combat causes Foundry to
+      // re-evaluate targeting and silently replace the player's enemy target with the
+      // newly created PC ghost token.
+      const d = getData();
+      if (d.showVN && d.combatMode && (game.user.targets?.size ?? 0) > 0) return;
+      await _createGhostToken(actor.id, "sheet");
     }
   });
 
@@ -3945,11 +4398,11 @@ Hooks.on("targetToken", (user, token, targeted) => {
   if (user.id !== game.user.id) return;
   const d = getData();
   if (!d.showVN || !d.combatMode) return;
-  // Refresh right-panel portrait target classes without full re-render
+  // Refresh portrait target ring on BOTH sides without full re-render
   const targetedIds = new Set(
     [...(game.user.targets ?? [])].map(t => _tokenActorId(t)).filter(Boolean)
   );
-  document.querySelectorAll(".vne-cast-portrait[data-side='right']").forEach(el => {
+  document.querySelectorAll(".vne-cast-portrait[data-id]").forEach(el => {
     el.classList.toggle("vne-targeted", targetedIds.has(el.dataset.id));
   });
   // Targeted actor goes "al frente" on their own side — persists until next turn or new target
@@ -4002,8 +4455,11 @@ Hooks.on("createChatMessage", (message) => {
   // Manual attack/save rolls always happen after the player has had time to act.
   if (Date.now() - _lastTurnChangeMs < 2500) return;
 
-  // Mark the next HP change for this actor as crit-sourced
-  if (speakerActorId) _nextHpChangeCrit.add(speakerActorId);
+  // Mark the next HP change for this actor as crit-sourced; expire after 10s if HP never changes
+  if (speakerActorId) {
+    _nextHpChangeCrit.add(speakerActorId);
+    setTimeout(() => _nextHpChangeCrit.delete(speakerActorId), 10000);
+  }
 
   // Show the epic overlay immediately for all clients
   _showCriticalAnimation(critType, speakerActorId);
@@ -4066,6 +4522,22 @@ Hooks.on("vnd-enhanced.actionImage", (data) => {
     if (!d.showVN) return;
     _showActionImageOverlay(data);
   } catch (e) { /* ignore */ }
+});
+
+// Combat Tracker context menu — adds "Assign Status Effects" to right-click on any combatant
+Hooks.on("getCombatantContextOptions", (html, options) => {
+  if (!game.user.isGM) return;
+  options.push({
+    name: "Assign Status Effects",
+    icon: `<i class="fas fa-shield-alt"></i>`,
+    callback: (li) => {
+      const combatantId = li.data?.("combatant-id") ?? li[0]?.dataset?.combatantId ?? li?.dataset?.combatantId;
+      const combatant   = game.combat?.combatants?.get(combatantId);
+      const actorId     = combatant?.actorId;
+      if (!actorId) { ui.notifications?.warn("VNE | Could not find actor for this combatant."); return; }
+      openStatusEffectPicker(actorId);
+    }
+  });
 });
 
 // Scene toolbar button — compatible with v11/v12/v13
@@ -4142,6 +4614,7 @@ Hooks.on("canvasReady", async () => {
     }
   }
   _ghostTokens.clear();
+  _ghostTokenCounter = 0;
   await _syncGhostTokens(d);
 });
 
