@@ -231,26 +231,6 @@
   justify-content: flex-end;
 }
 
-/* Header participant strips (PCs left, NPCs right) */
-.vne-header-participants {
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  flex-shrink: 1;
-  min-width: 0;
-  align-self: stretch;
-}
-.vne-header-participants::-webkit-scrollbar { display: none; }
-
-/* Slightly smaller portrait tiles in the header */
-.vne-header-participants .vne-carousel-item {
-  width: 52px;
-  height: 70px;
-  flex-shrink: 0;
-}
-
 .vne-location-info {
   display: flex;
   align-items: center;
@@ -499,11 +479,9 @@
   overflow: hidden;
   position: relative;
 }
-/* rp-stage (VN mode multi-actor stage) and center-area share column 2 of .vne-stage */
+/* rp-stage (VN mode multi-actor stage) occupies column 2 of .vne-stage */
 #vne-rp-stage { grid-column: 2; grid-row: 1; }
-/* VN mode → multi-actor stage always visible, center-area always hidden */
-#vne-main:not(.vne-combat-mode) .vne-center-area { display: none !important; }
-/* Combat mode → hide rp-stage (center-area visibility ruled by vne-combat-mode below) */
+/* Combat mode → hide rp-stage (the VS display renders over .vne-stage instead) */
 #vne-main.vne-combat-mode .vne-rp-stage          { display: none !important; }
 
 /* ── ROLEPLAY STAGE (VN mode, non-combat) — occupies grid-column 2 of .vne-stage ── */
@@ -557,10 +535,6 @@
   transform: scale(1.01) translateY(-2px);
 }
 
-.vne-rp-slot.vne-rp-speaking .vne-rp-img {
-  filter: drop-shadow(0 0 40px rgba(200,155,60,0.75)) drop-shadow(0 0 80px rgba(200,120,0,0.35));
-}
-
 /* Single-row image heights by slot count */
 .vne-rp-slot[data-slot-count="1"] .vne-rp-img { max-height: 90vh; }
 .vne-rp-slot[data-slot-count="2"] .vne-rp-img { max-height: 83vh; }
@@ -597,19 +571,6 @@
 .vne-rp-stage.vne-two-rows .vne-rp-slot[data-slot-count="4"] .vne-rp-img { max-height: 42vh; }
 .vne-rp-stage.vne-two-rows .vne-rp-slot[data-slot-count="5"] .vne-rp-img { max-height: 40vh; }
 
-.vne-rp-slot.vne-rp-speaking::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 15%;
-  right: 15%;
-  height: 3px;
-  background: var(--vne-accent, #c89b3c);
-  border-radius: 2px 2px 0 0;
-  box-shadow: 0 0 18px rgba(200,155,60,0.7), 0 0 36px rgba(200,155,60,0.35);
-  animation: vne-pulse 2s ease-in-out infinite;
-}
-
 .vne-rp-nameplate {
   text-align: center;
   padding: 5px 12px;
@@ -622,11 +583,6 @@
   max-width: 90%;
 }
 
-.vne-rp-speaking .vne-rp-nameplate {
-  border-color: rgba(200,155,60,0.55);
-  box-shadow: 0 0 16px rgba(200,155,60,0.25);
-}
-
 .vne-rp-name {
   display: block;
   font-size: 0.95em;
@@ -636,8 +592,6 @@
   white-space: nowrap;
   letter-spacing: 0.03em;
 }
-
-.vne-rp-speaking .vne-rp-name { color: var(--vne-accent, #c89b3c); }
 
 .vne-rp-title {
   display: block;
@@ -708,33 +662,6 @@
 }
 .vne-rp-slot:hover .vne-rp-remove-btn { opacity: 1; }
 .vne-rp-remove-btn:hover { background: rgba(220,40,40,1); }
-
-/* Add slot button */
-.vne-rp-add-slot {
-  flex: 0 0 80px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 90px;
-  background: #0e0b04;
-  border: 2px dashed rgba(200,155,60,0.45);
-  border-radius: 10px;
-  cursor: pointer;
-  color: #c89b3c;
-  font-size: 0.8em;
-  margin-bottom: 24px;
-  align-self: center;
-  pointer-events: all;
-  transition: background 0.2s, border-color 0.2s, color 0.2s;
-}
-.vne-rp-add-slot:hover {
-  background: rgba(200,155,60,0.18);
-  border-color: var(--vne-accent, #c89b3c);
-  color: var(--vne-accent, #c89b3c);
-}
-.vne-rp-add-slot i { font-size: 1.4em; }
 
 /* Empty state */
 .vne-rp-empty {
@@ -997,166 +924,6 @@
   background: rgba(200,155,60,0.1) !important;
   outline: 2px dashed var(--vne-accent);
   outline-offset: -4px;
-}
-
-/* ── CENTER SPEAKER ─────────────────────────────────────────────────────── */
-.vne-center-area {
-  grid-column: 2;
-  grid-row: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  padding-bottom: 8px;
-  position: relative;
-  pointer-events: none;
-}
-
-#vne-center-speaker {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-  width: 100%;
-  height: 100%;
-  position: relative;
-  pointer-events: all;
-  transition: all var(--vne-transition);
-}
-
-/* No speaker placeholder */
-.vne-no-speaker {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: var(--vne-text-dim);
-  font-size: 0.9em;
-  text-align: center;
-  height: 100%;
-  opacity: 0.45;
-  pointer-events: none;
-}
-.vne-no-speaker i { font-size: 3.5em; }
-
-/* Center portrait container */
-.vne-center-portrait-wrap {
-  position: absolute;
-  bottom: 60px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  /* Let the portrait be as tall as the stage allows */
-  max-height: calc(100vh - 200px);
-  pointer-events: all;
-}
-
-/* Clear-speaker button — sits inline in the nameplate next to the name */
-.vne-nameplate-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.vne-speaker-clear-btn {
-  flex-shrink: 0;
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: rgba(200,155,60,0.6);
-  font-size: 1.1em;
-  transition: color var(--vne-transition), transform var(--vne-transition);
-  pointer-events: all;
-}
-.vne-speaker-clear-btn:hover {
-  color: #e53935;
-  transform: scale(1.2);
-}
-
-.vne-center-img {
-  max-height: calc(100vh - 200px);
-  max-width: 100%;
-  width: auto;
-  display: block;
-  object-fit: contain;
-  object-position: bottom center;
-  /* Drop shadow to make character "pop" */
-  filter: drop-shadow(0 8px 32px rgba(0,0,0,0.9)) drop-shadow(0 0 24px rgba(200,155,60,0.2));
-  transition: all var(--vne-transition);
-  pointer-events: none;
-}
-
-/* Appear animation when speaker changes */
-#vne-center-speaker.vne-has-speaker .vne-center-portrait-wrap {
-  animation: vne-speaker-in 0.4s cubic-bezier(0.2, 0, 0.2, 1.4) both;
-}
-@keyframes vne-speaker-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(20px) scale(0.92); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0)    scale(1); }
-}
-
-/* ── NAMEPLATE ──────────────────────────────────────────────────────────── */
-.vne-nameplate {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 10px 32px 12px 32px;
-  background: linear-gradient(135deg,
-    rgba(10,10,20,0.92) 0%,
-    rgba(30,22,10,0.92) 100%
-  );
-  border: 1px solid var(--vne-border);
-  border-radius: var(--vne-radius);
-  box-shadow: var(--vne-shadow), inset 0 1px 0 rgba(200,155,60,0.2);
-  min-width: 220px;
-  max-width: 480px;
-  text-align: center;
-  backdrop-filter: blur(8px);
-  animation: vne-nameplate-in 0.35s ease both;
-  pointer-events: none;
-  z-index: 10;
-}
-@keyframes vne-nameplate-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-
-.vne-nameplate::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(to right, transparent, var(--vne-accent), transparent);
-  border-radius: var(--vne-radius) var(--vne-radius) 0 0;
-}
-
-.vne-nameplate-name {
-  font-size: 1.45em;
-  font-weight: 700;
-  color: var(--vne-accent);
-  text-shadow: 0 0 20px rgba(200,155,60,0.6);
-  letter-spacing: 0.06em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 440px;
-}
-
-.vne-nameplate-title {
-  font-size: 0.82em;
-  color: var(--vne-text-dim);
-  letter-spacing: 0.08em;
-  margin-top: 2px;
-  font-style: italic;
 }
 
 /* ── BOTTOM BAR: Scenes Pill ─────────────────────────────────────────────── */
@@ -1678,12 +1445,8 @@
 }
 
 /* ── Scrollbar styling ──────────────────────────────────────────────────── */
-.vne-portraits-list::-webkit-scrollbar,
-.vne-scene-bar::-webkit-scrollbar,
-.vne-actor-picker-grid::-webkit-scrollbar { width: 4px; height: 4px; }
-.vne-portraits-list::-webkit-scrollbar-thumb,
-.vne-scene-bar::-webkit-scrollbar-thumb,
-.vne-actor-picker-grid::-webkit-scrollbar-thumb {
+.vne-portraits-list::-webkit-scrollbar { width: 4px; height: 4px; }
+.vne-portraits-list::-webkit-scrollbar-thumb {
   background: var(--vne-border); border-radius: 4px;
 }
 
@@ -1737,18 +1500,6 @@
 }
 
 /* ── REACTIONS BAR (inside nameplate) ───────────────────────────────────── */
-.vne-nameplate-reactions {
-  display: flex;
-  align-items: flex-end;
-  gap: 5px;
-  margin-top: 9px;
-  padding-top: 9px;
-  border-top: 1px solid rgba(200, 155, 60, 0.18);
-  justify-content: center;
-  flex-wrap: wrap;
-  pointer-events: all;
-}
-
 .vne-reaction-btn {
   display: flex;
   flex-direction: column;
@@ -2000,23 +1751,6 @@
   border-bottom: 1px solid rgba(220, 60, 40, 0.35);
   background: linear-gradient(to bottom, rgba(60, 10, 10, 0.72) 0%, transparent 100%);
 }
-.vne-combat-indicator {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 0.78em;
-  color: rgba(220, 90, 70, 0.9);
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  animation: vne-combat-pulse 2s ease-in-out infinite;
-  white-space: nowrap;
-}
-@keyframes vne-combat-pulse {
-  0%, 100% { opacity: 1; text-shadow: 0 0 8px rgba(220,60,40,0.5); }
-  50%        { opacity: 0.6; text-shadow: none; }
-}
-
 /* Combat stage toggle button */
 .vne-ctrl-btn.vne-combat-active {
   background: #3a0c0c;
@@ -2210,12 +1944,6 @@
 }
 
 /* ── COMBAT VS DISPLAY ───────────────────────────────────────────────────── */
-
-/* In combat mode hide the normal single center-speaker area */
-#vne-main.vne-combat-mode .vne-center-area {
-  visibility: hidden;
-  pointer-events: none;
-}
 
 /* VS container — positioned absolute within .vne-stage (position:relative) */
 #vne-combat-vs {
@@ -3240,4 +2968,31 @@
   font-size: 9px;
   color: #4caf50;
   text-shadow: 0 0 4px #000;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ACCESSIBILITY
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Visible keyboard focus on every interactive control (divs exposed as buttons) */
+#vne-main [role="button"]:focus-visible,
+#vne-main button:focus-visible,
+#vne-main input:focus-visible,
+#vne-toggle-fab:focus-visible {
+  outline: 2px solid var(--vne-accent, #c89b3c);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Players see the scenes panel as a read-only gallery */
+.vne-sp-readonly .vne-sp-card { cursor: default; }
+
+/* Reduced motion: let entrance animations play once, but stop every infinite
+   decorative loop (round-tier pulses, speaking rings, VS throb, timer blink…) */
+@media (prefers-reduced-motion: reduce) {
+  #vne-main *, #vne-main *::before, #vne-main *::after,
+  #vne-toggle-fab,
+  .vne-turn-card *, .vne-crit-overlay *, .vne-victory-overlay * {
+    animation-iteration-count: 1 !important;
+  }
 }

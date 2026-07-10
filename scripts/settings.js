@@ -1,6 +1,18 @@
+import { VndLicenseMenu } from "./license-client.js";
+
 const ID = "vnd-enhanced";
 
 export function registerSettings() {
+  // License manager — tier, installation slots, self-service slot release
+  game.settings.registerMenu(ID, "licenseManager", {
+    name:       "vnd-enhanced.settings.licenseMenu.name",
+    label:      "vnd-enhanced.settings.licenseMenu.label",
+    hint:       "vnd-enhanced.settings.licenseMenu.hint",
+    icon:       "fas fa-key",
+    type:       VndLicenseMenu,
+    restricted: true
+  });
+
   game.settings.register(ID, "vnData", {
     scope: "world",
     type: Object,
@@ -30,8 +42,8 @@ export function registerSettings() {
   });
 
   game.settings.register(ID, "bgFolderPath", {
-    name: "Background images folder",
-    hint: "Default folder opened when picking a background image.",
+    name: "vnd-enhanced.settings.bgFolderPath.name",
+    hint: "vnd-enhanced.settings.bgFolderPath.hint",
     scope: "world",
     config: true,
     type: String,
@@ -40,8 +52,8 @@ export function registerSettings() {
   });
 
   game.settings.register(ID, "portraitFolderPath", {
-    name: "Portrait images folder",
-    hint: "Default folder opened when picking portrait images.",
+    name: "vnd-enhanced.settings.portraitFolderPath.name",
+    hint: "vnd-enhanced.settings.portraitFolderPath.hint",
     scope: "world",
     config: true,
     type: String,
@@ -50,8 +62,8 @@ export function registerSettings() {
   });
 
   game.settings.register(ID, "worldOffsetY", {
-    name: "Global portrait Y offset (px)",
-    hint: "Shifts every portrait up or down globally.",
+    name: "vnd-enhanced.settings.worldOffsetY.name",
+    hint: "vnd-enhanced.settings.worldOffsetY.hint",
     scope: "world",
     config: true,
     type: Number,
@@ -59,8 +71,8 @@ export function registerSettings() {
   });
 
   game.settings.register(ID, "zIndex", {
-    name: "UI z-index",
-    hint: "Raise if other UI elements overlap the VN window.",
+    name: "vnd-enhanced.settings.zIndex.name",
+    hint: "vnd-enhanced.settings.zIndex.hint",
     scope: "world",
     config: true,
     type: Number,
@@ -85,8 +97,8 @@ export function registerSettings() {
 
   // AI Image Generator — folder where generated images are saved
   game.settings.register(ID, "aiImageFolder", {
-    name:    "AI Images Folder",
-    hint:    "Carpeta donde se guardan las imágenes generadas con IA. Relativa al almacenamiento de Foundry.",
+    name:    "vnd-enhanced.settings.aiImageFolder.name",
+    hint:    "vnd-enhanced.settings.aiImageFolder.hint",
     scope:   "world",
     type:    String,
     config:  true,

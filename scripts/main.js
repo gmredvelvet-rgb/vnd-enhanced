@@ -15,6 +15,11 @@ import { VNDAIGenerator } from "./ai-generator.js";
 
 const ID = "vnd-enhanced";
 
+// i18n shortcuts — every user-facing literal goes through these (keys live in
+// language/en.json and language/es.json under the "vnd-enhanced" namespace).
+const T  = (key)       => game.i18n.localize(`${ID}.${key}`);
+const TF = (key, data) => game.i18n.format(`${ID}.${key}`, data);
+
 // Per-client local hide — non-GM players close/open without affecting others
 let _playerLocalHidden    = false;
 let _playerLocalUIHidden  = false;
@@ -57,7 +62,7 @@ let   _victoryTriggered       = false; // prevents double-fire when updateCombat
 
 // Seed _lastKnownHP for all current cast members so the first delta is tracked correctly.
 // Safe to call multiple times — only writes entries that don't already exist.
-function _seedCastHP(d = getData()) {
+function _seedCastHP(d = getDataRO()) {
   for (const p of [...(d.leftCast ?? []), ...(d.rightCast ?? [])]) {
     if (_lastKnownHP.has(p.id)) continue;
     const actor = game.actors?.get(p.id);
@@ -89,20 +94,26 @@ function _stopTurnTimer() {
   _timerSecondsLeft = 0;
   _patchTimerDisplay();
   const btn = document.getElementById("vne-timer-toggle-btn");
-  if (btn) { btn.classList.remove("vne-active"); btn.title = "Start turn timer"; const i = btn.querySelector("i"); if (i) i.className = "fas fa-hourglass-start"; }
+  if (btn) { btn.classList.remove("vne-active"); btn.title = T("combat.timerStart"); const i = btn.querySelector("i"); if (i) i.className = "fas fa-hourglass-start"; }
 }
 
 function _patchTimerAutoBtn() {
   const btn = document.getElementById("vne-timer-auto-btn");
   if (!btn) return;
   btn.classList.toggle("vne-active", _timerAutoReset);
-  btn.title = _timerAutoReset
-    ? "Auto-reset ON — reinicia el timer en cada turno (click para desactivar)"
-    : "Auto-reset OFF — el timer no se reinicia solo (click para activar)";
+  btn.title = _timerAutoReset ? T("combat.timerAutoOn") : T("combat.timerAutoOff");
+}
+
+// Clamp user input to a sane range — parseInt("-5") would otherwise produce a
+// negative duration that hits 0 on the first tick and instantly advances the turn.
+function _clampTimerMinutes(v) {
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) ? Math.min(60, Math.max(1, n)) : 2;
 }
 
 function _startTurnTimer(minutes) {
   _stopTurnTimer();
+  minutes           = _clampTimerMinutes(minutes);
   _timerMinutes     = minutes;
   _timerDurationMs  = minutes * 60 * 1000;
   _timerStartedAt   = Date.now();
@@ -110,7 +121,7 @@ function _startTurnTimer(minutes) {
   _timerEnabled     = true;
   _patchTimerDisplay();
   const btn = document.getElementById("vne-timer-toggle-btn");
-  if (btn) { btn.classList.add("vne-active"); btn.title = "Stop timer"; const i = btn.querySelector("i"); if (i) i.className = "fas fa-hourglass-half"; }
+  if (btn) { btn.classList.add("vne-active"); btn.title = T("combat.timerStop"); const i = btn.querySelector("i"); if (i) i.className = "fas fa-hourglass-half"; }
   // 250ms tick with Date.now() — immune to tab throttling drift
   let _timerLastDisplayedSecs = _timerSecondsLeft;
   _timerInterval = setInterval(() => {
@@ -154,8 +165,12 @@ function _patchCombatDisplay() {
 
 // ── Data helpers ─────────────────────────────────────────────────────────────
 
-function getData() {
-  const d = foundry.utils.deepClone(game.settings.get(ID, "vnData"));
+// Maximum portraits per side cast — single source of truth for UI and the macro API.
+const MAX_CAST = 10;
+
+let _vnDataCache = null;
+
+function _normalizeVnData(d) {
   if (!Array.isArray(d.stagePlayers))  d.stagePlayers  = [];
   if (!Array.isArray(d.stageNPCs))     d.stageNPCs     = [];
   if (!Array.isArray(d.leftCast))      d.leftCast      = [];
@@ -168,6 +183,23 @@ function getData() {
   return d;
 }
 
+// Shared read-only snapshot, cached until the vnData setting changes.
+// Hot paths (per-HP-tick hooks, carousel renders, socket handlers) read this
+// without paying a deep clone per event. NEVER mutate the returned object.
+function getDataRO() {
+  if (!_vnDataCache) {
+    _vnDataCache = _normalizeVnData(foundry.utils.deepClone(game.settings.get(ID, "vnData")));
+  }
+  return _vnDataCache;
+}
+
+function _invalidateVnDataCache() { _vnDataCache = null; }
+
+// Mutable deep copy — use when the caller intends to modify and saveData() the result.
+function getData() {
+  return foundry.utils.deepClone(getDataRO());
+}
+
 async function saveData(data, opts = {}) {
   if (!game.user.isGM) {
     // Non-GM clients must use specific socket messages (vnAddToStage, vnRemoveFromStage, vnReaction).
@@ -176,6 +208,7 @@ async function saveData(data, opts = {}) {
     return;
   }
   await game.settings.set(ID, "vnData", data, opts);
+  _invalidateVnDataCache();
 }
 
 function defaultPortrait(actor) {
@@ -198,6 +231,22 @@ function defaultPortrait(actor) {
   };
 }
 
+// Adds an actor's portrait to a side cast in `d`, reusing any saved portrait
+// config. Evicts the oldest entry past MAX_CAST. Mutates `d`; the caller saves.
+// Returns true if the cast changed.
+function _addPortraitToCastData(d, actor, side) {
+  if (!actor) return false;
+  const key = `${side}Cast`;
+  if (d[key].some(p => p.id === actor.id)) return false;
+  const saved    = d.portraits[actor.id];
+  const portrait = (saved?.img) ? { ...saved } : defaultPortrait(actor);
+  if (!portrait) return false;
+  if (d[key].length >= MAX_CAST) d[key].shift();
+  d[key].push(portrait);
+  d.portraits[actor.id] = portrait;
+  return true;
+}
+
 function getPortraitImg(p) {
   if (p.reactions && p.activeReaction && p.reactions[p.activeReaction]) {
     return p.reactions[p.activeReaction];
@@ -216,8 +265,6 @@ function canControlActor(actorId) {
 function templatePortrait(p, side, stageActorIds, worldOffsetY, editMode, combatMode = false) {
   const scaleX = (side === "left" ? !p.mirrorX : p.mirrorX) ? 1 : -1;
   const scaleVal = (p.scale || 100) / 100;
-  const oy = (p.offsetY || 0) - worldOffsetY;
-  const ox = p.offsetX || 0;
   const isCombatTarget = side === "right" && combatMode;
   // Use actorId from the token document to support unlinked tokens
   const isTargeted = isCombatTarget
@@ -253,7 +300,7 @@ async function addToStage(actorId) {
     if (!inLeft && !inRight) return;
     if (inLeft  && d.stagePlayers.length < 5) d.stagePlayers.push(actorId);
     else if (inRight && d.stageNPCs.length < 5) d.stageNPCs.push(actorId);
-    else { ui.notifications?.warn("VNE: Stage is full (max 5 per row)."); return; }
+    else { ui.notifications?.warn(T("notify.stageFull")); return; }
     await saveData(d, { change: "stageChange" });
   } else {
     const actor = game.actors.get(actorId);
@@ -364,9 +411,9 @@ async function _quickAdjustPortrait(actorId, changes) {
 // Returns the HTML string for the inline quick-control toolbar.
 function _portraitQuickCtrlHtml() {
   return `<div class="vne-portrait-quick-ctrl">
-    <div class="vne-portrait-qbtn" data-action="scale-down" title="Shrink (−10%)"><i class="fas fa-search-minus"></i></div>
-    <div class="vne-portrait-qbtn" data-action="mirror"     title="Voltear izq/der"><i class="fas fa-arrows-alt-h"></i></div>
-    <div class="vne-portrait-qbtn" data-action="scale-up"   title="Enlarge (+10%)"><i class="fas fa-search-plus"></i></div>
+    <div class="vne-portrait-qbtn" data-action="scale-down" title="${_esc(T("ui.scaleDown"))}"><i class="fas fa-search-minus"></i></div>
+    <div class="vne-portrait-qbtn" data-action="mirror"     title="${_esc(T("ui.mirror"))}"><i class="fas fa-arrows-alt-h"></i></div>
+    <div class="vne-portrait-qbtn" data-action="scale-up"   title="${_esc(T("ui.scaleUp"))}"><i class="fas fa-search-plus"></i></div>
   </div>`;
 }
 
@@ -389,14 +436,6 @@ function _bindPortraitQuickCtrl(container, actorId) {
   });
 }
 
-// setSpeaker kept as thin backward-compat wrapper → addToStage/removeFromStage
-async function setSpeaker(actorId) {
-  if (!actorId) return;
-  const d = getData();
-  if (isOnStage(actorId, d)) await removeFromStage(actorId);
-  else await addToStage(actorId);
-}
-
 // ── Combat Stage helpers ──────────────────────────────────────────────────────
 
 function targetActorToken(actorId) {
@@ -408,7 +447,7 @@ function targetActorToken(actorId) {
   ) ?? null;
 
   if (!token) {
-    const d = getData();
+    const d = getDataRO();
     if (d.showVN && d.combatMode) {
       const ghostDoc = _ghostTokens.get(actorId);
       if (ghostDoc?.id) token = canvas.tokens?.get(ghostDoc.id) ?? null;
@@ -421,7 +460,7 @@ function targetActorToken(actorId) {
   }
 
   if (!token) {
-    ui.notifications?.warn("VNE: No token found on this scene for that actor.");
+    ui.notifications?.warn(T("notify.noTokenForActor"));
     return;
   }
 
@@ -431,7 +470,7 @@ function targetActorToken(actorId) {
   token.setTarget(!alreadyTargeted, { user: game.user, releaseOthers: !alreadyTargeted });
 }
 
-function getVNECastTokens(d = getData()) {
+function getVNECastTokens(d = getDataRO()) {
   const actorIds = new Set([
     ...(d.leftCast ?? []), ...(d.rightCast ?? [])
   ].map(p => p.id));
@@ -484,6 +523,11 @@ async function _createGhostToken(actorId, ghostType = "combat") {
     alpha: isSheetGhost ? 0 : 0.001,
     vision: false,        // Don't affect Fog of War (v11)
     sight: { enabled: false }, // Don't affect Fog of War (v12+)
+    // Reduce the interaction surface: players can't drag ghosts around, and no
+    // nameplate ever appears if a cursor sweeps over the stack corner.
+    locked: true,
+    displayName: CONST.TOKEN_DISPLAY_MODES?.NONE ?? 0,
+    displayBars: CONST.TOKEN_DISPLAY_MODES?.NONE ?? 0,
     x,
     y,
     name: actor.name,
@@ -593,7 +637,7 @@ function _getPortraitScreenCenter(actorId) {
 function _playVNEScreenEffect(actorId, file, { durationMs = 2000, scale = 1.5 } = {}) {
   if (typeof durationMs !== "number" || !isFinite(durationMs) || durationMs <= 0) durationMs = 2000;
   if (!game.modules.get("sequencer")?.active) {
-    _playVNFx(actorId, file, durationMs, getData());
+    _playVNFx(actorId, file, durationMs, getDataRO());
     return;
   }
 
@@ -614,7 +658,7 @@ function _playVNEScreenEffect(actorId, file, { durationMs = 2000, scale = 1.5 } 
       .play();
   } catch (e) {
     console.warn("VNE | Screen-space VFX failed, falling back to HTML overlay:", e);
-    _playVNFx(actorId, file, durationMs, getData());
+    _playVNFx(actorId, file, durationMs, getDataRO());
   }
 }
 
@@ -676,7 +720,7 @@ async function ensureActiveEncounterForVNE() {
       combat = await Combat.create({ scene: scene.id, active: true });
     } catch (e) {
       console.error("VNE | Failed to create combat encounter:", e);
-      ui.notifications?.error("VNE: Could not create combat encounter.");
+      ui.notifications?.error(T("notify.encounterFailed"));
       return null;
     }
   } else if (!combat.active) {
@@ -689,7 +733,7 @@ async function ensureActiveEncounterForVNE() {
 
   const castTokens = getVNECastTokens();
   if (!castTokens.length) {
-    ui.notifications?.warn("Combat Stage is active, but no VN cast tokens were found on this scene.");
+    ui.notifications?.warn(T("notify.noCastTokens"));
     return combat;
   }
 
@@ -818,7 +862,7 @@ async function toggleCombatStage() {
     const combat = await ensureActiveEncounterForVNE();
     if (!combat) {
       d.combatMode = false;
-      ui.notifications?.warn("VNE: Could not activate Combat Stage — encounter creation failed.");
+      ui.notifications?.warn(T("notify.combatStageFailed"));
       return;
     }
     await _syncGhostTokens(d);
@@ -831,7 +875,7 @@ async function toggleCombatStage() {
 function openActorSheet(actorId) {
   const actor = game.actors.get(actorId);
   if (!actor) {
-    ui.notifications?.warn("Actor not found.");
+    ui.notifications?.warn(T("notify.actorNotFound"));
     return;
   }
   actor.sheet?.render(true);
@@ -846,126 +890,128 @@ function closePortraitActionMenu() {
 function openHelpOverlay() {
   document.getElementById("vne-help-overlay")?.remove();
 
+  const H = (k) => T(`help.${k}`);   // help strings may contain trusted HTML markup
+
   const overlay = document.createElement("div");
   overlay.id = "vne-help-overlay";
   overlay.innerHTML = `
     <div class="vne-help-panel">
       <div class="vne-help-header">
         <i class="fas fa-question-circle"></i>
-        <span>VND Enhanced — How to Use</span>
+        <span>${H("title")}</span>
         <button type="button" class="vne-help-close"><i class="fas fa-times"></i></button>
       </div>
       <div class="vne-help-tabs">
-        <button type="button" class="vne-help-tab vne-help-tab-active" data-tab="combat">⚔️ Combat</button>
-        <button type="button" class="vne-help-tab" data-tab="vn">🎭 Visual Novel</button>
-        <button type="button" class="vne-help-tab" data-tab="gm">🛠️ GM Tools</button>
+        <button type="button" class="vne-help-tab vne-help-tab-active" data-tab="combat">${H("tabCombat")}</button>
+        <button type="button" class="vne-help-tab" data-tab="vn">${H("tabVN")}</button>
+        <button type="button" class="vne-help-tab" data-tab="gm">${H("tabGM")}</button>
       </div>
       <div class="vne-help-body">
 
         <div class="vne-help-section" data-section="combat">
           <div class="vne-help-block">
-            <div class="vne-help-step-title"><i class="fas fa-crosshairs"></i> How to Target an Enemy</div>
+            <div class="vne-help-step-title"><i class="fas fa-crosshairs"></i> ${H("targetTitle")}</div>
             <ol class="vne-help-steps">
-              <li>Click any <strong>NPC portrait</strong> on the right panel.</li>
-              <li>In the menu that appears, click <strong>"Select as target"</strong>.</li>
-              <li>The portrait glows <span class="vne-help-red">red</span> — the enemy is now targeted.</li>
-              <li>Click the same portrait again → "Select as target" to <strong>deselect</strong>.</li>
+              <li>${H("target1")}</li>
+              <li>${H("target2")}</li>
+              <li>${H("target3")}</li>
+              <li>${H("target4")}</li>
             </ol>
           </div>
           <div class="vne-help-block">
-            <div class="vne-help-step-title"><i class="fas fa-fist-raised"></i> How to Attack</div>
+            <div class="vne-help-step-title"><i class="fas fa-fist-raised"></i> ${H("attackTitle")}</div>
             <ol class="vne-help-steps">
-              <li>Target the enemy (see above).</li>
-              <li>Open your <strong>character sheet</strong> and roll your attack (Strike, spell, etc.).</li>
-              <li>The attack roll chat card appears — PF2e auto-checks vs. the target's AC.</li>
-              <li>Click <strong>"Apply Damage"</strong> on the chat card to deal damage to the targeted token.</li>
+              <li>${H("attack1")}</li>
+              <li>${H("attack2")}</li>
+              <li>${H("attack3")}</li>
+              <li>${H("attack4")}</li>
             </ol>
           </div>
           <div class="vne-help-block">
-            <div class="vne-help-step-title"><i class="fas fa-heart-broken"></i> How to Take Damage</div>
+            <div class="vne-help-step-title"><i class="fas fa-heart-broken"></i> ${H("damageTitle")}</div>
             <ol class="vne-help-steps">
-              <li>The GM targets your character (your portrait may glow red).</li>
-              <li>The GM rolls the enemy's attack against your AC.</li>
-              <li>If it hits, the GM clicks "Apply Damage" — your HP bar updates automatically.</li>
+              <li>${H("damage1")}</li>
+              <li>${H("damage2")}</li>
+              <li>${H("damage3")}</li>
             </ol>
           </div>
           <div class="vne-help-block">
-            <div class="vne-help-step-title"><i class="fas fa-portrait"></i> Portrait Action Menu</div>
-            <p>Click any portrait in combat mode to open the quick menu:</p>
+            <div class="vne-help-step-title"><i class="fas fa-portrait"></i> ${H("menuTitle")}</div>
+            <p>${H("menuIntro")}</p>
             <ul class="vne-help-list">
-              <li><i class="fas fa-id-card"></i> <strong>Open Sheet</strong> — view/edit character stats</li>
-              <li><i class="fas fa-crosshairs"></i> <strong>Select as Target</strong> — set as combat target</li>
-              <li><i class="fas fa-dice-d20"></i> <strong>Roll Initiative</strong> — add to combat tracker</li>
-              <li><i class="fas fa-comment-dots"></i> <strong>Set as Speaker</strong> — show in center stage</li>
+              <li><i class="fas fa-id-card"></i> ${H("menuSheet")}</li>
+              <li><i class="fas fa-crosshairs"></i> ${H("menuTarget")}</li>
+              <li><i class="fas fa-dice-d20"></i> ${H("menuInit")}</li>
+              <li><i class="fas fa-comment-dots"></i> ${H("menuSpeaker")}</li>
             </ul>
           </div>
         </div>
 
         <div class="vne-help-section vne-help-hidden" data-section="vn">
           <div class="vne-help-block">
-            <div class="vne-help-step-title"><i class="fas fa-user-plus"></i> Adding Characters</div>
+            <div class="vne-help-step-title"><i class="fas fa-user-plus"></i> ${H("addTitle")}</div>
             <ul class="vne-help-list">
-              <li>Drag an actor from the <strong>Actors sidebar</strong> onto the <strong>Players</strong> (left) or <strong>NPCs</strong> (right) panel.</li>
-              <li>Or click the <strong>+</strong> button at the top of each panel (GM only).</li>
+              <li>${H("add1")}</li>
+              <li>${H("add2")}</li>
             </ul>
           </div>
           <div class="vne-help-block">
-            <div class="vne-help-step-title"><i class="fas fa-microphone"></i> Setting the Speaker</div>
+            <div class="vne-help-step-title"><i class="fas fa-microphone"></i> ${H("speakerTitle")}</div>
             <ul class="vne-help-list">
-              <li><strong>Single-click</strong> a portrait to make it the active speaker (large center portrait).</li>
-              <li>Click again to remove them from the spotlight.</li>
-              <li>Players can only activate their own characters.</li>
+              <li>${H("speaker1")}</li>
+              <li>${H("speaker2")}</li>
+              <li>${H("speaker3")}</li>
             </ul>
           </div>
           <div class="vne-help-block">
-            <div class="vne-help-step-title"><i class="fas fa-ellipsis-h"></i> Portrait Options</div>
+            <div class="vne-help-step-title"><i class="fas fa-ellipsis-h"></i> ${H("optionsTitle")}</div>
             <ul class="vne-help-list">
-              <li><strong>Double-click</strong> — open options: remove, open sheet, set speaker.</li>
-              <li><strong>Right-click</strong> — open portrait editor (scale, offset, reactions) — GM only.</li>
+              <li>${H("options1")}</li>
+              <li>${H("options2")}</li>
             </ul>
           </div>
           <div class="vne-help-block">
-            <div class="vne-help-step-title"><i class="fas fa-map-marked-alt"></i> Scenes</div>
+            <div class="vne-help-step-title"><i class="fas fa-map-marked-alt"></i> ${H("scenesTitle")}</div>
             <ul class="vne-help-list">
-              <li>Click <strong>Scenes</strong> in the bottom bar to manage locations.</li>
-              <li>Save the current background + cast as a named scene for quick recall.</li>
+              <li>${H("scenes1")}</li>
+              <li>${H("scenes2")}</li>
             </ul>
           </div>
         </div>
 
         <div class="vne-help-section vne-help-hidden" data-section="gm">
           <div class="vne-help-block">
-            <div class="vne-help-step-title">Top-Bar Buttons (GM)</div>
+            <div class="vne-help-step-title">${H("gmTopTitle")}</div>
             <ul class="vne-help-list">
-              <li><i class="fas fa-crosshairs"></i> <strong>Combat Stage</strong> — enter/exit combat display mode; shows HP bars and turn order.</li>
-              <li><i class="fas fa-pencil-alt"></i> <strong>Edit Mode</strong> — drag portraits to reorder, right-click to scale/offset individual portraits.</li>
-              <li><i class="fas fa-wand-sparkles"></i> <strong>AI Generator</strong> — generate portrait images with AI.</li>
-              <li><i class="fas fa-layer-group"></i> <strong>Cast Presets</strong> — save and reload full actor lineups instantly.</li>
+              <li><i class="fas fa-crosshairs"></i> ${H("gmTop1")}</li>
+              <li><i class="fas fa-pencil-alt"></i> ${H("gmTop2")}</li>
+              <li><i class="fas fa-wand-sparkles"></i> ${H("gmTop3")}</li>
+              <li><i class="fas fa-layer-group"></i> ${H("gmTop4")}</li>
             </ul>
           </div>
           <div class="vne-help-block">
-            <div class="vne-help-step-title">Top-Bar Buttons (All Users)</div>
+            <div class="vne-help-step-title">${H("allTopTitle")}</div>
             <ul class="vne-help-list">
-              <li><i class="fas fa-image"></i> <strong>Background</strong> — toggle the scene background on/off.</li>
-              <li><i class="fas fa-bars"></i> <strong>Sidebar</strong> — show/hide the Foundry chat sidebar.</li>
-              <li><i class="fas fa-eye-slash"></i> <strong>Hide UI</strong> — collapse all VN panels (background only view).</li>
-              <li><i class="fas fa-times"></i> <strong>Close</strong> — GM closes VN for everyone; players hide it locally.</li>
+              <li><i class="fas fa-image"></i> ${H("allTop1")}</li>
+              <li><i class="fas fa-bars"></i> ${H("allTop2")}</li>
+              <li><i class="fas fa-eye-slash"></i> ${H("allTop3")}</li>
+              <li><i class="fas fa-times"></i> ${H("allTop4")}</li>
             </ul>
           </div>
           <div class="vne-help-block">
-            <div class="vne-help-step-title"><i class="fas fa-users"></i> Player Visibility</div>
+            <div class="vne-help-step-title"><i class="fas fa-users"></i> ${H("visibilityTitle")}</div>
             <ul class="vne-help-list">
-              <li>The <strong>Players</strong> panel (top-right) lets you show/hide the VN window per player.</li>
-              <li>Click the eye icon next to a player's name to toggle their view.</li>
-              <li>Click <strong>"Show All"</strong> to restore everyone at once.</li>
+              <li>${H("visibility1")}</li>
+              <li>${H("visibility2")}</li>
+              <li>${H("visibility3")}</li>
             </ul>
           </div>
           <div class="vne-help-block">
-            <div class="vne-help-step-title"><i class="fas fa-hourglass-half"></i> Turn Timer (Combat)</div>
+            <div class="vne-help-step-title"><i class="fas fa-hourglass-half"></i> ${H("timerTitle")}</div>
             <ul class="vne-help-list">
-              <li>Set the minutes field next to the timer icon, then click the hourglass to start.</li>
-              <li>Click the <strong>sync icon</strong> to auto-reset the timer every turn.</li>
-              <li>The timer turns red when under 30 seconds.</li>
+              <li>${H("timer1")}</li>
+              <li>${H("timer2")}</li>
+              <li>${H("timer3")}</li>
             </ul>
           </div>
         </div>
@@ -1001,7 +1047,7 @@ async function openStatusEffectPicker(actorId) {
 
   const allStatuses = CONFIG.statusEffects ?? [];
   if (!allStatuses.length) {
-    ui.notifications?.warn("VNE | No status effects found for this system.");
+    ui.notifications?.warn(T("status.none"));
     return;
   }
 
@@ -1035,8 +1081,8 @@ async function openStatusEffectPicker(actorId) {
     picker.innerHTML = `
       <div class="vne-sfx-header">
         <i class="fas fa-shield-alt"></i>
-        <span>Status Effects — ${_esc(actor.name)}</span>
-        <button type="button" class="vne-sfx-close" title="Close"><i class="fas fa-times"></i></button>
+        <span>${TF("status.title", { name: _esc(actor.name) })}</span>
+        <button type="button" class="vne-sfx-close" title="${_esc(T("ui.closeShort"))}"><i class="fas fa-times"></i></button>
       </div>
       <div class="vne-sfx-grid">
         ${allStatuses.map(s => {
@@ -1054,7 +1100,7 @@ async function openStatusEffectPicker(actorId) {
 
     picker.querySelector(".vne-sfx-close")?.addEventListener("click", e => {
       e.stopPropagation();
-      picker.remove();
+      closePicker();
     });
 
     picker.querySelectorAll(".vne-sfx-cell").forEach(cell => {
@@ -1073,13 +1119,13 @@ async function openStatusEffectPicker(actorId) {
           // 1. PF2e: toggleCondition is the authoritative method (must come before toggleStatusEffect)
           if (typeof actor.toggleCondition === "function") {
             await actor.toggleCondition(slug);
-            setTimeout(rebuildGrid, 500);
+            rebuildGrid();
             return;
           }
           // 2. DnD5e v3+ / generic Foundry: toggleStatusEffect
           if (typeof actor.toggleStatusEffect === "function") {
             await actor.toggleStatusEffect(sid, { overlay: false });
-            setTimeout(rebuildGrid, 500);
+            rebuildGrid();
             return;
           }
           // 3. Token API (SWADE, otros sistemas)
@@ -1090,7 +1136,7 @@ async function openStatusEffectPicker(actorId) {
           if (token && typeof token.toggleEffect === "function") {
             const isNowActive = getActiveIds().has(sid);
             await token.toggleEffect(status, { active: !isNowActive, overlay: false });
-            setTimeout(rebuildGrid, 500);
+            rebuildGrid();
             return;
           }
           // 4. Genérico: ActiveEffect directo
@@ -1114,17 +1160,25 @@ async function openStatusEffectPicker(actorId) {
             effectData.flags.core.statusId = sid;
             await actor.createEmbeddedDocuments("ActiveEffect", [effectData]);
           }
-          setTimeout(rebuildGrid, 500);
+          rebuildGrid();
 
         } catch (err) {
           console.error("VNE | Status effect toggle failed:", err);
-          ui.notifications?.error("VNE | Could not toggle status effect.");
+          ui.notifications?.error(T("status.toggleFailed"));
           cell.style.opacity = "";
           rebuildGrid();
         }
       });
     });
   };
+
+  // One AbortController per popup: every document-level listener dies with the
+  // popup, no matter how it was closed (✕ button, outside click, re-open).
+  const pickerAC = new AbortController();
+  function closePicker() {
+    pickerAC.abort();
+    picker.remove();
+  }
 
   rebuildGrid();
 
@@ -1136,37 +1190,35 @@ async function openStatusEffectPicker(actorId) {
   let pickerReady = false;
   setTimeout(() => { pickerReady = true; }, 200);
 
-  const onOutside = e => {
+  document.addEventListener("pointerdown", e => {
     if (!pickerReady) return;
     if (picker.contains(e.target)) return;
-    picker.remove();
-    document.removeEventListener("pointerdown", onOutside, true);
-  };
-  document.addEventListener("pointerdown", onOutside, true);
+    closePicker();
+  }, { capture: true, signal: pickerAC.signal });
 }
 
 function showPortraitActionMenu(trigger, actorId, side) {
   closePortraitActionMenu();
   const actor = game.actors.get(actorId);
   if (!actor) {
-    ui.notifications?.warn("Actor not found.");
+    ui.notifications?.warn(T("notify.actorNotFound"));
     return;
   }
 
   const inCombat = !!game.combat?.combatants.find(c => c.actorId === actorId);
-  const initiativeBtn = `<button type="button" data-action="initiative"><i class="fas fa-dice-d20"></i><span>Roll Initiative</span></button>`;
-  const removeVNBtn    = game.user.isGM ? `<button type="button" data-action="removeVN"><i class="fas fa-user-minus"></i><span>Remove from VN</span></button>` : "";
-  const removeCombatBtn    = (game.user.isGM && inCombat) ? `<button type="button" data-action="removeCombat"><i class="fas fa-skull"></i><span>Remove from combat</span></button>` : "";
-  const statusEffectsBtn   = game.user.isGM ? `<button type="button" data-action="statusEffects"><i class="fas fa-shield-alt"></i><span>Assign Status Effects</span></button>` : "";
+  const initiativeBtn = `<button type="button" data-action="initiative"><i class="fas fa-dice-d20"></i><span>${_esc(T("menu.rollInitiative"))}</span></button>`;
+  const removeVNBtn    = game.user.isGM ? `<button type="button" data-action="removeVN"><i class="fas fa-user-minus"></i><span>${_esc(T("menu.removeVN"))}</span></button>` : "";
+  const removeCombatBtn    = (game.user.isGM && inCombat) ? `<button type="button" data-action="removeCombat"><i class="fas fa-skull"></i><span>${_esc(T("menu.removeCombat"))}</span></button>` : "";
+  const statusEffectsBtn   = game.user.isGM ? `<button type="button" data-action="statusEffects"><i class="fas fa-shield-alt"></i><span>${_esc(T("menu.statusEffects"))}</span></button>` : "";
 
   const menu = document.createElement("div");
   menu.id = "vne-portrait-action-menu";
   menu.className = "vne-portrait-action-menu";
   menu.innerHTML = `
-    <button type="button" data-action="sheet"><i class="fas fa-id-card"></i><span>Open character sheet</span></button>
-    <button type="button" data-action="target"><i class="fas fa-crosshairs"></i><span>Select as target</span></button>
+    <button type="button" data-action="sheet"><i class="fas fa-id-card"></i><span>${_esc(T("menu.openSheet"))}</span></button>
+    <button type="button" data-action="target"><i class="fas fa-crosshairs"></i><span>${_esc(T("menu.selectTarget"))}</span></button>
     ${inCombat ? initiativeBtn : ""}
-    <button type="button" data-action="speaker"><i class="fas fa-comment-dots"></i><span>Set as speaker</span></button>
+    <button type="button" data-action="speaker"><i class="fas fa-comment-dots"></i><span>${_esc(T("menu.setSpeaker"))}</span></button>
     ${removeVNBtn}
     ${removeCombatBtn}
     ${statusEffectsBtn}`;
@@ -1187,9 +1239,9 @@ function showPortraitActionMenu(trigger, actorId, side) {
     }
     if (action === "initiative") {
       const combat = game.combat;
-      if (!combat) { ui.notifications?.warn("No active combat."); return; }
+      if (!combat) { ui.notifications?.warn(T("notify.noActiveCombat")); return; }
       const combatant = combat.combatants.find(c => c.actorId === actorId);
-      if (!combatant) { ui.notifications?.warn("Actor is not in the combat tracker."); return; }
+      if (!combatant) { ui.notifications?.warn(T("notify.notInTracker")); return; }
       await combat.rollInitiative([combatant.id]);
       return;
     }
@@ -1254,7 +1306,7 @@ function _showActionImageOverlay({ imagePath, actorName = "", actionName = "", r
       ${actorName ? `<span class="vne-ao-actor">${_esc(actorName)}</span>` : ""}
       ${actionName ? `<span class="vne-ao-action">${_esc(actionName)}</span>` : ""}
     </div>`;
-  const portraitImgs = document.querySelectorAll(".vne-center-img, .vne-vs-img");
+  const portraitImgs = document.querySelectorAll(".vne-vs-img");
   portraitImgs.forEach(el => { el.style.transition = "opacity 0.2s"; el.style.opacity = "0"; });
   main.appendChild(overlay);
   if (_actionOverlayTimer) clearTimeout(_actionOverlayTimer);
@@ -1278,8 +1330,8 @@ function _showVictoryOverlay() {
   overlay.innerHTML = `
     <div class="vne-victory-rays"></div>
     <div class="vne-victory-text">
-      <span class="vne-victory-title">¡VICTORIA!</span>
-      <span class="vne-victory-sub">El combate ha concluido</span>
+      <span class="vne-victory-title">${_esc(T("combat.victory"))}</span>
+      <span class="vne-victory-sub">${_esc(T("combat.combatEnded"))}</span>
     </div>`;
   main.appendChild(overlay);
 
@@ -1308,8 +1360,8 @@ function _showDefeatOverlay() {
   overlay.innerHTML = `
     <div class="vne-victory-rays"></div>
     <div class="vne-victory-text">
-      <span class="vne-victory-title">¡DERROTA!</span>
-      <span class="vne-victory-sub">El combate ha concluido</span>
+      <span class="vne-victory-title">${_esc(T("combat.defeat"))}</span>
+      <span class="vne-victory-sub">${_esc(T("combat.combatEnded"))}</span>
     </div>`;
   main.appendChild(overlay);
 
@@ -1331,7 +1383,7 @@ function _showDefeatOverlay() {
 function _checkVictoryCondition(turnsSnapshot) {
   if (!game.user.isGM) return;
   if (_victoryTriggered) return;
-  const d = getData();
+  const d = getDataRO();
   if (!d.showVN || !d.combatMode) return;
 
   const turns    = turnsSnapshot ?? [];
@@ -1358,7 +1410,7 @@ function _checkVictoryCondition(turnsSnapshot) {
 // ── VS Combat Display ─────────────────────────────────────────────────────────
 
 function _renderVSDisplay() {
-  const d = getData();
+  const d = getDataRO();
   const stage = document.querySelector(".vne-stage");
   if (!stage) return;
   if (!d.showVN || !d.combatMode) {
@@ -1385,13 +1437,14 @@ function _renderVSDisplay() {
     </div>${showNums ? `<div class="vne-vs-hp-text">${p.hp}/${p.hpMax}</div>` : ""}`;
   };
   const mkSide = (p, side) => p
-    ? `<div class="vne-vs-img-wrap"><img class="vne-vs-img" src="${_esc(p.img || 'icons/svg/mystery-man.svg')}" style="${p.imgStyle || ''}" onerror="this.src='icons/svg/mystery-man.svg'" /></div><div class="vne-vs-name">${_esc(p.name)}</div>${mkHpBar(p, side)}`
+    ? `<div class="vne-vs-img-wrap"><img class="vne-vs-img" src="${_esc(p.img || FALLBACK_IMG)}" style="${p.imgStyle || ''}" /></div><div class="vne-vs-name">${_esc(p.name)}</div>${mkHpBar(p, side)}`
     : "";
   const showVS = !!(_vsLeft || _vsRight);
   vsEl.innerHTML = `
     <div class="vne-vs-side vne-vs-left">${mkSide(_vsLeft, "left")}</div>
     <div class="vne-vs-sep">${showVS ? "<span>VS</span>" : ""}</div>
     <div class="vne-vs-side vne-vs-right">${mkSide(_vsRight, "right")}</div>`;
+  _bindImgFallbacks(vsEl, "img.vne-vs-img");
 }
 
 function _vsDataFromPortrait(p, side = "left") {
@@ -1410,7 +1463,7 @@ function _vsDataFromPortrait(p, side = "left") {
 // Called on turn change — updates the side that corresponds to the active combatant.
 // Also seeds whichever side is still empty by scanning all combat.turns.
 function _updateVSFromCombat() {
-  const d = getData();
+  const d = getDataRO();
   if (!d.showVN || !d.combatMode) return;
   const combat = game.combat;
   if (!combat) {
@@ -1447,7 +1500,7 @@ function _updateVSFromCombat() {
 // Called when a token is targeted — puts the target "al frente" on their own side.
 // This state persists until the next turn change or a new target on that same side.
 function _updateVSOnTarget(actorId, side) {
-  const d = getData();
+  const d = getDataRO();
   const castP = side === "right"
     ? d.rightCast.find(p => p.id === actorId)
     : d.leftCast.find(p => p.id === actorId);
@@ -1471,7 +1524,7 @@ function _updateVSOnTarget(actorId, side) {
 
 function _showTurnCard(combatant) {
   if (!combatant) return;
-  const d = getData();
+  const d = getDataRO();
   if (!d.showVN || !d.combatMode) return;
   if (!game.user.isGM) {
     // Normalize showForIds: empty array treated as null (same as visible computation)
@@ -1491,7 +1544,7 @@ function _showTurnCard(combatant) {
                           : (actor?.img ?? "icons/svg/mystery-man.svg");
   const name  = combatant.name || actor?.name || "???";
   const theme = isPlayer ? "vne-tc-player" : "vne-tc-enemy";
-  const label = isPlayer ? "PLAYER TURN" : "ENEMY TURN";
+  const label = isPlayer ? T("combat.playerTurn") : T("combat.enemyTurn");
 
   // Remove any existing card immediately (cancel both pending timers first)
   clearTimeout(_lastTurnCardTimer);
@@ -1507,16 +1560,17 @@ function _showTurnCard(combatant) {
     <div class="vne-tc-slash vne-tc-slash2"></div>
     <div class="vne-tc-slash vne-tc-slash3"></div>
     <div class="vne-tc-portrait-wrap">
-      <img class="vne-tc-portrait" src="${_esc(img)}" onerror="this.src='icons/svg/mystery-man.svg'"/>
+      <img class="vne-tc-portrait" src="${_esc(img)}"/>
     </div>
     <div class="vne-tc-text-wrap">
       <div class="vne-tc-phase-label">${_esc(label)}</div>
       <div class="vne-tc-name">${_esc(name)}</div>
-      <div class="vne-tc-turn-word">TURNO</div>
+      <div class="vne-tc-turn-word">${_esc(T("combat.turnWord"))}</div>
     </div>
     <div class="vne-tc-flare"></div>
   `;
 
+  _bindImgFallbacks(card, ".vne-tc-portrait");
   document.body.appendChild(card);
 
   // Auto-dismiss: fade-out after 1.3s, remove after 1.8s (half the original duration)
@@ -1574,7 +1628,7 @@ function _applyPortraitHitShake(actorId, isCrit = false) {
 // Full-screen overlay with "¡CRÍTICO!" or "¡PIFIA!" + radial burst.
 
 function _showCriticalAnimation(type, actorId = null) {
-  const d = getData();
+  const d = getDataRO();
   if (!d.showVN) return;
   if (!game.user.isGM) {
     const showForIds = (d.showForIds && d.showForIds.length > 0) ? d.showForIds : null;
@@ -1646,7 +1700,10 @@ function _parseCritFromMessage(message) {
     }
   } catch { /* ignore parse errors */ }
 
-  // Generic: look for keywords in the rendered HTML
+  // Generic: look for keywords in the rendered HTML — but only for actual dice
+  // rolls. Narration or journal quotes containing "critical hit" must never
+  // trigger the full-screen overlay.
+  if (!message.rolls?.length) return null;
   const text = (message.content ?? "").toLowerCase();
   if (/cr[ií]tico|critical.{0,6}hit|golpe.{0,6}cr[ií]tico/.test(text))            return "crit";
   if (/pifia|fumble|fallo.{0,6}cr[ií]tico|critical.{0,6}fail|botch/.test(text))   return "fumble";
@@ -1662,6 +1719,18 @@ function _escapeHTML(value) {
 // Short alias used everywhere innerHTML touches user-controlled data
 const _esc = _escapeHTML;
 
+// Safe image fallback — replaces inline onerror handlers, which retry forever
+// when the fallback itself 404s and violate strict CSP setups.
+const FALLBACK_IMG = "icons/svg/mystery-man.svg";
+function _bindImgFallback(img, fallback = FALLBACK_IMG) {
+  if (!img) return;
+  img.addEventListener("error", () => { img.src = fallback; }, { once: true });
+}
+// Convenience: bind fallback on every <img> inside a container built via innerHTML.
+function _bindImgFallbacks(container, selector = "img") {
+  container?.querySelectorAll(selector).forEach(i => _bindImgFallback(i));
+}
+
 // ── Small sub-dialogs ────────────────────────────────────────────────────────
 
 function openActorPicker(callback) {
@@ -1675,15 +1744,17 @@ function openActorPicker(callback) {
         <img src="${_esc(a.img)}" loading="lazy"/>
         <span>${_esc(a.name)}</span>
       </div>`
-    ).join("") || `<span style="color:rgba(200,185,160,0.5);font-size:0.8em;padding:8px;">Sin resultados</span>`;
+    ).join("") || `<span style="color:rgba(200,185,160,0.5);font-size:0.8em;padding:8px;">${_esc(T("picker.noResults"))}</span>`;
   }
+
+  const pickerAC = new AbortController();
 
   function bindCards(container) {
     container.querySelectorAll(".vne-qap-card").forEach(card => {
       card.addEventListener("click", e => {
         e.stopPropagation();
         callback(card.dataset.id);
-        picker.remove();
+        closePicker();
       });
     });
   }
@@ -1691,13 +1762,18 @@ function openActorPicker(callback) {
   const picker = document.createElement("div");
   picker.id = "vne-actor-picker";
   picker.innerHTML = `
-    <div class="vne-qap-label"><i class="fas fa-user-plus"></i> Personaje</div>
-    <input class="vne-qap-search" placeholder="Buscar..." type="text" autocomplete="off"/>
+    <div class="vne-qap-label"><i class="fas fa-user-plus"></i> ${_esc(T("picker.character"))}</div>
+    <input class="vne-qap-search" placeholder="${_esc(T("picker.search"))}" type="text" autocomplete="off"/>
     <div class="vne-qap-scroll">${buildCards(allActors)}</div>
-    <div class="vne-qap-close" id="vne-qap-close-btn" title="Cerrar"><i class="fas fa-times"></i></div>
+    <div class="vne-qap-close" id="vne-qap-close-btn" title="${_esc(T("picker.close"))}" role="button" tabindex="0"><i class="fas fa-times"></i></div>
   `;
 
   document.getElementById("vne-main")?.appendChild(picker);
+
+  function closePicker() {
+    pickerAC.abort();
+    picker.remove();
+  }
 
   const scrollEl  = picker.querySelector(".vne-qap-scroll");
   const searchEl  = picker.querySelector(".vne-qap-search");
@@ -1717,16 +1793,14 @@ function openActorPicker(callback) {
   requestAnimationFrame(() => searchEl?.focus());
 
   picker.querySelector("#vne-qap-close-btn")?.addEventListener("click", e => {
-    e.stopPropagation(); picker.remove();
+    e.stopPropagation(); closePicker();
   });
 
-  function onOutside(e) {
-    if (!picker.contains(e.target)) {
-      picker.remove();
-      document.removeEventListener("mousedown", onOutside, true);
-    }
-  }
-  setTimeout(() => document.addEventListener("mousedown", onOutside, true), 60);
+  setTimeout(() => {
+    document.addEventListener("mousedown", e => {
+      if (!picker.contains(e.target)) closePicker();
+    }, { capture: true, signal: pickerAC.signal });
+  }, 60);
 }
 
 function _isVideoBg(src) { return /\.(mp4|webm)$/i.test(src || ""); }
@@ -1763,29 +1837,29 @@ function openSceneEditor(existing, callback) {
     name: "", parent: "", backgroundImage: "", weather: "", time: ""
   };
   const content = `<div class="vne-scene-editor">
-    <div class="vne-se-row"><label>Scene Name</label>
-      <input id="se-name" type="text" value="${_esc(loc.name)}" placeholder="Tavern, Forest..."/></div>
-    <div class="vne-se-row"><label>Region / Parent</label>
-      <input id="se-parent" type="text" value="${_esc(loc.parent)}" placeholder="Neverwinter..."/></div>
-    <div class="vne-se-row"><label>Background (image / GIF / WebP / MP4 / WebM)</label>
+    <div class="vne-se-row"><label>${_esc(T("sceneEditor.name"))}</label>
+      <input id="se-name" type="text" value="${_esc(loc.name)}" placeholder="${_esc(T("sceneEditor.namePh"))}"/></div>
+    <div class="vne-se-row"><label>${_esc(T("sceneEditor.parent"))}</label>
+      <input id="se-parent" type="text" value="${_esc(loc.parent)}" placeholder="${_esc(T("sceneEditor.parentPh"))}"/></div>
+    <div class="vne-se-row"><label>${_esc(T("sceneEditor.background"))}</label>
       <div style="display:flex;gap:6px;align-items:center;">
-        <input id="se-bg" type="text" value="${_esc(loc.backgroundImage)}" placeholder="Path to file..."/>
+        <input id="se-bg" type="text" value="${_esc(loc.backgroundImage)}" placeholder="${_esc(T("sceneEditor.backgroundPh"))}"/>
         <button type="button" id="se-bg-pick"><i class="fas fa-folder-open"></i></button>
       </div>
       ${_scenePreviewHtml(loc.backgroundImage)}
     </div>
-    <div class="vne-se-row"><label>Weather</label>
-      <input id="se-weather" type="text" value="${_esc(loc.weather)}" placeholder="Sunny, Rainy..."/></div>
-    <div class="vne-se-row"><label>Time</label>
-      <input id="se-time" type="text" value="${_esc(loc.time)}" placeholder="12:00"/></div>
+    <div class="vne-se-row"><label>${_esc(T("sceneEditor.weather"))}</label>
+      <input id="se-weather" type="text" value="${_esc(loc.weather)}" placeholder="${_esc(T("sceneEditor.weatherPh"))}"/></div>
+    <div class="vne-se-row"><label>${_esc(T("sceneEditor.time"))}</label>
+      <input id="se-time" type="text" value="${_esc(loc.time)}" placeholder="${_esc(T("sceneEditor.timePh"))}"/></div>
   </div>`;
 
   new Dialog({
-    title: existing ? "Edit Scene" : "New Scene",
+    title: existing ? T("sceneEditor.titleEdit") : T("sceneEditor.titleNew"),
     content,
     buttons: {
       save: {
-        label: "<i class='fas fa-save'></i> Save",
+        label: `<i class='fas fa-save'></i> ${T("ui.save")}`,
         callback: (html) => {
           callback({
             ...loc,
@@ -1797,7 +1871,7 @@ function openSceneEditor(existing, callback) {
           });
         }
       },
-      cancel: { label: "Cancel" }
+      cancel: { label: T("ui.cancel") }
     },
     render: (html) => {
       html.find("#se-bg-pick").on("click", () => {
@@ -1833,35 +1907,35 @@ function openPortraitEditor(portraitId, side = null) {
   if (!p) return;
 
   new Dialog({
-    title: `Edit: ${p.name}`,
+    title: TF("portraitEditor.title", { name: p.name }),
     content: `<div class="vne-pe-form">
       <div class="vne-pe-preview">
-        <img id="pe-img" src="${_esc(p.img || 'icons/svg/mystery-man.svg')}" style="max-height:180px;border-radius:8px;" onerror="this.src='icons/svg/mystery-man.svg'"/>
-        <button type="button" id="pe-pick-img" class="vne-pe-pick-btn"><i class="fas fa-image"></i> Change Image</button>
+        <img id="pe-img" src="${_esc(p.img || 'icons/svg/mystery-man.svg')}" style="max-height:180px;border-radius:8px;"/>
+        <button type="button" id="pe-pick-img" class="vne-pe-pick-btn"><i class="fas fa-image"></i> ${_esc(T("portraitEditor.changeImage"))}</button>
       </div>
       <div class="vne-pe-fields">
-        <label>Name</label>
+        <label>${_esc(T("portraitEditor.name"))}</label>
         <input id="pe-name" type="text" value="${_esc(p.name)}"/>
-        <label>Title / Role</label>
+        <label>${_esc(T("portraitEditor.roleTitle"))}</label>
         <input id="pe-title" type="text" value="${_esc(p.title || "")}"/>
-        <label>Scale: <span id="pe-scale-v">${p.scale ?? 100}</span>%</label>
+        <label>${_esc(T("portraitEditor.scale"))}: <span id="pe-scale-v">${p.scale ?? 100}</span>%</label>
         <input id="pe-scale" type="range" min="20" max="300" value="${p.scale ?? 100}"/>
-        <label>Offset X: <span id="pe-ox-v">${p.offsetX ?? 0}</span>px</label>
+        <label>${_esc(T("portraitEditor.offsetX"))}: <span id="pe-ox-v">${p.offsetX ?? 0}</span>px</label>
         <input id="pe-ox" type="range" min="-500" max="500" value="${p.offsetX ?? 0}"/>
-        <label>Offset Y: <span id="pe-oy-v">${p.offsetY ?? 0}</span>px</label>
+        <label>${_esc(T("portraitEditor.offsetY"))}: <span id="pe-oy-v">${p.offsetY ?? 0}</span>px</label>
         <input id="pe-oy" type="range" min="-500" max="500" value="${p.offsetY ?? 0}"/>
         <label style="display:flex;align-items:center;gap:6px;margin-top:4px;">
           <input id="pe-mirror" type="checkbox" ${p.mirrorX ? "checked" : ""}/>
-          Mirror horizontally
+          ${_esc(T("portraitEditor.mirror"))}
         </label>
       </div>
     </div>
     <button type="button" id="pe-reactions-btn" style="width:100%;margin-top:10px;padding:6px 0;border-radius:6px;border:1px solid rgba(200,155,60,0.35);background:rgba(200,155,60,0.1);color:#c89b3c;cursor:pointer;">
-      <i class="fas fa-theater-masks"></i> Manage Reactions / Expressions
+      <i class="fas fa-theater-masks"></i> ${_esc(T("portraitEditor.manageReactions"))}
     </button>`,
     buttons: {
       save: {
-        label: "<i class='fas fa-check'></i> Save",
+        label: `<i class='fas fa-check'></i> ${T("ui.save")}`,
         callback: async (html) => {
           const d2 = getData();
           // Prefer data-picked so onerror fallback path is never saved as the portrait image
@@ -1894,7 +1968,7 @@ function openPortraitEditor(portraitId, side = null) {
           await saveData(d2, { change: "castChange" });
         }
       },
-      cancel: { label: "Cancel" }
+      cancel: { label: T("ui.cancel") }
     },
     render: (html) => {
       function livePreview() {
@@ -1907,6 +1981,7 @@ function openPortraitEditor(portraitId, side = null) {
           mirrorX: html.find("#pe-mirror").is(":checked"),
         });
       }
+      _bindImgFallback(html.find("#pe-img")[0]);
       html.find("#pe-scale").on("input", function() { html.find("#pe-scale-v").text(this.value); livePreview(); });
       html.find("#pe-ox").on("input",    function() { html.find("#pe-ox-v").text(this.value);    livePreview(); });
       html.find("#pe-oy").on("input",    function() { html.find("#pe-oy-v").text(this.value);    livePreview(); });
@@ -1939,8 +2014,8 @@ function openReactionManager(actorId) {
         <img class="vne-rm-thumb" src="${_esc(img || "")}"${img ? "" : ' style="display:none"'}/>
       </div>
       <input class="vne-rm-name" type="text" value="${_esc(name)}" placeholder="reaction_name"/>
-      <button type="button" class="vne-rm-pick vne-icon-btn" title="Pick image"><i class="fas fa-image"></i></button>
-      <button type="button" class="vne-rm-remove vne-icon-btn" title="Remove"><i class="fas fa-trash"></i></button>
+      <button type="button" class="vne-rm-pick vne-icon-btn" title="${_esc(T("reactions.pickImage"))}"><i class="fas fa-image"></i></button>
+      <button type="button" class="vne-rm-remove vne-icon-btn" title="${_esc(T("ui.remove"))}"><i class="fas fa-trash"></i></button>
     </div>`;
   }
 
@@ -1948,7 +2023,7 @@ function openReactionManager(actorId) {
 
   function tplOptions(tpls) {
     const keys = Object.keys(tpls).sort();
-    if (!keys.length) return `<option value="" disabled>No saved templates</option>`;
+    if (!keys.length) return `<option value="" disabled>${_esc(T("reactions.noTemplates"))}</option>`;
     return keys.map(k => `<option value="${_esc(k)}">${_esc(k)}</option>`).join("");
   }
 
@@ -1965,19 +2040,19 @@ function openReactionManager(actorId) {
   const initialRows = Object.entries(reactions).map(([n, i]) => buildRow(n, i)).join("");
 
   new Dialog({
-    title: `Reactions: ${p.name}`,
+    title: TF("reactions.title", { name: p.name }),
     content: `<div class="vne-reaction-manager">
 
-      <div class="vne-rm-section-label"><i class="fas fa-bookmark"></i> Templates</div>
+      <div class="vne-rm-section-label"><i class="fas fa-bookmark"></i> ${_esc(T("reactions.templates"))}</div>
       <div class="vne-rm-tpl-bar">
         <select id="vne-rm-tpl-select" class="vne-rm-tpl-select">
-          <option value="">— Select template —</option>
+          <option value="">${_esc(T("reactions.selectTemplate"))}</option>
           ${tplOptions(getTpls())}
         </select>
-        <button type="button" id="vne-rm-tpl-apply" class="vne-rm-tpl-btn vne-rm-tpl-btn-apply" title="Apply template">
+        <button type="button" id="vne-rm-tpl-apply" class="vne-rm-tpl-btn vne-rm-tpl-btn-apply" title="${_esc(T("reactions.applyTemplate"))}">
           <i class="fas fa-check"></i>
         </button>
-        <button type="button" id="vne-rm-tpl-del" class="vne-rm-tpl-btn vne-rm-tpl-btn-del" title="Delete template">
+        <button type="button" id="vne-rm-tpl-del" class="vne-rm-tpl-btn vne-rm-tpl-btn-del" title="${_esc(T("reactions.deleteTemplate"))}">
           <i class="fas fa-trash"></i>
         </button>
       </div>
@@ -1985,27 +2060,27 @@ function openReactionManager(actorId) {
       <div class="vne-rm-divider"></div>
 
       <p class="vne-rm-hint">
-        <i class="fas fa-theater-masks"></i> Each row = one expression. Actor owners can switch it during the session.<br>
-        <span class="vne-rm-hint-autohp"><i class="fas fa-heart-broken"></i> Auto-HP:</span>
-        name a reaction <code>hurt</code>/<code>wounded</code> (≤50%) or <code>critical</code>/<code>ko</code> (≤25%) for automatic activation.
+        <i class="fas fa-theater-masks"></i> ${T("reactions.hint")}<br>
+        <span class="vne-rm-hint-autohp"><i class="fas fa-heart-broken"></i> ${T("reactions.autoHp")}</span>
+        ${T("reactions.autoHpHint")}
       </p>
       <div id="vne-rm-rows">${initialRows}</div>
-      <button type="button" id="vne-rm-add" class="vne-rm-add-btn"><i class="fas fa-plus"></i> Add Reaction</button>
+      <button type="button" id="vne-rm-add" class="vne-rm-add-btn"><i class="fas fa-plus"></i> ${_esc(T("reactions.addReaction"))}</button>
 
       <div class="vne-rm-divider"></div>
-      <div class="vne-rm-section-label"><i class="fas fa-tag"></i> Save as template</div>
+      <div class="vne-rm-section-label"><i class="fas fa-tag"></i> ${_esc(T("reactions.saveAsTemplate"))}</div>
       <div class="vne-rm-tpl-save-bar">
         <input id="vne-rm-tpl-name-input" class="vne-rm-tpl-name" type="text"
-               placeholder="Name (e.g. Bandit, Guard, Elemental…)" autocomplete="off"/>
+               placeholder="${_esc(T("reactions.templateNamePh"))}" autocomplete="off"/>
         <button type="button" id="vne-rm-tpl-save" class="vne-rm-tpl-btn vne-rm-tpl-btn-save"
-                title="Save as template">
+                title="${_esc(T("reactions.saveAsTemplate"))}">
           <i class="fas fa-bookmark"></i>
         </button>
       </div>
     </div>`,
     buttons: {
       save: {
-        label: "<i class='fas fa-save'></i> Save",
+        label: `<i class='fas fa-save'></i> ${T("ui.save")}`,
         callback: async (html) => {
           const newReactions = collectRows(html);
           if (!Object.keys(newReactions).length) return;
@@ -2022,7 +2097,7 @@ function openReactionManager(actorId) {
           await saveData(d2, { change: "castChange" });
         }
       },
-      cancel: { label: "Cancel" }
+      cancel: { label: T("ui.cancel") }
     },
     render: (html) => {
       // Image picker per row
@@ -2040,39 +2115,40 @@ function openReactionManager(actorId) {
       // ── Apply template ──
       html.find("#vne-rm-tpl-apply").on("click", () => {
         const key = html.find("#vne-rm-tpl-select").val();
-        if (!key) { ui.notifications?.warn("VNE: Select a template first."); return; }
+        if (!key) { ui.notifications?.warn(T("reactions.selectFirst")); return; }
         const tpl = getTpls()[key];
         if (!tpl || !Object.keys(tpl).length) return;
         html.find("#vne-rm-rows").html(Object.entries(tpl).map(([n,i]) => buildRow(n,i)).join(""));
-        ui.notifications?.info(`VNE: Template "${key}" applied. Click Save to confirm.`);
+        ui.notifications?.info(TF("reactions.applied", { name: key }));
       });
 
       // ── Delete template ──
       html.find("#vne-rm-tpl-del").on("click", async () => {
         const key = html.find("#vne-rm-tpl-select").val();
-        if (!key) { ui.notifications?.warn("VNE: Select a template to delete."); return; }
+        if (!key) { ui.notifications?.warn(T("reactions.selectToDelete")); return; }
         const tpls = getTpls();
         delete tpls[key];
         await game.settings.set(ID, "vnReactionTemplates", tpls);
-        html.find("#vne-rm-tpl-select").html(`<option value="">— Select template —</option>${tplOptions(tpls)}`);
-        ui.notifications?.info(`VNE: Template "${key}" deleted.`);
+        html.find("#vne-rm-tpl-select").html(`<option value="">${_esc(T("reactions.selectTemplate"))}</option>${tplOptions(tpls)}`);
+        ui.notifications?.info(TF("reactions.deleted", { name: key }));
       });
 
       // ── Save as template ──
       html.find("#vne-rm-tpl-save").on("click", async () => {
         const name = html.find("#vne-rm-tpl-name-input").val().trim();
-        if (!name) { ui.notifications?.warn("VNE: Enter a name for the template."); return; }
+        if (!name) { ui.notifications?.warn(T("reactions.enterName")); return; }
         const tplReactions = collectRows(html);
         if (!Object.keys(tplReactions).length) {
-          ui.notifications?.warn("VNE: No reactions with images to save."); return;
+          ui.notifications?.warn(T("reactions.nothingToSave")); return;
         }
         const tpls = getTpls();
         const isOverwrite = !!tpls[name];
         tpls[name] = tplReactions;
         await game.settings.set(ID, "vnReactionTemplates", tpls);
-        html.find("#vne-rm-tpl-select").html(`<option value="">— Select template —</option>${tplOptions(tpls)}`);
+        html.find("#vne-rm-tpl-select").html(`<option value="">${_esc(T("reactions.selectTemplate"))}</option>${tplOptions(tpls)}`);
         html.find("#vne-rm-tpl-name-input").val("");
-        ui.notifications?.info(`VNE: Template "${name}" ${isOverwrite ? "updated" : "saved"} (${Object.keys(tplReactions).length} reactions).`);
+        const count = Object.keys(tplReactions).length;
+        ui.notifications?.info(TF(isOverwrite ? "reactions.updated" : "reactions.saved", { name, count }));
       });
     }
   }).render(true, { width: 520, height: "auto" });
@@ -2102,7 +2178,7 @@ function _enterSpotlight(actorId) {
     overlay.id = "vne-spotlight-overlay";
     overlay.className = "vne-spotlight-overlay";
     overlay.innerHTML = `<div class="vne-spotlight-vignette"></div>
-      <div class="vne-spotlight-exit-hint"><i class="fas fa-compress"></i> Doble clic para salir</div>`;
+      <div class="vne-spotlight-exit-hint"><i class="fas fa-compress"></i> ${_esc(T("ui.spotlightExit"))}</div>`;
     stage.appendChild(overlay);
     overlay.addEventListener("dblclick", (e) => {
       e.stopPropagation();
@@ -2143,47 +2219,47 @@ function openCastPresetsDialog() {
 
   function presetOptions(presets) {
     const keys = Object.keys(presets).sort();
-    if (!keys.length) return `<option value="" disabled>No saved presets</option>`;
+    if (!keys.length) return `<option value="" disabled>${_esc(T("presets.noPresets"))}</option>`;
     return keys.map(k => `<option value="${_esc(k)}">${_esc(k)}</option>`).join("");
   }
 
   const presets = _getCastPresets();
   const content = `<div class="vne-presets-dialog">
-    <p class="vne-presets-hint"><i class="fas fa-users"></i> Presets save the full cast (left + right + portraits + reactions) and let you restore it in one click.</p>
+    <p class="vne-presets-hint"><i class="fas fa-users"></i> ${_esc(T("presets.hint"))}</p>
 
     <div class="vne-presets-section">
-      <div class="vne-presets-label"><i class="fas fa-bookmark"></i> Load preset</div>
+      <div class="vne-presets-label"><i class="fas fa-bookmark"></i> ${_esc(T("presets.load"))}</div>
       <div class="vne-presets-row">
         <select id="vne-preset-select" class="vne-preset-select">
-          <option value="">— Select —</option>
+          <option value="">${_esc(T("presets.select"))}</option>
           ${presetOptions(presets)}
         </select>
-        <button type="button" id="vne-preset-load" class="vne-preset-btn" title="Load"><i class="fas fa-check"></i></button>
-        <button type="button" id="vne-preset-del"  class="vne-preset-btn vne-preset-btn-del" title="Delete"><i class="fas fa-trash"></i></button>
+        <button type="button" id="vne-preset-load" class="vne-preset-btn" title="${_esc(T("presets.loadBtn"))}"><i class="fas fa-check"></i></button>
+        <button type="button" id="vne-preset-del"  class="vne-preset-btn vne-preset-btn-del" title="${_esc(T("presets.deleteBtn"))}"><i class="fas fa-trash"></i></button>
       </div>
     </div>
 
     <div class="vne-presets-divider"></div>
 
     <div class="vne-presets-section">
-      <div class="vne-presets-label"><i class="fas fa-save"></i> Save current cast as preset</div>
+      <div class="vne-presets-label"><i class="fas fa-save"></i> ${_esc(T("presets.saveSection"))}</div>
       <div class="vne-presets-row">
-        <input id="vne-preset-name" type="text" class="vne-preset-name-input" placeholder="Name (e.g. Main group, Tavern scene…)" autocomplete="off"/>
-        <button type="button" id="vne-preset-save" class="vne-preset-btn vne-preset-btn-save" title="Save"><i class="fas fa-bookmark"></i></button>
+        <input id="vne-preset-name" type="text" class="vne-preset-name-input" placeholder="${_esc(T("presets.namePh"))}" autocomplete="off"/>
+        <button type="button" id="vne-preset-save" class="vne-preset-btn vne-preset-btn-save" title="${_esc(T("presets.saveBtn"))}"><i class="fas fa-bookmark"></i></button>
       </div>
     </div>
   </div>`;
 
   const dialog = new Dialog({
-    title: "Cast Presets",
+    title: T("presets.title"),
     content,
-    buttons: { close: { label: "Close" } },
+    buttons: { close: { label: T("presets.close") } },
     render: (html) => {
 
       // Load preset
       html.find("#vne-preset-load").on("click", async () => {
         const key = html.find("#vne-preset-select").val();
-        if (!key) { ui.notifications?.warn("VNE: Select a preset first."); return; }
+        if (!key) { ui.notifications?.warn(T("presets.selectFirst")); return; }
         const p = _getCastPresets()[key];
         if (!p) return;
         const d = getData();
@@ -2198,28 +2274,28 @@ function openCastPresetsDialog() {
             await ensureCombatantForActor(actor.id);
           }
         }
-        ui.notifications?.info(`VNE: Preset "${key}" loaded (${d.leftCast.length + d.rightCast.length} actors).`);
+        ui.notifications?.info(TF("presets.loaded", { name: key, count: d.leftCast.length + d.rightCast.length }));
         dialog.close();
       });
 
       // Delete preset
       html.find("#vne-preset-del").on("click", async () => {
         const key = html.find("#vne-preset-select").val();
-        if (!key) { ui.notifications?.warn("VNE: Select a preset to delete."); return; }
+        if (!key) { ui.notifications?.warn(T("presets.selectToDelete")); return; }
         const p2 = _getCastPresets();
         delete p2[key];
         await _saveCastPresets(p2);
-        html.find("#vne-preset-select").html(`<option value="">— Select —</option>${presetOptions(p2)}`);
-        ui.notifications?.info(`VNE: Preset "${key}" deleted.`);
+        html.find("#vne-preset-select").html(`<option value="">${_esc(T("presets.select"))}</option>${presetOptions(p2)}`);
+        ui.notifications?.info(TF("presets.deleted", { name: key }));
       });
 
       // Save current cast as preset
       html.find("#vne-preset-save").on("click", async () => {
         const name = html.find("#vne-preset-name").val().trim();
-        if (!name) { ui.notifications?.warn("VNE: Enter a name for the preset."); return; }
+        if (!name) { ui.notifications?.warn(T("presets.enterName")); return; }
         const d = getData();
         if (!d.leftCast.length && !d.rightCast.length) {
-          ui.notifications?.warn("VNE: The cast is empty, nothing to save."); return;
+          ui.notifications?.warn(T("presets.castEmpty")); return;
         }
         const p2 = _getCastPresets();
         const isOverwrite = !!p2[name];
@@ -2230,9 +2306,10 @@ function openCastPresetsDialog() {
           savedAt:   new Date().toISOString()
         };
         await _saveCastPresets(p2);
-        html.find("#vne-preset-select").html(`<option value="">— Select —</option>${presetOptions(p2)}`);
+        html.find("#vne-preset-select").html(`<option value="">${_esc(T("presets.select"))}</option>${presetOptions(p2)}`);
         html.find("#vne-preset-name").val("");
-        ui.notifications?.info(`VNE: Preset "${name}" ${isOverwrite ? "updated" : "saved"} (${d.leftCast.length + d.rightCast.length} actors).`);
+        ui.notifications?.info(TF(isOverwrite ? "presets.updated" : "presets.saved",
+          { name, count: d.leftCast.length + d.rightCast.length }));
       });
     }
   }, { width: 480 });
@@ -2272,8 +2349,14 @@ export class VNE extends FormApplication {
     if (existing) return;
     const fab = document.createElement("div");
     fab.id = "vne-toggle-fab";
-    fab.title = "Open / Close VN (Alt+V)";
+    fab.title = T("toolbar.fab");
+    fab.setAttribute("role", "button");
+    fab.setAttribute("tabindex", "0");
+    fab.setAttribute("aria-label", fab.title);
     fab.innerHTML = `<i class="fas fa-users-between-lines"></i>`;
+    fab.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fab.click(); }
+    });
     fab.addEventListener("click", () => {
       // If VNE is not active (unlicensed), show the license prompt for the GM
       if (!VNE.instance) {
@@ -2303,10 +2386,12 @@ export class VNE extends FormApplication {
     document.body.appendChild(fab);
   }
 
-  static async toggle(showForIds = null) {
+  static async toggle(showForIds = undefined) {
     const d = getData();
-    d.showVN    = !d.showVN;
-    d.showForIds = showForIds;
+    d.showVN = !d.showVN;
+    // Preserve per-player visibility across open/close — only overwrite when the
+    // caller explicitly passes a value (null = "show to everyone").
+    if (showForIds !== undefined) d.showForIds = showForIds;
     await saveData(d, { change: "showVN" });
   }
 
@@ -2318,9 +2403,8 @@ export class VNE extends FormApplication {
   // ── Template data ──────────────────────────────────────────────────────────
 
   getData() {
-    const d = getData();
+    const d = getDataRO();
     const zIndex      = game.settings.get(ID, "zIndex") || 90;
-    const worldOffsetY = game.settings.get(ID, "worldOffsetY") || 0;
     const editMode    = d.editMode && game.user.isGM;
 
     // Treat showForIds=[] (empty) as null so an empty list never silently locks out all players
@@ -2338,12 +2422,8 @@ export class VNE extends FormApplication {
       visible: !showForIds || showForIds.includes(u.id)
     }));
 
-    const stageActorIds = combatMode
-      ? new Set([game.combat?.combatant?.actorId].filter(Boolean))
-      : new Set([...(d.stagePlayers || []), ...(d.stageNPCs || [])]);
-    const leftCast  = d.leftCast.map(p  => templatePortrait(p, "left",  stageActorIds, worldOffsetY, editMode, combatMode));
-    const rightCast = d.rightCast.map(p => templatePortrait(p, "right", stageActorIds, worldOffsetY, editMode, combatMode));
-
+    // Side-panel portraits are rendered by _patchSidePanel after activateListeners —
+    // the template only needs the shell.
     const combat        = game.combat;
     const combatRound   = combat?.round ?? 0;
     const combatTurnName = combat?.combatant?.name ?? "";
@@ -2363,8 +2443,6 @@ export class VNE extends FormApplication {
       locationParent:  d.location?.parent || "",
       locationWeather: d.location?.weather || "",
       locationTime:    d.location?.time || "",
-      leftCast,
-      rightCast,
       locationList:    d.locationList,
       currentLocationId: d.location?.id || "",
       players,
@@ -2383,6 +2461,23 @@ export class VNE extends FormApplication {
   activateListeners(html) {
     super.activateListeners(html);
     const root = html[0];
+
+    // ── Keyboard accessibility ─────────────────────────────────────────────
+    // The UI chrome is div-based; expose the controls to keyboard/AT users and
+    // let Enter/Space activate anything with role="button" (delegated, so
+    // popups injected into #vne-main later are covered too).
+    root.querySelectorAll(".vne-ctrl-btn, .vne-turn-nav-btn, .vne-scenes-pill, .vne-add-cast-btn").forEach(el => {
+      el.setAttribute("role", "button");
+      el.setAttribute("tabindex", "0");
+      if (el.title && !el.hasAttribute("aria-label")) el.setAttribute("aria-label", el.title);
+    });
+    root.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const btn = e.target.closest('[role="button"]');
+      if (!btn) return;
+      e.preventDefault();
+      btn.click();
+    });
 
     // Close / toggle
     root.querySelector("#vne-close-btn")?.addEventListener("click", () => {
@@ -2455,7 +2550,7 @@ export class VNE extends FormApplication {
     root.querySelector("#vne-roll-all-init-btn")?.addEventListener("click", async () => {
       if (!game.user.isGM) return;
       const combat = game.combat;
-      if (!combat) { ui.notifications?.warn("No active combat."); return; }
+      if (!combat) { ui.notifications?.warn(T("notify.noActiveCombat")); return; }
       await combat.rollAll().catch(() => {});
     });
 
@@ -2465,7 +2560,7 @@ export class VNE extends FormApplication {
       if (_timerEnabled) {
         _stopTurnTimer();
       } else {
-        const minutes = parseInt(root.querySelector("#vne-timer-input")?.value ?? "2") || 2;
+        const minutes = _clampTimerMinutes(root.querySelector("#vne-timer-input")?.value);
         _startTurnTimer(minutes);
       }
     });
@@ -2481,67 +2576,15 @@ export class VNE extends FormApplication {
     // Turn timer: change minutes (stops current timer)
     root.querySelector("#vne-timer-input")?.addEventListener("change", (e) => {
       if (!game.user.isGM) return;
-      const minutes = parseInt(e.target.value) || 2;
+      const minutes = _clampTimerMinutes(e.target.value);
+      e.target.value = minutes;
       _timerMinutes = minutes;
       game.settings.set(ID, "timerMinutes", minutes).catch(() => {});
       if (_timerEnabled) _startTurnTimer(minutes);
     });
 
-    // Portrait click → action menu in combat mode; in VN mode single-click adds to stage,
-    // double-click opens the context menu for quick access to other options.
-    root.querySelectorAll(".vne-cast-portrait[data-id]").forEach(el => {
-      el.addEventListener("click", async (e) => {
-        if (e.target.closest(".vne-remove-cast-btn, .vne-portrait-quick-ctrl")) return;
-        const id   = e.currentTarget.dataset.id;
-        const side = e.currentTarget.dataset.side;
-        const d    = getData();
-        if (d.combatMode) {
-          e.stopPropagation();
-          showPortraitActionMenu(e.currentTarget, id, side);
-          return;
-        }
-        // VN mode: single click = toggle stage (block the second click that precedes a dblclick)
-        if (e.detail === 2) { e.stopPropagation(); return; }
-        e.stopPropagation();
-        if (isOnStage(id, d)) await removeFromStage(id);
-        else                  await addToStage(id);
-      });
-
-      // Double-click in VN mode → open context menu for full options
-      el.addEventListener("dblclick", (e) => {
-        if (e.target.closest(".vne-remove-cast-btn, .vne-portrait-quick-ctrl")) return;
-        const id   = e.currentTarget.dataset.id;
-        const side = e.currentTarget.dataset.side;
-        e.stopPropagation();
-        _openVNContextMenu(id, e.currentTarget, { mode: "vn", editMode: game.user.isGM && getData().editMode });
-      });
-
-      // Right-click → context menu (or portrait editor in edit mode)
-      el.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        const id   = e.currentTarget.dataset.id;
-        const side = e.currentTarget.dataset.side;
-        const isEditMode = game.user.isGM && getData().editMode;
-        if (isEditMode) {
-          openPortraitEditor(id, side);
-        } else {
-          _openVNContextMenu(id, e.currentTarget, { mode: "vn", editMode: false });
-        }
-      });
-    });
-
-    // Remove portrait (edit mode × button)
-    root.querySelectorAll(".vne-remove-cast-btn").forEach(btn => {
-      btn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        const { id, side } = e.currentTarget.dataset;
-        const d = getData();
-        d[`${side}Cast`] = d[`${side}Cast`].filter(p => p.id !== id);
-        d.stagePlayers = d.stagePlayers.filter(sid => sid !== id);
-        d.stageNPCs    = d.stageNPCs.filter(sid => sid !== id);
-        await saveData(d, { change: "castChange" });
-      });
-    });
+    // Side-panel portraits are rendered exclusively by _patchSidePanel (see the
+    // end of this method) — one renderer, one set of listeners, no template drift.
 
     // Scenes pill → opens the manager popup
     root.querySelector("#vne-scenes-pill")?.addEventListener("click", (e) => {
@@ -2576,16 +2619,6 @@ export class VNE extends FormApplication {
       await saveData(d, { change: "visibility" });
     });
 
-    // Reaction expression buttons (center speaker)
-    root.querySelectorAll(".vne-reaction-btn[data-reaction]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        setReaction(btn.dataset.actorId, btn.dataset.reaction);
-      });
-    });
-    root.querySelector(".vne-reaction-manage-btn")?.addEventListener("click", (e) => {
-      openReactionManager(e.currentTarget.dataset.actorId);
-    });
-
     // Render carousel + VS display after the template is in the DOM
     renderVNECombatCarousel();
     _updateVSFromCombat();
@@ -2606,8 +2639,8 @@ export class VNE extends FormApplication {
     // Sync AUTO button state in case of re-render without full template reload
     _patchTimerAutoBtn();
 
-    // Initial render of VN stage
-    _patchVNStage(getData(), game.settings.get(ID, "worldOffsetY") || 0);
+    // Initial render of stage + both side panels (single JS renderer)
+    _patchCast(getDataRO());
   }
 
   _addActor(side) {
@@ -2617,7 +2650,7 @@ export class VNE extends FormApplication {
       const d = getData();
       const key = `${side}Cast`;
       if (d[key].some(p => p.id === actorId)) {
-        ui.notifications?.info(`${actor.name} is already in the panel.`);
+        ui.notifications?.info(TF("notify.alreadyInPanel", { name: actor.name }));
         if (d.combatMode && game.user.isGM) {
           await ensureCombatantForActor(actorId);
           if (!_ghostTokens.has(actorId)) await _createGhostToken(actorId, "combat");
@@ -2626,11 +2659,7 @@ export class VNE extends FormApplication {
         if (hp !== null && !_lastKnownHP.has(actorId)) _lastKnownHP.set(actorId, hp);
         return;
       }
-      const saved = d.portraits[actorId];
-      const portrait = (saved?.img) ? { ...saved } : defaultPortrait(actor);
-      if (d[key].length >= 10) d[key].shift();
-      d[key].push(portrait);
-      d.portraits[actorId] = portrait;
+      _addPortraitToCastData(d, actor, side);
       await saveData(d, { change: "castChange" });
       if (d.combatMode && game.user.isGM) await ensureCombatantForActor(actorId);
     });
@@ -2657,7 +2686,7 @@ export class VNE extends FormApplication {
     const dropZone  = event.target.closest(".vne-drop-zone");
     const toSide    = dropZone?.dataset?.side;
     const isRPStage = dropZone?.id === "vne-rp-stage";
-    const isCenter  = isRPStage || dropZone?.classList?.contains("vne-center-area");
+    const isCenter  = isRPStage;
 
     // ── Actor dropped from Foundry sidebar ──────────────────────────────────
     if (raw.type === "Actor" && raw.uuid) {
@@ -2668,10 +2697,7 @@ export class VNE extends FormApplication {
       if (isCenter) {
         // Actor dropped on stage: add to side cast if needed, then add to stage
         if (!d.leftCast.some(p => p.id === actor.id) && !d.rightCast.some(p => p.id === actor.id)) {
-          const saved = d.portraits[actor.id];
-          const portrait = saved ? { ...saved } : defaultPortrait(actor);
-          const key = actor.hasPlayerOwner ? "leftCast" : "rightCast";
-          if (d[key].length < 10) { d[key].push(portrait); d.portraits[actor.id] = portrait; }
+          _addPortraitToCastData(d, actor, actor.hasPlayerOwner ? "left" : "right");
           await saveData(d, { change: "castChange" });
         }
         await addToStage(actor.id);
@@ -2680,14 +2706,7 @@ export class VNE extends FormApplication {
       } else {
         // Dropping on a side panel → leftCast / rightCast only, no speaker
         if (!toSide || !["left", "right"].includes(toSide)) return;
-        const key = `${toSide}Cast`;
-        if (!d[key].some(p => p.id === actor.id)) {
-          if (d[key].length >= 10) d[key].shift();
-          const saved = d.portraits[actor.id];
-          const portrait = (saved?.img) ? { ...saved } : defaultPortrait(actor);
-          d[key].push(portrait);
-          d.portraits[actor.id] = portrait;
-        }
+        _addPortraitToCastData(d, actor, toSide);
       }
 
       await saveData(d, { change: "castChange" });
@@ -2740,6 +2759,9 @@ Hooks.on("updateSetting", (setting, _value, options) => {
   }
 
   if (setting.key !== `${ID}.vnData`) return;
+  // The world data changed (possibly on another client) — drop the cached snapshot
+  // BEFORE any handler below reads it.
+  _invalidateVnDataCache();
   const change = options?.change;
 
   // Full re-render on show/hide, edit mode, combat mode, visibility change, or unknown change
@@ -2770,8 +2792,9 @@ Hooks.on("updateSetting", (setting, _value, options) => {
     return;
   }
 
-  // Always fetch a fresh parsed copy — setting.value may be a raw JSON string in v13
-  const d = getData();
+  // Always fetch a fresh parsed snapshot — setting.value may be a raw JSON string in v13.
+  // Read-only: every branch below only patches the DOM from it.
+  const d = getDataRO();
 
   // Partial DOM updates for performance
   if (change === "location") {
@@ -2799,7 +2822,7 @@ Hooks.on("updateSetting", (setting, _value, options) => {
     document.getElementById("vne-ui-layer")?.classList.toggle("vne-ui-collapsed", d.hideUI);
     document.querySelectorAll(".vne-hideUI-toggle").forEach(btn => {
       btn.classList.toggle("vne-active", d.hideUI);
-      btn.title = d.hideUI ? "Show UI panels" : "Hide UI panels";
+      btn.title = d.hideUI ? T("ui.showUI") : T("ui.hideUI");
       const icon = btn.querySelector("i");
       if (icon) icon.className = `fas fa-${d.hideUI ? "eye" : "eye-slash"}`;
     });
@@ -2875,8 +2898,8 @@ function openScenesPanel() {
     const tag      = loc.parent ? `<span class="vne-sp-card-tag">${esc(loc.parent)}</span>` : "";
     const actions  = game.user.isGM ? `
       <div class="vne-sp-card-actions">
-        <div class="vne-sp-card-edit" data-id="${esc(loc.id)}" title="Editar"><i class="fas fa-pencil"></i></div>
-        <div class="vne-sp-card-del"  data-id="${esc(loc.id)}" title="Eliminar"><i class="fas fa-trash"></i></div>
+        <div class="vne-sp-card-edit" data-id="${esc(loc.id)}" title="${esc(T("scenes.edit"))}"><i class="fas fa-pencil"></i></div>
+        <div class="vne-sp-card-del"  data-id="${esc(loc.id)}" title="${esc(T("scenes.delete"))}"><i class="fas fa-trash"></i></div>
       </div>` : "";
     return `<div class="vne-sp-card${isActive ? " vne-sp-card-active" : ""}" data-id="${esc(loc.id)}" title="${esc(loc.name)}">
       <div class="vne-sp-card-img" style="${bgStyle}">${actions}</div>
@@ -2899,7 +2922,7 @@ function openScenesPanel() {
     const locs = getVisible();
     return locs.length
       ? locs.map(cardHtml).join("")
-      : `<div class="vne-sp-empty"><i class="fas fa-map"></i><span>No scenes${activeFilter || searchQ ? " matching the filter" : ""}</span></div>`;
+      : `<div class="vne-sp-empty"><i class="fas fa-map"></i><span>${esc(activeFilter || searchQ ? T("scenes.emptyFiltered") : T("scenes.empty"))}</span></div>`;
   }
 
   function refreshGrid() {
@@ -2910,28 +2933,31 @@ function openScenesPanel() {
   }
 
   const tabsHtml = [
-    `<div class="vne-sp-tab vne-sp-tab-active" data-filter="">All</div>`,
+    `<div class="vne-sp-tab vne-sp-tab-active" data-filter="">${esc(T("scenes.all"))}</div>`,
     ...categories.map(c => `<div class="vne-sp-tab" data-filter="${esc(c)}">${esc(c)}</div>`)
   ].join("");
 
+  const panelAC = new AbortController();
+
   const panel = document.createElement("div");
   panel.id = "vne-scenes-panel";
+  if (!game.user.isGM) panel.classList.add("vne-sp-readonly");
   panel.innerHTML = `
     <div class="vne-sp-header">
-      <span class="vne-sp-title"><i class="fas fa-map-marked-alt"></i> Scenes</span>
+      <span class="vne-sp-title"><i class="fas fa-map-marked-alt"></i> ${esc(T("scenes.title"))}</span>
       <div class="vne-sp-header-btns">
-        ${game.user.isGM ? `<div id="vne-sp-import-btn" class="vne-sp-hbtn" title="Import from JSON"><i class="fas fa-file-import"></i></div>` : ""}
-        ${game.user.isGM ? `<div id="vne-sp-export-btn" class="vne-sp-hbtn" title="Export to JSON"><i class="fas fa-file-export"></i></div>` : ""}
-        <div id="vne-sp-close" class="vne-sp-hbtn" title="Close"><i class="fas fa-times"></i></div>
+        ${game.user.isGM ? `<div id="vne-sp-import-btn" class="vne-sp-hbtn" role="button" tabindex="0" title="${esc(T("scenes.import"))}"><i class="fas fa-file-import"></i></div>` : ""}
+        ${game.user.isGM ? `<div id="vne-sp-export-btn" class="vne-sp-hbtn" role="button" tabindex="0" title="${esc(T("scenes.export"))}"><i class="fas fa-file-export"></i></div>` : ""}
+        <div id="vne-sp-close" class="vne-sp-hbtn" role="button" tabindex="0" title="${esc(T("ui.closeShort"))}"><i class="fas fa-times"></i></div>
       </div>
     </div>
     <div class="vne-sp-controls">
-      <input id="vne-sp-search" class="vne-sp-search" type="text" placeholder="🔍 Search scene..." autocomplete="off"/>
+      <input id="vne-sp-search" class="vne-sp-search" type="text" placeholder="${esc(T("scenes.search"))}" autocomplete="off"/>
       <div class="vne-sp-tabs">${tabsHtml}</div>
     </div>
     <div class="vne-sp-grid" id="vne-sp-grid">${buildGrid()}</div>
     ${game.user.isGM ? `<div class="vne-sp-footer">
-      <div id="vne-sp-new-btn" class="vne-sp-new-btn"><i class="fas fa-plus"></i> New Scene</div>
+      <div id="vne-sp-new-btn" class="vne-sp-new-btn" role="button" tabindex="0"><i class="fas fa-plus"></i> ${esc(T("scenes.newScene"))}</div>
     </div>` : ""}
     <input type="file" id="vne-sp-file" accept=".json" style="display:none"/>
   `;
@@ -2939,8 +2965,9 @@ function openScenesPanel() {
   document.getElementById("vne-main")?.appendChild(panel);
 
   function bindGrid(grid) {
-    // Click card → activate scene
-    grid.querySelectorAll(".vne-sp-card").forEach(card => {
+    // Click card → activate scene. GM only: for players the grid is a read-only
+    // gallery — no optimistic highlight for an action that never persists.
+    if (game.user.isGM) grid.querySelectorAll(".vne-sp-card").forEach(card => {
       card.addEventListener("click", async (e) => {
         if (e.target.closest(".vne-sp-card-edit, .vne-sp-card-del")) return;
         const d2  = getData();
@@ -3040,7 +3067,7 @@ function openScenesPanel() {
       const parsed  = JSON.parse(await file.text());
       const incoming = parsed.scenes ?? parsed.locationList ?? [];
       if (!Array.isArray(incoming) || !incoming.length) {
-        ui.notifications?.warn("VNE: No scenes found in the file."); return;
+        ui.notifications?.warn(T("scenes.importEmpty")); return;
       }
       const d2 = getData();
       let added = 0;
@@ -3052,24 +3079,25 @@ function openScenesPanel() {
       await saveData(d2, { change: "locationList" });
       d.locationList = d2.locationList;
       refreshGrid();
-      ui.notifications?.info(`VNE: ${added} scene(s) imported.`);
-    } catch { ui.notifications?.error("VNE: Error reading JSON file."); }
+      ui.notifications?.info(TF("scenes.imported", { count: added }));
+    } catch { ui.notifications?.error(T("scenes.importError")); }
     e.target.value = "";
   });
 
+  function closePanel() {
+    panelAC.abort();
+    panel.remove();
+  }
+
   // Close button
-  panel.querySelector("#vne-sp-close")?.addEventListener("click", () => panel.remove());
+  panel.querySelector("#vne-sp-close")?.addEventListener("click", closePanel);
 
   // Click outside to close
   setTimeout(() => {
-    function onOutside(ev) {
+    document.addEventListener("mousedown", ev => {
       const pill = document.getElementById("vne-scenes-pill");
-      if (!panel.contains(ev.target) && !pill?.contains(ev.target)) {
-        panel.remove();
-        document.removeEventListener("mousedown", onOutside, true);
-      }
-    }
-    document.addEventListener("mousedown", onOutside, true);
+      if (!panel.contains(ev.target) && !pill?.contains(ev.target)) closePanel();
+    }, { capture: true, signal: panelAC.signal });
   }, 60);
 
   requestAnimationFrame(() => panel.querySelector("#vne-sp-search")?.focus());
@@ -3082,13 +3110,20 @@ function _buildCastPortraitEl(p, side, tp, editMode) {
   div.dataset.side = side;
   div.draggable    = true;
   div.title        = `${p.name}${p.title ? " – " + p.title : ""}`;
+  div.setAttribute("role", "button");
+  div.setAttribute("tabindex", "0");
+  div.setAttribute("aria-label", div.title);
 
   const speakRing  = tp.isActive ? '<div class="vne-speaking-ring"></div>' : "";
+  const ownedBadge = tp.isOwned
+    ? `<div class="vne-owned-badge" title="${_esc(T("ui.ownedBadge"))}"><i class="fas fa-star"></i></div>`
+    : "";
   const removeBtn  = editMode
-    ? `<div class="vne-remove-cast-btn" data-id="${p.id}" data-side="${side}" title="Remove"><i class="fas fa-times"></i></div>`
+    ? `<div class="vne-remove-cast-btn" data-id="${p.id}" data-side="${side}" title="${_esc(T("ui.remove"))}"><i class="fas fa-times"></i></div>`
     : "";
   const quickCtrl  = editMode ? _portraitQuickCtrlHtml() : "";
-  div.innerHTML = `<img src="${_esc(tp.img || 'icons/svg/mystery-man.svg')}" class="vne-cast-img" style="${tp.imgStyle}" onerror="this.src='icons/svg/mystery-man.svg'"/>${speakRing}${removeBtn}${quickCtrl}`;
+  div.innerHTML = `<img src="${_esc(tp.img || 'icons/svg/mystery-man.svg')}" class="vne-cast-img" style="${tp.imgStyle}"/>${speakRing}${ownedBadge}${removeBtn}${quickCtrl}`;
+  _bindImgFallback(div.querySelector("img"));
   return div;
 }
 
@@ -3151,7 +3186,7 @@ function _patchSidePanel(side, d, worldOffsetY, editMode) {
   panel.innerHTML = "";
 
   if (cast.length === 0) {
-    panel.innerHTML = `<div class="vne-cast-empty"><i class="fas fa-user-plus"></i><span>Drag actors here<br>or click +</span></div>`;
+    panel.innerHTML = `<div class="vne-cast-empty"><i class="fas fa-user-plus"></i><span>${T("ui.dragHint")}</span></div>`;
     return;
   }
 
@@ -3167,7 +3202,9 @@ function _patchSidePanel(side, d, worldOffsetY, editMode) {
   if (offset > 0) {
     const upBtn = document.createElement("div");
     upBtn.className = "vne-panel-nav vne-panel-nav-up";
-    upBtn.title = "Anteriores";
+    upBtn.title = T("ui.prevPage");
+    upBtn.setAttribute("role", "button");
+    upBtn.setAttribute("tabindex", "0");
     upBtn.innerHTML = `<i class="fas fa-chevron-up"></i>`;
     upBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -3177,7 +3214,11 @@ function _patchSidePanel(side, d, worldOffsetY, editMode) {
     panel.appendChild(upBtn);
   }
 
-  const stageActorIds = new Set([...(d.stagePlayers || []), ...(d.stageNPCs || [])]);
+  // In combat mode the highlighted portrait is the ACTIVE COMBATANT, not the
+  // RP-stage members — same rule the full-render path used.
+  const stageActorIds = combatMode
+    ? new Set([game.combat?.combatant?.actorId].filter(Boolean))
+    : new Set([...(d.stagePlayers || []), ...(d.stageNPCs || [])]);
   for (const p of visible) {
     const tp  = templatePortrait(p, side, stageActorIds, worldOffsetY, editMode, combatMode);
     const div = _buildCastPortraitEl(p, side, tp, editMode);
@@ -3189,7 +3230,9 @@ function _patchSidePanel(side, d, worldOffsetY, editMode) {
   if (offset + PAGE < total) {
     const downBtn = document.createElement("div");
     downBtn.className = "vne-panel-nav vne-panel-nav-down";
-    downBtn.title = "Siguientes";
+    downBtn.title = T("ui.nextPage");
+    downBtn.setAttribute("role", "button");
+    downBtn.setAttribute("tabindex", "0");
     downBtn.innerHTML = `<i class="fas fa-chevron-down"></i>`;
     downBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -3206,20 +3249,6 @@ function _patchSidePanel(side, d, worldOffsetY, editMode) {
     indicator.textContent = `${offset + 1}–${Math.min(offset + PAGE, total)} / ${total}`;
     panel.appendChild(indicator);
   }
-}
-
-function _buildReactionsHTML(sp) {
-  if (!sp.canControl && !game.user.isGM) return "";
-  const btns = sp.reactions.map(r => `
-    <div class="vne-reaction-btn${r.isActive ? " vne-active" : ""}"
-         data-reaction="${_esc(r.name)}" data-actor-id="${_esc(sp.id)}" title="${_esc(r.label)}">
-      <img src="${_esc(r.img)}" loading="lazy"/>
-      <span>${_esc(r.label)}</span>
-    </div>`).join("");
-  const manage = game.user.isGM
-    ? `<div class="vne-reaction-manage-btn" data-actor-id="${sp.id}" title="Manage Reactions"><i class="fas fa-cog"></i></div>`
-    : "";
-  return `<div class="vne-nameplate-reactions">${btns}${manage}</div>`;
 }
 
 function _patchCast(d) {
@@ -3303,12 +3332,12 @@ function _patchVNStage(d, worldOffsetY) {
         return `<div class="vne-reaction-btn${active}" data-reaction="${_esc(name)}" data-actor-id="${_esc(p.id)}" title="${_esc(label)}"><img src="${_esc(rImg)}" loading="lazy"/><span>${_esc(label)}</span></div>`;
       }).join("");
       const manageBtnHtml = game.user.isGM
-        ? `<div class="vne-reaction-manage-btn" data-actor-id="${p.id}" title="Manage reactions"><i class="fas fa-cog"></i></div>` : "";
+        ? `<div class="vne-reaction-manage-btn" data-actor-id="${p.id}" title="${_esc(T("reactions.manage"))}"><i class="fas fa-cog"></i></div>` : "";
       reactionsHtml = `<div class="vne-rp-reactions">${btns}${manageBtnHtml}</div>`;
     }
 
     const removeBtn  = game.user.isGM
-      ? `<div class="vne-rp-remove-btn" data-id="${p.id}" title="Remove from stage"><i class="fas fa-times"></i></div>` : "";
+      ? `<div class="vne-rp-remove-btn" data-id="${p.id}" title="${_esc(T("menu.removeFromStage"))}"><i class="fas fa-times"></i></div>` : "";
     const quickCtrl  = game.user.isGM ? _portraitQuickCtrlHtml() : "";
     const titleHtml  = p.title ? `<span class="vne-rp-title">${_esc(p.title)}</span>` : "";
     const safeSrc    = _esc(img || "icons/svg/mystery-man.svg");
@@ -3316,7 +3345,7 @@ function _patchVNStage(d, worldOffsetY) {
     return `<div class="vne-rp-slot" data-id="${_esc(p.id)}" data-slot-count="${rowCount}">
       <div class="vne-rp-portrait-wrap">
         ${removeBtn}
-        <img class="vne-rp-img" src="${safeSrc}" style="${imgStyle}" onerror="this.src='icons/svg/mystery-man.svg'"/>
+        <img class="vne-rp-img" src="${safeSrc}" style="${imgStyle}"/>
         ${quickCtrl}
       </div>
       <div class="vne-rp-nameplate"><span class="vne-rp-name">${_esc(p.name)}</span>${titleHtml}</div>
@@ -3327,7 +3356,7 @@ function _patchVNStage(d, worldOffsetY) {
   let html = "";
   if (!hasPlayers && !hasNPCs) {
     stage.classList.remove("vne-two-rows");
-    html = `<div class="vne-rp-empty"><i class="fas fa-users fa-2x"></i><span>Drag actors from the side panels</span></div>`;
+    html = `<div class="vne-rp-empty"><i class="fas fa-users fa-2x"></i><span>${_esc(T("ui.stageEmptyHint"))}</span></div>`;
   } else if (twoRows) {
     stage.classList.add("vne-two-rows");
     const topSlots = players.map(p => buildSlotHtml(p, players.length)).join("");
@@ -3340,6 +3369,7 @@ function _patchVNStage(d, worldOffsetY) {
   }
 
   stage.innerHTML = html;
+  _bindImgFallbacks(stage, ".vne-rp-img");
   // The spotlight overlay is wiped by innerHTML — re-inject only if actor is still on stage
   if (_spotlightActorId && stage.querySelector(`.vne-rp-slot[data-id="${_spotlightActorId}"]`))
     _enterSpotlight(_spotlightActorId);
@@ -3393,8 +3423,15 @@ function _patchVNStage(d, worldOffsetY) {
 function renderVNECombatCarousel() {
   const el = document.getElementById("vne-unified-carousel");
   if (!el) return;
-  const d = getData();
+  const d = getDataRO();
   if (!d.showVN) { el.innerHTML = ""; _updateVSFromCombat(); return; }
+  // The carousel row is only visible in combat mode (template adds vne-hidden
+  // otherwise). Outside combat mode, skip building DOM nobody can see — actor,
+  // token and effect hooks land here constantly during roleplay scenes.
+  if (!d.combatMode) {
+    if (el.childElementCount) el.innerHTML = "";
+    return;
+  }
   const combat = game.combat;
   if (combat?.turns?.length) {
     _renderVNECarouselUnified(el, combat);
@@ -3403,7 +3440,7 @@ function renderVNECombatCarousel() {
   }
   _updateVSFromCombat();
   // Apply round escalation tier immediately on any carousel render
-  if (d.combatMode) _patchCombatDisplay();
+  _patchCombatDisplay();
 }
 
 function _getCarouselActorHP(actor) {
@@ -3429,7 +3466,7 @@ function _carouselEffectsHtml(actor) {
   const effects = actor?.temporaryEffects?.filter(e => !e.disabled) ?? [];
   if (!effects.length) return "";
   const icons = effects.slice(0, 6).map(e =>
-    `<img class="vne-ce-icon" src="${_esc(e.img ?? e.icon)}" title="${_esc(e.name)}" onerror="this.style.display='none'">`
+    `<img class="vne-ce-icon" src="${_esc(e.img ?? e.icon)}" title="${_esc(e.name)}">`
   ).join("");
   return `<div class="vne-carousel-effects">${icons}</div>`;
 }
@@ -3449,14 +3486,14 @@ function _carouselCardHtml({ img, name, initLabel, isActive, isDefeated, isNext,
   const initPart = initLabel !== null
     ? `<span class="vne-carousel-cinit">${initLabel}</span>` : "";
 
-  const turnBadge = isActive  ? '<div class="vne-carousel-badge vne-badge-now">NOW</div>'
-                  : isNext    ? '<div class="vne-carousel-badge vne-badge-next">NEXT</div>'
-                  : isNextTwo ? '<div class="vne-carousel-badge vne-badge-next2">+2</div>'
+  const turnBadge = isActive  ? `<div class="vne-carousel-badge vne-badge-now">${_esc(T("combat.badgeNow"))}</div>`
+                  : isNext    ? `<div class="vne-carousel-badge vne-badge-next">${_esc(T("combat.badgeNext"))}</div>`
+                  : isNextTwo ? `<div class="vne-carousel-badge vne-badge-next2">${_esc(T("combat.badgeNext2"))}</div>`
                   : "";
 
   return `<div class="${classes}" ${dataAttrs}>
     ${turnBadge}
-    <img src="${_esc(img)}" alt="${_esc(name)}" onerror="this.src='icons/svg/mystery-man.svg'">
+    <img src="${_esc(img)}" alt="${_esc(name)}">
     ${_carouselEffectsHtml(actor)}
     ${_carouselHpBarHtml(actor)}
     <div class="vne-carousel-footer">
@@ -3542,7 +3579,11 @@ function _bindVNECarouselEvents(carouselEl) {
   carouselEl.querySelectorAll(".vne-carousel-item").forEach(el => {
     el.addEventListener("click",       _onVNECarouselClick);
     el.addEventListener("contextmenu", _onVNECarouselContextMenu);
+    _bindImgFallback(el.querySelector(":scope > img"));
   });
+  carouselEl.querySelectorAll(".vne-ce-icon").forEach(i =>
+    i.addEventListener("error", () => { i.style.display = "none"; }, { once: true })
+  );
 }
 
 function _onVNECarouselClick(event) {
@@ -3592,7 +3633,7 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
   _closeVNECarouselMenu();
 
   const actor     = game.actors.get(actorId);
-  const d         = getData();
+  const d         = getDataRO();
   const inLeft    = d.leftCast.some(p => p.id === actorId);
   const inRight   = d.rightCast.some(p => p.id === actorId);
   const onStage   = isOnStage(actorId, d);
@@ -3601,39 +3642,39 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
   const canCtrl   = game.user.isGM || !!actor?.isOwner;
 
   const items = [];
-  items.push({ label: "Open character sheet", icon: "fas fa-id-card",      action: "sheet" });
-  items.push({ label: "Select as target",     icon: "fas fa-hand-pointer", action: "select" });
+  items.push({ label: T("menu.openSheet"),    icon: "fas fa-id-card",      action: "sheet" });
+  items.push({ label: T("menu.selectTarget"), icon: "fas fa-hand-pointer", action: "select" });
 
   // Stage controls (available to owner and GM)
   if (inVN && canCtrl) {
     items.push({ separator: true });
     if (onStage) {
-      items.push({ label: "Remove from stage", icon: "fas fa-users-slash", action: "removeFromStage" });
+      items.push({ label: T("menu.removeFromStage"), icon: "fas fa-users-slash", action: "removeFromStage" });
     } else {
-      items.push({ label: "Add to stage",      icon: "fas fa-users",       action: "addToStage" });
+      items.push({ label: T("menu.addToStage"),      icon: "fas fa-users",       action: "addToStage" });
     }
   }
 
   if (game.user.isGM) {
     items.push({ separator: true });
     if (inCombat) {
-      items.push({ label: "Roll Initiative", icon: "fas fa-dice-d20", action: "rollInit" });
+      items.push({ label: T("menu.rollInitiative"), icon: "fas fa-dice-d20", action: "rollInit" });
     }
     if (!inVN) {
-      items.push({ label: "Add to VN (left)",  icon: "fas fa-user-plus",  action: "addVNLeft" });
-      items.push({ label: "Add to VN (right)", icon: "fas fa-user-plus",  action: "addVNRight" });
+      items.push({ label: T("menu.addVNLeft"),  icon: "fas fa-user-plus",  action: "addVNLeft" });
+      items.push({ label: T("menu.addVNRight"), icon: "fas fa-user-plus",  action: "addVNRight" });
     } else {
-      items.push({ label: "Remove from VN",    icon: "fas fa-user-minus", action: "removeVN" });
+      items.push({ label: T("menu.removeVN"),   icon: "fas fa-user-minus", action: "removeVN" });
     }
     if (inCombat) {
-      items.push({ label: "Remove from combat", icon: "fas fa-skull",     action: "removeCombat" });
+      items.push({ label: T("menu.removeCombat"), icon: "fas fa-skull",     action: "removeCombat" });
     }
     if (inVN) {
       items.push({ separator: true });
-      items.push({ label: "Edit portrait",         icon: "fas fa-sliders-h",  action: "editPortrait" });
+      items.push({ label: T("menu.editPortrait"), icon: "fas fa-sliders-h",  action: "editPortrait" });
     }
     items.push({ separator: true });
-    items.push({ label: "Assign Status Effects", icon: "fas fa-shield-alt", action: "statusEffects" });
+    items.push({ label: T("menu.statusEffects"), icon: "fas fa-shield-alt", action: "statusEffects" });
   }
 
   const menu = document.createElement("div");
@@ -3660,27 +3701,9 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
     } else if (action === "rollInit") {
       const combatant = game.combat?.combatants?.find(c => c.actorId === actorId);
       if (combatant) await game.combat.rollInitiative([combatant.id]);
-    } else if (action === "addVNLeft") {
+    } else if (action === "addVNLeft" || action === "addVNRight") {
       const d2 = getData();
-      if (!d2.leftCast.some(p => p.id === actorId)) {
-        const saved = d2.portraits[actorId];
-        const portrait = (saved?.img) ? { ...saved } : defaultPortrait(actor);
-        if (!portrait) { ui.notifications?.warn("VNE: Actor not found."); return; }
-        if (d2.leftCast.length >= 10) d2.leftCast.shift();
-        d2.leftCast.push(portrait);
-        d2.portraits[actorId] = portrait;
-        await saveData(d2, { change: "castChange" });
-      }
-      if (d2.combatMode && game.user.isGM) await ensureCombatantForActor(actorId);
-    } else if (action === "addVNRight") {
-      const d2 = getData();
-      if (!d2.rightCast.some(p => p.id === actorId)) {
-        const saved = d2.portraits[actorId];
-        const portrait = (saved?.img) ? { ...saved } : defaultPortrait(actor);
-        if (!portrait) { ui.notifications?.warn("VNE: Actor not found."); return; }
-        if (d2.rightCast.length >= 10) d2.rightCast.shift();
-        d2.rightCast.push(portrait);
-        d2.portraits[actorId] = portrait;
+      if (_addPortraitToCastData(d2, actor, action === "addVNLeft" ? "left" : "right")) {
         await saveData(d2, { change: "castChange" });
       }
       if (d2.combatMode && game.user.isGM) await ensureCombatantForActor(actorId);
@@ -3735,7 +3758,7 @@ Hooks.on("deleteCombat",     () => {
   // defeated in the tracker), determine outcome from live HP and show an animation.
   // GM clicking "End Encounter" = encounter over → default to victory unless a PC is at 0 HP.
   if (!_victoryTriggered && game.user.isGM) {
-    const d = getData();
+    const d = getDataRO();
     if (d.showVN && d.combatMode) {
       const anyPCDown = d.leftCast.some(p => {
         const actor = game.actors.get(p.id);
@@ -3775,7 +3798,7 @@ Hooks.on("updateActor", (actor, changes) => {
   if (hpChanged) {
     const hp    = actor.system?.attributes?.hp?.value ?? actor.system?.hp?.value ?? null;
     const hpMax = actor.system?.attributes?.hp?.max   ?? actor.system?.hp?.max   ?? null;
-    const d = getData();
+    const d = getDataRO();
     let vsChanged = false;
     if (_vsLeft  && d.leftCast.some(p => p.id === actor.id))  { _vsLeft  = { ..._vsLeft,  hp, hpMax }; vsChanged = true; }
     if (_vsRight && d.rightCast.some(p => p.id === actor.id)) { _vsRight = { ..._vsRight, hp, hpMax }; vsChanged = true; }
@@ -3791,7 +3814,7 @@ Hooks.on("updateActor", (actor, changes) => {
   const newHpValue = changes?.system?.attributes?.hp?.value
                   ?? changes?.system?.hp?.value;          // fallback for simpler systems
   if (newHpValue !== undefined) {
-    const d = getData();
+    const d = getDataRO();
     const inCast = d.showVN && d.combatMode
       && ([...d.leftCast, ...d.rightCast].some(p => p.id === actor.id));
 
@@ -3824,16 +3847,25 @@ Hooks.on("updateActor", (actor, changes) => {
       _lastKnownHP.set(actor.id, newHpValue);
     }
 
-    // Token state swap (merged from duplicate hook)
-    const states = actor.getFlag(ID, "tokenStates");
-    if (states) {
-      const max = actor.system?.attributes?.hp?.max ?? 1;
-      const pct = (newHpValue / max) * 100;
-      const key = pct > 75 ? "normal" : pct > 50 ? "hurt" : pct > 25 ? "wounded" : "crit";
-      const img = states[key];
-      if (img) {
-        const tokens = canvas.tokens?.placeables?.filter(t => t.actor?.id === actor.id) ?? [];
-        tokens.forEach(t => t.document.update({ "texture.src": img }));
+    // Token state swap — GM only: this hook fires on every client, and players
+    // lack token-update permission (each HP change would spam permission errors).
+    if (game.user.isGM) {
+      const states = actor.getFlag(ID, "tokenStates");
+      if (states) {
+        const max = actor.system?.attributes?.hp?.max ?? actor.system?.hp?.max ?? 0;
+        if (max > 0) {
+          const pct = (newHpValue / max) * 100;
+          const key = pct > 75 ? "normal" : pct > 50 ? "hurt" : pct > 25 ? "wounded" : "crit";
+          const img = states[key];
+          if (img) {
+            const tokens = (canvas.tokens?.placeables ?? []).filter(t =>
+              t.actor?.id === actor.id && !t.document?.flags?.[ID]?.isGhost
+            );
+            for (const t of tokens) {
+              if (t.document.texture?.src !== img) t.document.update({ "texture.src": img });
+            }
+          }
+        }
       }
     }
   }
@@ -3851,7 +3883,7 @@ Hooks.once("init", () => {
   // Register keybinding (Alt+V)
   try {
     game.keybindings.register(ID, "toggleVN", {
-      name: "Toggle VN window",
+      name: "vnd-enhanced.keybindings.toggleVN",
       editable: [{ key: "KeyV", modifiers: ["Alt"] }],
       onUp: () => {
         if (game.user.isGM) {
@@ -3890,14 +3922,14 @@ Hooks.once("setup", async () => {
     // vnVictory — broadcast to all clients when VN is active
     if (msg.type === "vnVictory") {
       if (!game.settings.get(ID, "worldLicensed")) return;
-      if (!getData().showVN) return;
+      if (!getDataRO().showVN) return;
       _showVictoryOverlay();
       return;
     }
 
     if (msg.type === "vnDefeat") {
       if (!game.settings.get(ID, "worldLicensed")) return;
-      if (!getData().showVN) return;
+      if (!getDataRO().showVN) return;
       _showDefeatOverlay();
       return;
     }
@@ -3905,7 +3937,7 @@ Hooks.once("setup", async () => {
     // vnProjectile — CSS projectile animation broadcast to all clients
     if (msg.type === "vnProjectile") {
       if (!game.settings.get(ID, "worldLicensed")) return;
-      if (!getData().showVN) return;
+      if (!getDataRO().showVN) return;
       // Validate file has a safe media extension (prevents arbitrary URL injection)
       const safeFile = (typeof msg.file === "string" &&
         /\.(webm|gif|mp4|png|jpg|jpeg|webp)$/i.test(msg.file)) ? msg.file : null;
@@ -3994,7 +4026,7 @@ Hooks.on("ready", () => {
     license: VndLicenseClient.instance,
     hasFeature: (f) => VndLicenseClient.instance.hasFeature(f),
     // Open/close
-    toggle:       (showForIds = null) => VNE.toggle(showForIds),
+    toggle:       (showForIds) => VNE.toggle(showForIds),
     show:         async (userIds = null) => {
       const d = getData(); d.showVN = true; d.showForIds = userIds ?? null;
       await saveData(d, { change: "showVN" });
@@ -4031,15 +4063,7 @@ Hooks.on("ready", () => {
       const actor = game.actors.get(actorId);
       if (!actor) return;
       const d = getData();
-      const key = `${side}Cast`;
-      if (!d[key].some(p => p.id === actorId)) {
-        const portrait = d.portraits[actorId]
-          ? { ...d.portraits[actorId] }
-          : defaultPortrait(actor);
-        if (d[key].length >= 5) d[key].shift();
-        d[key].push(portrait);
-        d.portraits[actorId] = portrait;
-      }
+      _addPortraitToCastData(d, actor, side);
       await saveData(d, { change: "castChange" });
       if (d.combatMode && game.user.isGM) await ensureCombatantForActor(actorId);
     },
@@ -4164,7 +4188,7 @@ function _initSequencerHook() {
 
   Hooks.on("createSequencerEffect", (effect) => {
     try {
-      const d = getData();
+      const d = getDataRO();
       if (!d.showVN) return;
 
       // Skip screen-space effects that VNE itself generated — prevents double-play
@@ -4363,7 +4387,7 @@ function _initAAHook() {
       // Creating a token for the active combatant during combat causes Foundry to
       // re-evaluate targeting and silently replace the player's enemy target with the
       // newly created PC ghost token.
-      const d = getData();
+      const d = getDataRO();
       if (d.showVN && d.combatMode && (game.user.targets?.size ?? 0) > 0) return;
       await _createGhostToken(actor.id, "sheet");
     }
@@ -4375,7 +4399,7 @@ function _initAAHook() {
     if (!game.user.isGM) return;
     const actor = sheet.actor;
     if (!actor?.id) return;
-    const d = getData();
+    const d = getDataRO();
     const inVNCast = [...(d.leftCast ?? []), ...(d.rightCast ?? [])].some(p => p.id === actor.id);
     if (inVNCast) return;
     const doc = _ghostTokens.get(actor.id);
@@ -4423,7 +4447,7 @@ function _initAAHook() {
 // Refresh targeted portrait ring when user targeting changes
 Hooks.on("targetToken", (user, token, targeted) => {
   if (user.id !== game.user.id) return;
-  const d = getData();
+  const d = getDataRO();
   if (!d.showVN || !d.combatMode) return;
   // Refresh portrait target ring on BOTH sides without full re-render
   const targetedIds = new Set(
@@ -4469,7 +4493,7 @@ Hooks.on("createChatMessage", (message) => {
 
 // Crit / Fumble detection — fires before updateActor so the flag is ready
 Hooks.on("createChatMessage", (message) => {
-  const d = getData();
+  const d = getDataRO();
   if (!d.showVN || !d.combatMode) return;
 
   const critType = _parseCritFromMessage(message);
@@ -4500,20 +4524,25 @@ Hooks.on("updateCombat", async (combat, changed) => {
   }
   renderVNECombatCarousel();
 
-  const d = getData();
+  const d = getDataRO();
   if (!d.showVN || !d.combatMode) return;
   _patchCombatDisplay();
 
   const turnChanged = changed.turn !== undefined || changed.round !== undefined;
 
-  // Auto-restart timer on new turn
-  if (turnChanged) {
-    if (_timerAutoReset || _timerEnabled) _startTurnTimer(_timerMinutes);
+  // Auto-restart timer on new turn — ONLY when auto-reset is on. A running timer
+  // with auto-reset off keeps counting across turns (matches the AUTO tooltip).
+  // GM only: the timer's expiry calls nextTurn(), which players cannot execute.
+  if (turnChanged && game.user.isGM && _timerAutoReset) {
+    _startTurnTimer(_timerMinutes);
   }
 
   if (turnChanged) {
     _lastTurnChangeMs = Date.now();
     _updateVSFromCombat();
+    // Refresh side panels so the active-combatant ring and the "your turn"
+    // badge follow the tracker instead of freezing until the next full render.
+    _patchCast(d);
     // Persona-style turn card — shown on ALL clients (no socket needed, all have combat state)
     _showTurnCard(combat.combatant);
   }
@@ -4529,7 +4558,7 @@ Hooks.on("updateCombat", async (combat, changed) => {
           ? `<img src="${_esc(actor.img)}" style="width:48px;height:48px;border-radius:4px;vertical-align:middle;margin-right:8px;" />`
           : "";
         ChatMessage.create({
-          content: `${portrait}<strong>${_esc(actor.name)}</strong>, it's your turn!`,
+          content: `${portrait}${TF("combat.yourTurn", { name: _esc(actor.name) })}`,
           whisper: [owner.id],
           speaker: { alias: "VND Enhanced" },
           flags: { "vnd-enhanced": { type: "turn-notification" } }
@@ -4545,7 +4574,7 @@ Hooks.on("updateCombat", async (combat, changed) => {
 
 Hooks.on("vnd-enhanced.actionImage", (data) => {
   try {
-    const d = getData();
+    const d = getDataRO();
     if (!d.showVN) return;
     _showActionImageOverlay(data);
   } catch (e) { /* ignore */ }
@@ -4555,13 +4584,13 @@ Hooks.on("vnd-enhanced.actionImage", (data) => {
 Hooks.on("getCombatantContextOptions", (html, options) => {
   if (!game.user.isGM) return;
   options.push({
-    name: "Assign Status Effects",
+    name: T("menu.statusEffects"),
     icon: `<i class="fas fa-shield-alt"></i>`,
     callback: (li) => {
       const combatantId = li.data?.("combatant-id") ?? li[0]?.dataset?.combatantId ?? li?.dataset?.combatantId;
       const combatant   = game.combat?.combatants?.get(combatantId);
       const actorId     = combatant?.actorId;
-      if (!actorId) { ui.notifications?.warn("VNE | Could not find actor for this combatant."); return; }
+      if (!actorId) { ui.notifications?.warn(T("status.noActorForCombatant")); return; }
       openStatusEffectPicker(actorId);
     }
   });
@@ -4571,14 +4600,17 @@ Hooks.on("getCombatantContextOptions", (html, options) => {
 Hooks.on("getSceneControlButtons", (controls) => {
   try {
     if (!game.user.isGM) return;
-    // v13: controls is a Map-like object; v11/v12: it is an Array
+    // v11/v12: Array of SceneControl; v13+: plain object record keyed by name.
+    // v13 button tools fire onChange (not onClick) — provide both so every
+    // version finds its handler.
     const button = {
       name: "openVN",
-      title: "Toggle VN (Alt+V)",
+      title: T("toolbar.toggle"),
       icon: "fas fa-window-maximize",
       visible: true,
       button: true,
-      onClick: () => VNE.toggle()
+      onClick: () => VNE.toggle(),
+      onChange: () => VNE.toggle()
     };
     if (Array.isArray(controls)) {
       // v11/v12 style
@@ -4590,13 +4622,21 @@ Hooks.on("getSceneControlButtons", (controls) => {
         tools: [button]
       });
     } else if (controls instanceof Map) {
-      // v13+ style
       controls.set("vndEnhanced", {
         name: "vndEnhanced",
         title: "VN Dialogues Enhanced",
         icon: "fas fa-users-between-lines",
         tools: new Map([["openVN", button]])
       });
+    } else if (controls && typeof controls === "object") {
+      // v13+ style: Record<string, SceneControl> with tools as a record too
+      controls.vndEnhanced = {
+        name: "vndEnhanced",
+        title: "VN Dialogues Enhanced",
+        icon: "fas fa-users-between-lines",
+        activeTool: "openVN",
+        tools: { openVN: button }
+      };
     }
   } catch(e) {
     // Toolbar registration failed — Alt+V keybinding still works
@@ -4627,10 +4667,10 @@ Hooks.on("deleteActor", (actor) => {
 // We must scan the scene by flag instead.
 Hooks.on("canvasReady", async () => {
   if (!game.user.isGM) return;
-  const d = getData();
-  if (!d.showVN || !d.combatMode) return;
 
-  // Delete ALL ghost tokens in the scene by flag (covers stale tokens after page reload)
+  // Delete ALL ghost tokens in the scene by flag — UNCONDITIONALLY. If the GM's
+  // browser crashed mid-combat or combat mode was disabled while on another
+  // scene, orphaned ghosts would otherwise accumulate in the world forever.
   const scene = canvas.scene;
   if (scene) {
     const staleIds = scene.tokens
@@ -4642,7 +4682,10 @@ Hooks.on("canvasReady", async () => {
   }
   _ghostTokens.clear();
   _ghostTokenCounter = 0;
-  await _syncGhostTokens(d);
+
+  // Recreate the set only while VN combat mode is actually running
+  const d = getDataRO();
+  if (d.showVN && d.combatMode) await _syncGhostTokens(d);
 });
 
 // Token state swap logic is now merged into the consolidated updateActor hook above.

@@ -2,7 +2,7 @@
   "id": "vnd-enhanced",
   "title": "VN Dialogues Enhanced",
   "description": "Visual Novel style dialogue display for FoundryVTT. The active speaker always appears centered and large. Cinematic combat stage with turn cards, damage floaters, and crit animations. Scene management, portrait reactions, AI image generation, and more. Requires a Patreon subscription.",
-  "version": "1.1.5",
+  "version": "1.2.0",
   "compatibility": {
     "minimum": "11",
     "verified": "14",
@@ -24,7 +24,8 @@
   ],
   "styles": ["styles/module.css", "styles/ai-generator.css"],
   "languages": [
-    { "lang": "en", "name": "English", "path": "language/en.json" }
+    { "lang": "en", "name": "English", "path": "language/en.json" },
+    { "lang": "es", "name": "Español", "path": "language/es.json" }
   ],
   "url": "https://github.com/gmredvelvet-rgb/vnd-enhanced",
   "readme": "https://github.com/gmredvelvet-rgb/vnd-enhanced#readme",

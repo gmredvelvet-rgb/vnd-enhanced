@@ -3,7 +3,7 @@
   Layout:
     [TOP BAR]        location name (left) | combat controls (center) | buttons (right)
     [LEFT PANEL]     player character portraits (auto-scaling, side cast)
-    [CENTER]         ACTIVE SPEAKER large portrait + nameplate + reactions bar
+    [CENTER]         roleplay stage (rp-stage) / VS combat display
     [RIGHT PANEL]    NPC portraits (auto-scaling, side cast)
     [BOTTOM BAR]     scene quick-switcher + GM toolbar
     [PLAYER PANEL]   GM: per-player visibility controls
@@ -34,33 +34,34 @@
       <div class="vne-top-left-section">
         <div class="vne-top-controls">
           {{#if isGM}}
-            <div id="vne-combat-stage-btn" class="vne-ctrl-btn vne-combat-stage-toggle{{#if combatMode}} vne-active vne-combat-active{{/if}}" title="Combat Stage">
+            <div id="vne-combat-stage-btn" class="vne-ctrl-btn vne-combat-stage-toggle{{#if combatMode}} vne-active vne-combat-active{{/if}}" title="{{localize 'vnd-enhanced.ui.combatStage'}}">
               <i class="fas fa-crosshairs"></i>
             </div>
-            <div id="vne-editmode-btn" class="vne-ctrl-btn{{#if editMode}} vne-active vne-editmode-active{{/if}}" title="{{#if editMode}}Exit edit mode{{else}}Edit mode: reorder, scale and remove portraits{{/if}}">
+            <div id="vne-editmode-btn" class="vne-ctrl-btn{{#if editMode}} vne-active vne-editmode-active{{/if}}" title="{{#if editMode}}{{localize 'vnd-enhanced.ui.editModeOn'}}{{else}}{{localize 'vnd-enhanced.ui.editModeOff'}}{{/if}}">
               <i class="fas fa-{{#if editMode}}lock-open{{else}}pencil-alt{{/if}}"></i>
             </div>
-            <div id="vne-ai-btn" class="vne-ctrl-btn" title="AI Image Generator (GM only)">
+            <div id="vne-ai-btn" class="vne-ctrl-btn" title="{{localize 'vnd-enhanced.ui.aiGenerator'}}">
               <i class="fas fa-wand-sparkles"></i>
             </div>
-            <div id="vne-presets-btn" class="vne-ctrl-btn" title="Cast Presets — save and load casts">
+            <div id="vne-presets-btn" class="vne-ctrl-btn" title="{{localize 'vnd-enhanced.ui.castPresets'}}">
               <i class="fas fa-layer-group"></i>
             </div>
+            {{!-- GM-only: toggles the world-level background flag; players have no permission to save it --}}
+            <div id="vne-hideback-btn" class="vne-ctrl-btn{{#if hideBack}} vne-active{{/if}}" title="{{localize 'vnd-enhanced.ui.toggleBackground'}}">
+              <i class="fas fa-image"></i>
+            </div>
           {{/if}}
-          <div id="vne-hideback-btn" class="vne-ctrl-btn{{#if hideBack}} vne-active{{/if}}" title="Toggle Background">
-            <i class="fas fa-image"></i>
-          </div>
-          <div id="vne-chat-toggle-btn" class="vne-ctrl-btn vne-chat-toggle" title="Toggle sidebar">
+          <div id="vne-chat-toggle-btn" class="vne-ctrl-btn vne-chat-toggle" title="{{localize 'vnd-enhanced.ui.toggleSidebar'}}">
             <i class="fas fa-bars"></i>
           </div>
           <div id="vne-hideUI-btn" class="vne-ctrl-btn vne-hideUI-toggle{{#if hideUI}} vne-active{{/if}}"
-               title="{{#if hideUI}}Show UI panels{{else}}Hide UI panels{{/if}}">
+               title="{{#if hideUI}}{{localize 'vnd-enhanced.ui.showUI'}}{{else}}{{localize 'vnd-enhanced.ui.hideUI'}}{{/if}}">
             <i class="fas fa-{{#if hideUI}}eye{{else}}eye-slash{{/if}}"></i>
           </div>
-          <div id="vne-help-btn" class="vne-ctrl-btn" title="How to use VND Enhanced">
+          <div id="vne-help-btn" class="vne-ctrl-btn" title="{{localize 'vnd-enhanced.ui.helpBtn'}}">
             <i class="fas fa-question-circle"></i>
           </div>
-          <div id="vne-close-btn" class="vne-ctrl-btn vne-close" title="Close VN">
+          <div id="vne-close-btn" class="vne-ctrl-btn vne-close" title="{{localize 'vnd-enhanced.ui.close'}}">
             <i class="fas fa-times"></i>
           </div>
         </div>
@@ -89,13 +90,13 @@
     {{!-- ── COMBAT CONTROLS ROW (below carousel) ── --}}
     <div id="vne-combat-controls" class="vne-combat-controls{{#unless combatMode}} vne-hidden{{/unless}}">
       {{#if isGM}}
-        <div id="vne-prev-turn-btn" class="vne-turn-nav-btn" title="Previous Turn">
-          <i class="fas fa-step-backward"></i> PREV
+        <div id="vne-prev-turn-btn" class="vne-turn-nav-btn" title="{{localize 'vnd-enhanced.combat.prevTurn'}}">
+          <i class="fas fa-step-backward"></i> {{localize 'vnd-enhanced.combat.prev'}}
         </div>
       {{/if}}
 
       <div class="vne-round-block">
-        <div class="vne-round-label">ROUND</div>
+        <div class="vne-round-label">{{localize 'vnd-enhanced.combat.round'}}</div>
         <div id="vne-round-num" class="vne-round-num">{{combatRound}}</div>
         <div id="vne-turn-name" class="vne-turn-name">{{combatTurnName}}</div>
       </div>
@@ -103,105 +104,64 @@
       {{#if isGM}}
         <div class="vne-timer-area">
           <input id="vne-timer-input" class="vne-timer-input" type="number"
-            min="0" max="60" value="{{timerMinutes}}" title="Minutes per turn"/>
-          <span class="vne-timer-unit">min</span>
+            min="1" max="60" value="{{timerMinutes}}" title="{{localize 'vnd-enhanced.combat.timerMinutes'}}"/>
+          <span class="vne-timer-unit">{{localize 'vnd-enhanced.ui.min'}}</span>
           <div id="vne-timer-toggle-btn" class="vne-ctrl-btn vne-timer-toggle{{#if timerEnabled}} vne-active{{/if}}"
-               title="{{#if timerEnabled}}Stop timer{{else}}Start turn timer{{/if}}">
+               title="{{#if timerEnabled}}{{localize 'vnd-enhanced.combat.timerStop'}}{{else}}{{localize 'vnd-enhanced.combat.timerStart'}}{{/if}}">
             <i class="fas fa-hourglass-{{#if timerEnabled}}half{{else}}start{{/if}}"></i>
           </div>
           <div id="vne-timer-display" class="vne-timer-display{{#if timerEnabled}} vne-timer-running{{/if}}{{#if timerLow}} vne-timer-low{{/if}}">
             {{timerDisplay}}
           </div>
           <div id="vne-timer-auto-btn" class="vne-ctrl-btn vne-timer-auto{{#if timerAuto}} vne-active{{/if}}"
-               title="{{#if timerAuto}}Auto-reset ON — resets on each turn (click to disable){{else}}Auto-reset OFF — timer does not reset automatically (click to enable){{/if}}">
+               title="{{#if timerAuto}}{{localize 'vnd-enhanced.combat.timerAutoOn'}}{{else}}{{localize 'vnd-enhanced.combat.timerAutoOff'}}{{/if}}">
             <i class="fas fa-sync-alt"></i>
           </div>
         </div>
 
-        <div id="vne-roll-all-init-btn" class="vne-ctrl-btn" title="Roll All Initiative">
+        <div id="vne-roll-all-init-btn" class="vne-ctrl-btn" title="{{localize 'vnd-enhanced.combat.rollAllInit'}}">
           <i class="fas fa-dice-d20"></i>
         </div>
 
-        <div id="vne-next-turn-btn" class="vne-turn-nav-btn" title="Next Turn">
-          NEXT <i class="fas fa-step-forward"></i>
+        <div id="vne-next-turn-btn" class="vne-turn-nav-btn" title="{{localize 'vnd-enhanced.combat.nextTurn'}}">
+          {{localize 'vnd-enhanced.combat.next'}} <i class="fas fa-step-forward"></i>
         </div>
       {{/if}}
     </div>
 
-    {{!-- ── STAGE AREA (always visible; column 2 switches between rp-stage / center-speaker) ── --}}
+    {{!-- ── STAGE AREA ── --}}
     <div class="vne-stage">
 
       {{!-- LEFT CAST DROP ZONE --}}
       <div class="vne-left-panel vne-side-panel vne-drop-zone" data-side="left">
         <div class="vne-side-label">
-          {{#if isGM}}<div id="vne-add-left-btn" class="vne-add-cast-btn" title="Add actor to left side"><i class="fas fa-user-plus"></i></div>{{/if}}
-          <span>Players</span>
+          {{#if isGM}}<div id="vne-add-left-btn" class="vne-add-cast-btn" title="{{localize 'vnd-enhanced.ui.addActorLeft'}}"><i class="fas fa-user-plus"></i></div>{{/if}}
+          <span>{{localize 'vnd-enhanced.ui.players'}}</span>
         </div>
-        <div id="vne-left-portraits" class="vne-portraits-list">
-          {{#each leftCast as |p|}}
-            <div class="vne-cast-portrait{{#if p.isActive}} vne-speaking{{/if}}{{#if p.isOwned}} vne-owned{{/if}}{{#if p.isCombatTarget}} vne-combat-target{{/if}}{{#if p.isTargeted}} vne-targeted{{/if}}"
-                 data-id="{{p.id}}"
-                 title="{{p.name}}{{#if p.title}} – {{p.title}}{{/if}}"
-                 draggable="true" data-side="left">
-              <img src="{{p.img}}" class="vne-cast-img" style="{{p.imgStyle}}" onerror="this.src='icons/svg/mystery-man.svg'" />
-              {{#if p.isActive}}<div class="vne-speaking-ring"></div>{{/if}}
-              {{#if p.isOwned}}<div class="vne-owned-badge" title="Your character"><i class="fas fa-star"></i></div>{{/if}}
-              {{#if p.editMode}}<div class="vne-remove-cast-btn" data-id="{{p.id}}" data-side="left" title="Remove"><i class="fas fa-times"></i></div>{{/if}}
-            </div>
-          {{/each}}
-          {{#unless leftCast.length}}
-            <div class="vne-cast-empty">
-              <i class="fas fa-user-plus"></i>
-              <span>Drag actors here<br>or click +</span>
-            </div>
-          {{/unless}}
-        </div>
+        {{!-- Populated by _patchSidePanel (single JS renderer — no template/JS drift) --}}
+        <div id="vne-left-portraits" class="vne-portraits-list"></div>
       </div>
 
       {{!-- ROLEPLAY STAGE — column 2 in VN/RP mode (hidden in combat) --}}
       <div id="vne-rp-stage" class="vne-rp-stage vne-drop-zone"></div>
 
-      {{!-- CENTER SPEAKER — column 2 in combat mode (hidden in RP) --}}
-      <div class="vne-center-area vne-drop-zone">
-        <div id="vne-center-speaker" class="vne-center-speaker">
-          {{!-- Populated by _patchVNStage / combat display in JS --}}
-        </div>
-      </div>
-
       {{!-- RIGHT CAST DROP ZONE --}}
       <div class="vne-right-panel vne-side-panel vne-drop-zone" data-side="right">
         <div class="vne-side-label">
-          <span>NPCs</span>
-          {{#if isGM}}<div id="vne-add-right-btn" class="vne-add-cast-btn" title="Add actor to right side"><i class="fas fa-user-plus"></i></div>{{/if}}
+          <span>{{localize 'vnd-enhanced.ui.npcs'}}</span>
+          {{#if isGM}}<div id="vne-add-right-btn" class="vne-add-cast-btn" title="{{localize 'vnd-enhanced.ui.addActorRight'}}"><i class="fas fa-user-plus"></i></div>{{/if}}
         </div>
-        <div id="vne-right-portraits" class="vne-portraits-list">
-          {{#each rightCast as |p|}}
-            <div class="vne-cast-portrait{{#if p.isActive}} vne-speaking{{/if}}{{#if p.isOwned}} vne-owned{{/if}}{{#if p.isCombatTarget}} vne-combat-target{{/if}}{{#if p.isTargeted}} vne-targeted{{/if}}"
-                 data-id="{{p.id}}"
-                 title="{{p.name}}{{#if p.title}} – {{p.title}}{{/if}}"
-                 draggable="true" data-side="right">
-              <img src="{{p.img}}" class="vne-cast-img" style="{{p.imgStyle}}" onerror="this.src='icons/svg/mystery-man.svg'" />
-              {{#if p.isActive}}<div class="vne-speaking-ring"></div>{{/if}}
-              {{#if p.isOwned}}<div class="vne-owned-badge" title="Your character"><i class="fas fa-star"></i></div>{{/if}}
-              {{#if p.editMode}}<div class="vne-remove-cast-btn" data-id="{{p.id}}" data-side="right" title="Remove"><i class="fas fa-times"></i></div>{{/if}}
-            </div>
-          {{/each}}
-          {{#unless rightCast.length}}
-            <div class="vne-cast-empty">
-              <i class="fas fa-user-plus"></i>
-              <span>Drag actors here<br>or click +</span>
-            </div>
-          {{/unless}}
-        </div>
+        {{!-- Populated by _patchSidePanel (single JS renderer — no template/JS drift) --}}
+        <div id="vne-right-portraits" class="vne-portraits-list"></div>
       </div>
 
     </div>{{!-- /stage --}}
 
     {{!-- ── BOTTOM BAR: Scenes Pill ── --}}
     <div class="vne-bottom-bar">
-      <div id="vne-scenes-pill" class="vne-scenes-pill" title="Manage Scenes ({{locationList.length}} saved)">
+      <div id="vne-scenes-pill" class="vne-scenes-pill" title="{{localize 'vnd-enhanced.scenes.pillTooltip' count=locationList.length}}">
         <i class="fas fa-map-marked-alt"></i>
-        <span class="vne-sp-pill-label">Scenes</span>
+        <span class="vne-sp-pill-label">{{localize 'vnd-enhanced.scenes.pillLabel'}}</span>
         <span class="vne-sp-pill-sep" style="{{#unless locationName}}display:none{{/unless}}">›</span>
         <span id="vne-scenes-current" class="vne-sp-pill-current" style="{{#unless locationName}}display:none{{/unless}}">{{locationName}}</span>
         <span class="vne-sp-pill-count">({{locationList.length}})</span>
@@ -211,7 +171,7 @@
     {{!-- ── PLAYER LIST (top-right collapsible) ── --}}
     {{#if isGM}}
       <div class="vne-player-panel">
-        <div class="vne-player-panel-title">Players</div>
+        <div class="vne-player-panel-title">{{localize 'vnd-enhanced.ui.playerPanelTitle'}}</div>
         {{#each players as |pl|}}
           <div class="vne-player-row{{#unless pl.visible}} vne-player-hidden{{/unless}}"
                data-user-id="{{pl.id}}"
@@ -219,13 +179,13 @@
             <span class="vne-player-dot" style="background:{{pl.color}};"></span>
             <span class="vne-player-name">{{pl.name}}</span>
             <button type="button" class="vne-player-vis-btn" data-user-id="{{pl.id}}"
-              title="{{#if pl.visible}}Hide VN from {{pl.name}}{{else}}Show VN to {{pl.name}}{{/if}}">
+              title="{{#if pl.visible}}{{localize 'vnd-enhanced.ui.hideFrom' name=pl.name}}{{else}}{{localize 'vnd-enhanced.ui.showTo' name=pl.name}}{{/if}}">
               <i class="fas fa-{{#if pl.visible}}eye{{else}}eye-slash{{/if}}"></i>
             </button>
           </div>
         {{/each}}
         <button type="button" id="vne-show-all-btn" class="vne-show-all-btn">
-          <i class="fas fa-users"></i> Show All
+          <i class="fas fa-users"></i> {{localize 'vnd-enhanced.ui.showAll'}}
         </button>
       </div>
     {{/if}}

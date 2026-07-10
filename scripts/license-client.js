@@ -11,6 +11,10 @@
 const MODULE_ID = 'vnd-enhanced';
 const API_BASE  = 'https://vnd-license.gmredvelvet.workers.dev';
 
+// i18n shortcuts (safe after the i18nInit hook — every call site runs at setup or later)
+const L  = (key)       => game.i18n.localize(`${MODULE_ID}.license.${key}`);
+const LF = (key, data) => game.i18n.format(`${MODULE_ID}.license.${key}`, data);
+
 // RSA public key (SPKI base64url) — safe to embed; forging requires the private key (server-only).
 // Used to verify RS256-signed response tokens AND access-token claims.
 // Rotate both here and in wrangler.toml (JWT_PUBLIC_KEY) when you roll keys.
@@ -95,6 +99,19 @@ export class VndLicenseClient {
 
   get tier() { return this.#tier; }
   get isLicensed() { return this.#tier !== 'none' && !this.#degraded; }
+  get installationId() { return this.#installationId; }
+
+  // ── License status (for the management UI) ─────────────────────────────────
+
+  // Fetches tier + installation slots from the server. Refreshes the access
+  // token first if it has expired (the endpoint requires a valid token).
+  async getStatus() {
+    if (!this.#isAccessTokenValid()) {
+      if (!this.#refreshToken) throw new LicenseError('Not authenticated', 'NOT_AUTHENTICATED');
+      await this.#doRefresh();
+    }
+    return this.#apiCall('/license/status', null, 'GET');
+  }
 
   // ── OAuth flow ─────────────────────────────────────────────────────────────
 
@@ -150,20 +167,27 @@ export class VndLicenseClient {
     // Persist the flag so other connected clients and future reloads also activate
     game.settings?.set?.(MODULE_ID, 'worldLicensed', true).catch(() => {});
 
-    ui.notifications?.info(`VND Enhanced: Connected as ${result.tier} subscriber. Welcome!`);
+    ui.notifications?.info(LF('connected', { tier: result.tier }));
   }
 
   // ── Release installation slot ───────────────────────────────────────────────
 
-  async releaseInstallation() {
+  // Releases an installation slot. With no argument, releases THIS device
+  // (deactivating the module here); pass another installation's id to free a
+  // slot burned by an old browser/machine without touching the current one.
+  async releaseInstallation(installationId = this.#installationId) {
     try {
-      await this.#apiCall('/license/release', { installationId: this.#installationId });
-      this.#clearStoredTokens();
-      this.#stopHeartbeat();
-      game.settings?.set?.(MODULE_ID, 'worldLicensed', false).catch(() => {});
-      ui.notifications?.info('VND Enhanced: Installation slot released.');
+      await this.#apiCall('/license/release', { installationId });
+      if (installationId === this.#installationId) {
+        this.#clearStoredTokens();
+        this.#stopHeartbeat();
+        game.settings?.set?.(MODULE_ID, 'worldLicensed', false).catch(() => {});
+      }
+      ui.notifications?.info(L('released'));
+      return true;
     } catch (e) {
-      ui.notifications?.error(`VND Enhanced: Failed to release slot — ${e.message}`);
+      ui.notifications?.error(LF('releaseFailed', { message: e.message }));
+      return false;
     }
   }
 
@@ -298,16 +322,37 @@ export class VndLicenseClient {
 
   async #doHeartbeat() {
     try {
-      const result = await this.#apiCall('/heartbeat', {
-        installationId:  this.#installationId,
-        fingerprintHash: this.#fingerprint
-      });
-
-      this.#storeTokens(result.accessToken, this.#refreshToken, result.expiresIn, result.tier, result.features);
-      this.#lastHeartbeat = Date.now();
-      this.#degraded = false;
+      await this.#heartbeatOnce();
     } catch {
-      this.#handleHeartbeatFailure();
+      // /heartbeat requires a valid access token (1h TTL). After >1h offline
+      // (laptop sleep, network outage) the token is expired and every heartbeat
+      // would 401 forever. Recover via the refresh-token flow, then retry once.
+      try {
+        if (!this.#refreshToken) throw new Error('no refresh token');
+        await this.#doRefresh();
+        await this.#heartbeatOnce();
+      } catch {
+        this.#handleHeartbeatFailure();
+      }
+    }
+  }
+
+  async #heartbeatOnce() {
+    const result = await this.#apiCall('/heartbeat', {
+      installationId:  this.#installationId,
+      fingerprintHash: this.#fingerprint
+    });
+
+    this.#storeTokens(result.accessToken, this.#refreshToken, result.expiresIn, result.tier, result.features);
+    this.#lastHeartbeat = Date.now();
+
+    // Recovered after a degraded period — restore the world flag we cleared
+    if (this.#degraded) {
+      this.#degraded = false;
+      if (game.user?.isGM) {
+        game.settings?.set?.(MODULE_ID, 'worldLicensed', true).catch(() => {});
+        ui.notifications?.info(L('reconnected'));
+      }
     }
   }
 
@@ -319,7 +364,7 @@ export class VndLicenseClient {
         if (game.user?.isGM) {
           // Lock the module for all clients until the GM reconnects
           game.settings?.set?.(MODULE_ID, 'worldLicensed', false).catch(() => {});
-          ui.notifications?.warn('VND Enhanced: License server unreachable. Premium features suspended until reconnected.');
+          ui.notifications?.warn(L('suspended'));
         }
       }
     }
@@ -435,6 +480,17 @@ export class VndLicenseClient {
   }
 }
 
+// ── Settings-menu shim ───────────────────────────────────────────────────────
+// game.settings.registerMenu instantiates and renders this class; we redirect
+// to the dialog-based manager instead of a real FormApplication sheet.
+export class VndLicenseMenu extends FormApplication {
+  render() {
+    VndLicenseUI.showManager();
+    return this;
+  }
+  async _updateObject() { /* nothing to persist */ }
+}
+
 // ── LicenseError ──────────────────────────────────────────────────────────────
 
 export class LicenseError extends Error {
@@ -470,34 +526,34 @@ export class VndLicenseUI {
         <strong style="color:#c89b3c;font-size:1rem">VND Enhanced</strong>
       </div>
       <p style="font-size:.85rem;color:#a09080;margin-bottom:16px;line-height:1.4">
-        Connect your Patreon account to enable premium features.
+        ${L('connectHint')}
       </p>
       <div style="display:flex;flex-direction:column;gap:8px">
         <button id="vnd-connect-btn" style="
           background:#c89b3c;color:#1a1a2e;border:none;border-radius:8px;
           padding:10px;font-size:.9rem;font-weight:700;cursor:pointer;width:100%
-        ">Connect Patreon</button>
+        ">${L('connectBtn')}</button>
         <button id="vnd-code-btn" style="
           background:transparent;color:#a09080;border:1px solid #555;border-radius:8px;
           padding:8px;font-size:.8rem;cursor:pointer;width:100%
-        ">I have an auth code</button>
+        ">${L('haveCode')}</button>
         <button id="vnd-dismiss-btn" style="
           background:none;border:none;color:#605040;font-size:.75rem;cursor:pointer;
           text-align:right;padding:0
-        ">Dismiss</button>
+        ">${L('dismiss')}</button>
       </div>
     `;
 
     el.querySelector('#vnd-connect-btn').addEventListener('click', async () => {
       const btn = el.querySelector('#vnd-connect-btn');
-      btn.textContent = 'Opening Patreon...';
+      btn.textContent = L('connecting');
       btn.disabled = true;
       try {
         const success = await VndLicenseClient.instance.startOAuth();
         if (success) el.remove();
-        else { btn.textContent = 'Connect Patreon'; btn.disabled = false; }
+        else { btn.textContent = L('connectBtn'); btn.disabled = false; }
       } catch (e) {
-        btn.textContent = 'Connect Patreon'; btn.disabled = false;
+        btn.textContent = L('connectBtn'); btn.disabled = false;
         ui.notifications?.error(`VND Enhanced: ${e.message}`);
       }
     });
@@ -512,21 +568,101 @@ export class VndLicenseUI {
     document.body.appendChild(el);
   }
 
+  // ── License Manager (module settings → Manage License) ─────────────────────
+  // Shows tier + the 2 installation slots and lets the GM free a slot without
+  // support tickets (localStorage-keyed installs burn a slot per browser).
+
+  static async showManager() {
+    if (!game.user?.isGM) return;
+    const client = VndLicenseClient.instance;
+    if (!client.isLicensed) { VndLicenseUI.show(); return; }
+
+    let status;
+    try {
+      status = await client.getStatus();
+    } catch (e) {
+      ui.notifications?.warn(`VND Enhanced: ${e.message}`);
+      VndLicenseUI.show();
+      return;
+    }
+
+    const esc = (s) => { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; };
+    const ownIid = client.installationId;
+    const installs = status.installations ?? [];
+
+    const rows = installs.map(i => {
+      const isThis = i.installation_id === ownIid;
+      const hb = i.last_heartbeat ? new Date(i.last_heartbeat).toLocaleString() : '—';
+      return `<tr>
+        <td style="text-align:center">${esc(String(i.slot ?? '?'))}</td>
+        <td><code>${esc((i.installation_id ?? '').slice(0, 8))}…</code>${isThis ? ` <strong>(${L('thisDevice')})</strong>` : ''}</td>
+        <td>${esc(hb)}</td>
+        <td style="text-align:center">
+          <button type="button" class="vnd-lm-release" data-iid="${esc(i.installation_id)}" data-this="${isThis ? '1' : '0'}"
+                  style="line-height:1.4;padding:2px 10px;">
+            <i class="fas fa-unlink"></i> ${L('release')}
+          </button>
+        </td>
+      </tr>`;
+    }).join('');
+
+    const content = `
+      <div style="font-size:.9em">
+        <p style="margin:0 0 10px">
+          <strong>${L('tier')}:</strong> ${esc(status.tier ?? 'none')}
+          &nbsp;·&nbsp; <strong>${L('slots')}:</strong> ${installs.length}/${esc(String(status.maxSlots ?? 2))}
+        </p>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr>
+            <th style="text-align:center">#</th>
+            <th style="text-align:left">${L('installation')}</th>
+            <th style="text-align:left">${L('lastSeen')}</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${rows || `<tr><td colspan="4" style="text-align:center;opacity:.7">${L('noInstallations')}</td></tr>`}</tbody>
+        </table>
+        <p style="font-size:.82em;opacity:.75;margin:10px 0 0">${L('hint')}</p>
+      </div>`;
+
+    const dialog = new Dialog({
+      title: L('managerTitle'),
+      content,
+      buttons: { close: { label: game.i18n.localize('Close') } },
+      render: (html) => {
+        html.find('.vnd-lm-release').on('click', async (e) => {
+          const btn    = e.currentTarget;
+          const iid    = btn.dataset.iid;
+          const isThis = btn.dataset.this === '1';
+          const ok = await Dialog.confirm({
+            title: L('releaseConfirmTitle'),
+            content: `<p>${isThis ? L('releaseConfirmThis') : L('releaseConfirmOther')}</p>`
+          });
+          if (!ok) return;
+          btn.disabled = true;
+          const released = await client.releaseInstallation(iid);
+          dialog.close();
+          if (released && !isThis) VndLicenseUI.showManager(); // refresh the slot list
+        });
+      }
+    }, { width: 520 });
+    dialog.render(true);
+  }
+
   static showCodeInput() {
     new Dialog({
-      title: 'VND Enhanced — Enter Auth Code',
+      title: L('codeTitle'),
       content: `
         <p style="margin-bottom:12px;font-size:.9rem">
-          Paste the code shown after connecting your Patreon account.
+          ${L('codeHint')}
         </p>
         <input id="vnd-auth-code-input" type="text"
-          placeholder="Paste auth code here..."
+          placeholder="${L('codePh')}"
           style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;
                  background:#1a1a2e;color:#e0d7c8;font-family:monospace;font-size:.85rem"/>
       `,
       buttons: {
         activate: {
-          label: '<i class="fas fa-key"></i> Activate',
+          label: `<i class="fas fa-key"></i> ${L('activate')}`,
           callback: async (html) => {
             const code = html.find('#vnd-auth-code-input').val().trim();
             if (!code) return;
