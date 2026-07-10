@@ -269,7 +269,11 @@
   grid-row: 2;
   display: flex;
   align-items: flex-end;
-  justify-content: center;
+  /* Centering is done by the ::before/::after auto margins below, NOT by
+     justify-content: center — a centered flex row with overflow-x clips its
+     left half into an unreachable region, which made the carousel look
+     left-shifted whenever the initiative row didn't fit the window. */
+  justify-content: flex-start;
   gap: 6px;
   padding: 6px 14px 4px;
   background: rgba(0,0,0,0.6);
@@ -277,6 +281,14 @@
   overflow-x: auto;
   scrollbar-width: none;
   pointer-events: all;
+}
+/* Safe centering: auto margins absorb free space when the cards fit (row is
+   centered); with overflow they collapse to 0 and every card stays scrollable. */
+#vne-unified-carousel::before,
+#vne-unified-carousel::after {
+  content: "";
+  flex: 0 0 0;
+  margin: auto;
 }
 #vne-unified-carousel::-webkit-scrollbar { display: none; }
 
