@@ -25,16 +25,31 @@ function tierAllocation(env, tier) {
   return cfg[tier] ?? 0;
 }
 
+// First day of the month after `from`, UTC — the renewal anchor for generation allowances
+function nextMonthStartISO(from = new Date()) {
+  return new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1)).toISOString();
+}
+
 async function checkRenewal(db, aiTokens, user, env) {
-  const needsReset = aiTokens.renewal_date
-    && new Date(aiTokens.renewal_date) <= new Date();
+  const now = new Date();
+
+  // Legacy rows were created with renewal_date=null and were never renewed.
+  // Treat them as due when their last reset happened in an earlier UTC month.
+  const lastReset = aiTokens.last_reset_at ? new Date(aiTokens.last_reset_at) : null;
+  const legacyDue = !aiTokens.renewal_date && (
+    lastReset?.getUTCFullYear() !== now.getUTCFullYear() ||
+    lastReset?.getUTCMonth()    !== now.getUTCMonth()
+  );
+
+  const needsReset = legacyDue ||
+    (aiTokens.renewal_date && new Date(aiTokens.renewal_date) <= now);
 
   if (needsReset) {
     const updated = await db.update('vnd_ai_tokens', { user_id: user.id }, {
       tokens_total:  tierAllocation(env, user.tier),
       tokens_used:   0,
-      renewal_date:  null,
-      last_reset_at: new Date().toISOString()
+      renewal_date:  nextMonthStartISO(now),
+      last_reset_at: now.toISOString()
     });
     await db.insert('vnd_audit', {
       event_type: 'ai_token_reset',
@@ -42,6 +57,13 @@ async function checkRenewal(db, aiTokens, user, env) {
       details:    JSON.stringify({ tier: user.tier, new_total: tierAllocation(env, user.tier) })
     });
     return updated;
+  }
+
+  // Not due yet, but legacy rows still need a renewal schedule going forward
+  if (!aiTokens.renewal_date) {
+    return db.update('vnd_ai_tokens', { user_id: user.id }, {
+      renewal_date: nextMonthStartISO(now)
+    });
   }
 
   return aiTokens;
@@ -56,7 +78,7 @@ async function getOrCreateTokens(db, user, env) {
     user_id:       user.id,
     tokens_total:  tierAllocation(env, user.tier),
     tokens_used:   0,
-    renewal_date:  null,
+    renewal_date:  nextMonthStartISO(),
     last_reset_at: new Date().toISOString()
   });
 }
@@ -97,7 +119,7 @@ async function handleSceneGenerate(c, body, db, user, quality, n) {
   let images;
   try {
     const flux = new FluxClient(c.env);
-    images = await flux.generateScene({ finalPrompt, sceneType, style, references, quality, n });
+    images = await flux.generateScene({ finalPrompt, sceneType, style, references, sceneTier, quality, n });
   } catch (err) {
     if (!ownerBypass) await db.update('vnd_ai_tokens', { user_id: user.id }, { tokens_used: tokens.tokens_used });
     console.error('[VND AI] Scene generation error:', err.message);

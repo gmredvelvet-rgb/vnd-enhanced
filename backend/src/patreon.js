@@ -144,6 +144,21 @@ export class PatreonClient {
         none:    [],
         basic:   ['dashboard'],
         premium: ['dashboard']
+      },
+      'hopefinder-sheet': {
+        none:    [],
+        basic:   ['survivor-sheet'],
+        premium: ['survivor-sheet']
+      },
+      'pf2e-velvet-sheet': {
+        none:    [],
+        basic:   ['velvet-sheet'],
+        premium: ['velvet-sheet']
+      },
+      'dnd-velvet-sheets': {
+        none:    [],
+        basic:   ['dnd-velvet-sheet'],
+        premium: ['dnd-velvet-sheet']
       }
     };
     const map = allFeatures[moduleId] ?? allFeatures['vnd-enhanced'];
@@ -153,6 +168,9 @@ export class PatreonClient {
   // ── Whitelist of known module IDs ─────────────────────────────────────────
 
   static isValidModuleId(moduleId) {
-    return ['vnd-enhanced', 'sf2e-cyber-sheet', 'starfinderdashboard'].includes(moduleId);
+    return [
+      'vnd-enhanced', 'sf2e-cyber-sheet', 'starfinderdashboard',
+      'hopefinder-sheet', 'pf2e-velvet-sheet', 'dnd-velvet-sheets'
+    ].includes(moduleId);
   }
 }

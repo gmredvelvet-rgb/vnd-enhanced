@@ -18,7 +18,9 @@ function _esc(str) {
 const RSA_PUBLIC_KEY = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3-hTzuHo9lgENNQiA4-Fm7VIdalqisZ5NhqrBioXmIXSMbEhYpy1TnPkCBAdAzXAsyX1YdTYLcMADETPnERvceLsDoAWHFZzHGxoXBkOGw0ukAyHJyrwBZxCf_bY_FSbip_-XQuTS4YuyhLPVNjbGMZdVarkegh7BKwW4CR9MDb1DMtf_NxtfNqJ3MxhfAiTxIod4AWer8esisr0IekQlPLmMPA2KggzQw9rFj61B4DAVk2F_TAXPMOKyEcX_zVGpp00JTurTsfwK2023UHKO9t98R0rG17oX0rK_x2EOBiW2Nla3NChZyR4yi8zHe0vjYhprqcwozv9wN0wbANnzwIDAQAB';
 let _rsaKey = null;
 
-const SLOT_ROLES = ['Composición', 'Estilo', 'Arquitectura', 'Paleta'];
+// One slot only: Flux accepts a single image_prompt, so the old 4 role-based
+// slots (Composición/Estilo/Arquitectura/Paleta) silently ignored 3 uploads.
+const SLOT_ROLES = ['Referencia'];
 
 // ── Character preset library ──────────────────────────────────────────────────
 
@@ -232,11 +234,27 @@ async function _apiPost(path, body) {
   return data;
 }
 
+// Create each segment of a Data-relative path, ignoring already-exists errors.
+async function _ensureDir(target) {
+  let current = '';
+  for (const part of target.split('/').filter(Boolean)) {
+    current = current ? `${current}/${part}` : part;
+    try { await FilePicker.createDirectory('data', current); }
+    catch { /* already exists */ }
+  }
+}
+
 async function _saveToFoundry(b64, index, subfolder = 'character-studio') {
-  const folder   = `modules/${MODULE_ID}/generated/${subfolder}`;
+  // Save OUTSIDE the module directory — modules/vnd-enhanced/* is wiped on every
+  // module update, which destroyed users' generated images. Honors the
+  // aiImageFolder world setting (Data-relative).
+  const base     = (game.settings.get(MODULE_ID, 'aiImageFolder') || 'vnd-enhanced-ai')
+    .replace(/^\/+|\/+$/g, '');
+  const folder   = `${base}/${subfolder}`;
   const stamp    = Date.now();
   const filename = `${subfolder === 'scene-studio' ? 'scene' : 'char'}-${stamp}-${index}.png`;
   try {
+    await _ensureDir(folder);
     const blob   = await (await fetch(`data:image/png;base64,${b64}`)).blob();
     const file   = new File([blob], filename, { type: 'image/png' });
     const result = await FilePicker.upload('data', folder, file, {}, { notify: false });
@@ -285,7 +303,7 @@ export class VNDAIGenerator extends Application {
 
   // Scene state
   #sceneExpansion  = null;
-  #sceneRefs       = [null, null, null, null];
+  #sceneRefs       = [null];
   #sceneGenerating = false;
 
   // Generation limit (null = not yet loaded)

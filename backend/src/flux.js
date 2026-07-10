@@ -76,6 +76,13 @@ const SCENE_STYLE_PROMPT = {
   'battlemap-colored': 'colored battlemap, flat watercolor fills over clean ink linework, vivid map colors'
 };
 
+// Complexity tier fragments — selected as "Complejidad" in the Scene Studio UI
+const SCENE_TIER_PROMPT = {
+  standard: '',
+  detailed: 'Highly detailed environment, layered composition with distinct foreground, midground and background elements, fine surface textures and props',
+  epic:     'Epic monumental scale, dramatic cinematic lighting, sweeping vista composition, breathtaking sense of depth and grandeur, masterpiece-level environmental detail'
+};
+
 // ── Flux client ───────────────────────────────────────────────────────────────
 
 const REPLICATE_API = 'https://api.replicate.com/v1';
@@ -92,18 +99,20 @@ export class FluxClient {
 
   // ── Scene image generation ────────────────────────────────────────────────
 
-  async generateScene({ finalPrompt, sceneType, style, references = [], quality = 'standard', n = 1 }) {
+  async generateScene({ finalPrompt, sceneType, style, references = [], sceneTier = 'standard', quality = 'standard', n = 1 }) {
     const typeDesc  = SCENE_TYPE_PROMPT[sceneType]  ?? SCENE_TYPE_PROMPT.narrative;
     const styleDesc = SCENE_STYLE_PROMPT[style]      ?? SCENE_STYLE_PROMPT['fantasy-painting'];
+    const tierDesc  = SCENE_TIER_PROMPT[sceneTier]   ?? '';
 
     const [width, height] = sceneType === 'battlemap' ? [1024, 1024] : [1440, 1024];
 
     const fullPrompt = [
       typeDesc,
       styleDesc,
+      tierDesc,
       finalPrompt,
       'High quality digital art for tabletop RPG, rich detail, immersive atmosphere.'
-    ].join('. ');
+    ].filter(Boolean).join('. ');
 
     const firstRef = references[0];
 
