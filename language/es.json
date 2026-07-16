@@ -14,6 +14,20 @@
         "label": "Gestionar licencia",
         "hint": "Consulta tu nivel de suscripción y libera slots de instalación."
       },
+      "visualTheme": {
+        "name": "Tema visual",
+        "hint": "Aspecto general de la interfaz VN. \"Darkest Dungeon\" aplica una piel gótica de fantasía oscura (paneles de hierro, acentos rojo sangre, brillo de antorcha en el hablante) sin cambiar ninguna funcionalidad.",
+        "classic": "Clásico (por defecto)",
+        "darkest": "Darkest Dungeon"
+      },
+      "ddAssetsPath": {
+        "name": "Tema Darkest Dungeon — carpeta de assets (opcional)",
+        "hint": "Carpeta opcional con tus propios assets para el tema: title-font.ttf, body-font.ttf y panel-texture.png. Si posees el juego puedes extraer assets para uso personal — nunca los redistribuyas. El tema funciona completo sin esta carpeta."
+      },
+      "autoCastFromCombat": {
+        "name": "Auto-rellenar reparto desde el combate",
+        "hint": "Al abrir el escenario de combate (y cuando entren combatientes a mitad de pelea), se añaden automáticamente al reparto VN: tokens de jugadores y aliados a la izquierda, enemigos a la derecha. Solo añade — nunca quita miembros que pusiste manualmente. Los combatientes ocultos quedan fuera hasta que los reveles."
+      },
       "bgFolderPath": {
         "name": "Carpeta de fondos",
         "hint": "Carpeta que se abre por defecto al elegir una imagen de fondo."
@@ -235,6 +249,9 @@
       "noActorForCombatant": "VNE | No se encontró el actor de este combatiente."
     },
     "notify": {
+      "vnClosed": "El GM todavía no ha abierto el escenario VN.",
+      "hiddenByGM": "El GM ha ocultado el escenario VN para ti.",
+      "vnInactive": "VN Dialogues Enhanced aún no está activo en este mundo.",
       "actorNotFound": "Actor no encontrado.",
       "stageFull": "VNE: El escenario está lleno (máx. 5 por fila).",
       "noTokenForActor": "VNE: No hay token de ese actor en esta escena.",

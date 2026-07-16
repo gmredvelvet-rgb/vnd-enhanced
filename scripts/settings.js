@@ -2,6 +2,40 @@ import { VndLicenseMenu } from "./license-client.js";
 
 const ID = "vnd-enhanced";
 
+/**
+ * Visual theme switcher — toggles the body-level theme class and injects
+ * optional user-supplied assets (fonts/textures) for the Darkest Dungeon skin.
+ * Pure CSS theming: no re-render needed, the classic design stays untouched.
+ */
+export function applyVisualTheme() {
+  const theme = game.settings.get(ID, "visualTheme") ?? "classic";
+  const dd = theme === "darkest";
+  document.body.classList.toggle("vne-theme-dd", dd);
+
+  // Optional user-asset layer (fonts / panel texture extracted from the
+  // user's OWN copy of the game — never bundled, never distributed).
+  const STYLE_ID = "vne-dd-user-assets";
+  document.getElementById(STYLE_ID)?.remove();
+  if (!dd) return;
+
+  let folder = (game.settings.get(ID, "ddAssetsPath") || "").trim();
+  while (folder.endsWith("/")) folder = folder.slice(0, -1);
+  if (!folder) return;
+  const base = encodeURI(folder);
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  // Missing files fail silently — the pure-CSS look below remains intact.
+  style.textContent = `
+    @font-face { font-family: "VNE DD Title"; src: url("${base}/title-font.ttf"); font-display: swap; }
+    @font-face { font-family: "VNE DD Body";  src: url("${base}/body-font.ttf");  font-display: swap; }
+    body.vne-theme-dd #vne-main,
+    body.vne-theme-dd { --vne-dd-panel-tex: url("${base}/panel-texture.png"); }
+  `;
+  document.head.appendChild(style);
+}
+
+Hooks.once("ready", applyVisualTheme);
+
 export function registerSettings() {
   // License manager — tier, installation slots, self-service slot release
   game.settings.registerMenu(ID, "licenseManager", {
@@ -39,6 +73,46 @@ export function registerSettings() {
       },
       locationList: []
     }
+  });
+
+  // Visual theme — "classic" keeps the current design untouched;
+  // "darkest" applies the Darkest Dungeon-inspired skin (CSS-only overlay).
+  game.settings.register(ID, "visualTheme", {
+    name: "vnd-enhanced.settings.visualTheme.name",
+    hint: "vnd-enhanced.settings.visualTheme.hint",
+    scope: "world",
+    config: true,
+    type: String,
+    choices: {
+      classic: "vnd-enhanced.settings.visualTheme.classic",
+      darkest: "vnd-enhanced.settings.visualTheme.darkest"
+    },
+    default: "classic",
+    onChange: applyVisualTheme
+  });
+
+  // Optional folder with user-extracted assets for the Darkest Dungeon theme
+  // (title-font.ttf, body-font.ttf, panel-texture.png). Personal use only.
+  game.settings.register(ID, "ddAssetsPath", {
+    name: "vnd-enhanced.settings.ddAssetsPath.name",
+    hint: "vnd-enhanced.settings.ddAssetsPath.hint",
+    scope: "world",
+    config: true,
+    type: String,
+    default: "",
+    filePicker: "folder",
+    onChange: applyVisualTheme
+  });
+
+  // Auto-cast: mirror combat tracker into the VN cast (players/companions left,
+  // enemies right) when the combat stage opens or combatants join mid-fight.
+  game.settings.register(ID, "autoCastFromCombat", {
+    name: "vnd-enhanced.settings.autoCastFromCombat.name",
+    hint: "vnd-enhanced.settings.autoCastFromCombat.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true
   });
 
   game.settings.register(ID, "bgFolderPath", {

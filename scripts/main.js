@@ -247,6 +247,32 @@ function _addPortraitToCastData(d, actor, side) {
   return true;
 }
 
+// Decide which VN side a combatant belongs to: players and their companions
+// (player-owned OR friendly token disposition) go left, everything else right.
+function _combatantVNSide(combatant, actor) {
+  const friendly = actor?.hasPlayerOwner ||
+    combatant.token?.disposition === CONST.TOKEN_DISPOSITIONS.FRIENDLY;
+  return friendly ? "left" : "right";
+}
+
+// Auto-cast: mirror the combat tracker into the VN cast (add-only — never
+// removes anything the GM curated). Hidden combatants are skipped so secret
+// enemies aren't revealed in the players' NPC panel; they join when unhidden.
+// Mutates `d`; the caller saves. Returns true if the cast changed.
+function _autoPopulateCastFromCombat(d, combat) {
+  if (!game.user.isGM) return false;
+  if (!game.settings.get(ID, "autoCastFromCombat")) return false;
+  if (!combat?.turns?.length) return false;
+  let changed = false;
+  for (const c of combat.turns) {
+    if (c.hidden) continue;
+    const actor = c.actor ?? game.actors.get(c.actorId);
+    if (!actor) continue;
+    changed = _addPortraitToCastData(d, actor, _combatantVNSide(c, actor)) || changed;
+  }
+  return changed;
+}
+
 function getPortraitImg(p) {
   if (p.reactions && p.activeReaction && p.reactions[p.activeReaction]) {
     return p.reactions[p.activeReaction];
@@ -545,19 +571,33 @@ async function _createGhostToken(actorId, ghostType = "combat") {
 }
 
 async function _destroyGhostTokens() {
-  if (!game.user.isGM || !_ghostTokens.size) return;
-  const ids = [];
+  if (!game.user.isGM) return;
+  // Only destroy combat ghosts — sheet ghosts (ghostType:"sheet") are managed by
+  // closeActorSheet. Ghosts are grouped by their parent scene so cleanup works
+  // even if the GM switched scenes mid-combat.
+  const byScene = new Map();
+  const queue = (scene, id) => {
+    if (!scene || !id) return;
+    if (!byScene.has(scene)) byScene.set(scene, new Set());
+    byScene.get(scene).add(id);
+  };
   for (const [actorId, doc] of [..._ghostTokens.entries()]) {
-    // Only destroy combat ghosts — sheet ghosts (ghostType:"sheet") are managed by closeActorSheet
     if (!doc?.id) continue;
-    const isCombatGhost = doc.flags?.[ID]?.ghostType === "combat";
-    if (!isCombatGhost) continue;
-    ids.push(doc.id);
+    if (doc.flags?.[ID]?.ghostType !== "combat") continue;
     _ghostTokens.delete(actorId);
+    queue(doc.parent ?? canvas.scene, doc.id);
   }
-  if (ids.length && canvas.scene) {
+  // Flag-scan the current scene too: after a reload the in-memory map is empty,
+  // but the ghosts are still there — and being locked, the GM can't delete them
+  // by hand. Without this sweep they'd survive until the next canvasReady.
+  if (canvas.scene) {
+    for (const t of canvas.scene.tokens) {
+      if (t.flags?.[ID]?.ghostType === "combat") queue(canvas.scene, t.id);
+    }
+  }
+  for (const [scene, ids] of byScene.entries()) {
     try {
-      await canvas.scene.deleteEmbeddedDocuments("Token", ids);
+      await scene.deleteEmbeddedDocuments("Token", [...ids]);
     } catch (e) {
       console.warn("VNE | Ghost token cleanup failed:", e);
     }
@@ -865,6 +905,8 @@ async function toggleCombatStage() {
       ui.notifications?.warn(T("notify.combatStageFailed"));
       return;
     }
+    // Auto-cast BEFORE ghost sync so ghosts cover the freshly added members too
+    _autoPopulateCastFromCombat(d, combat);
     await _syncGhostTokens(d);
   } else {
     await _destroyGhostTokens();
@@ -1532,17 +1574,27 @@ function _showTurnCard(combatant) {
     if (showForIds && !showForIds.includes(game.user.id)) return;
     if (_playerLocalHidden) return;
   }
-  // Only show for actors that belong to the VN cast
-  const isPlayer = d.leftCast.some(p => p.id === combatant.actorId);
-  const isEnemy  = d.rightCast.some(p => p.id === combatant.actorId);
-  if (!isPlayer && !isEnemy) return;
+  // Hidden combatants never splash their card to players (GM still sees it)
+  if (combatant.hidden && !game.user.isGM) return;
+
+  // Every combatant in the carousel gets a card. Cast membership decides the
+  // side; combatants outside the VN cast fall back to player-ownership.
+  const inLeft  = d.leftCast.some(p => p.id === combatant.actorId);
+  const inRight = d.rightCast.some(p => p.id === combatant.actorId);
 
   const portrait = d.leftCast.find(p => p.id === combatant.actorId)
                 ?? d.rightCast.find(p => p.id === combatant.actorId);
   const actor = combatant.actor ?? game.actors.get(combatant.actorId);
-  const img   = portrait ? getPortraitImg(portrait)
-                          : (actor?.img ?? "icons/svg/mystery-man.svg");
+  // Same art-source priority as the carousel card (token art > actor art)
+  const tokenSrc = combatant.token?.texture?.src;
+  const img = portrait
+    ? getPortraitImg(portrait)
+    : (tokenSrc && !tokenSrc.includes("mystery-man") ? tokenSrc : null)
+      || (actor?.img && !actor.img.includes("mystery-man") ? actor.img : null)
+      || tokenSrc || actor?.img || "icons/svg/mystery-man.svg";
   const name  = combatant.name || actor?.name || "???";
+  const hasPlayerOwner = actor?.hasPlayerOwner ?? (combatant.players?.length > 0);
+  const isPlayer = inLeft || (!inRight && hasPlayerOwner);
   const theme = isPlayer ? "vne-tc-player" : "vne-tc-enemy";
   const label = isPlayer ? T("combat.playerTurn") : T("combat.enemyTurn");
 
@@ -2316,6 +2368,30 @@ function openCastPresetsDialog() {
   dialog.render(true);
 }
 
+// Player-side FAB / Alt+V toggle. Only toggles the LOCAL hide flag when the VN
+// is actually visible to this player — clicking while the GM has it closed (or
+// hidden from this user) used to silently set _playerLocalHidden=true, leaving
+// the player unable to see the VN even after the GM pressed "show".
+function _playerToggleLocalHidden() {
+  const d = getDataRO();
+  const ids = (d.showForIds && d.showForIds.length > 0) ? d.showForIds : null;
+  const allowed = d.showVN && (!ids || ids.includes(game.user.id));
+  if (!allowed) {
+    // Nothing to show — never strand the player in a locally-hidden state
+    _playerLocalHidden   = false;
+    _playerLocalUIHidden = false;
+    ui.notifications?.info(T(d.showVN ? "notify.hiddenByGM" : "notify.vnClosed"));
+    return;
+  }
+  _playerLocalHidden = !_playerLocalHidden;
+  if (_playerLocalHidden) {
+    document.getElementById("vne-main")?.style.setProperty("display", "none", "important");
+  } else {
+    // Re-render so visibility is recomputed instead of hand-patching styles
+    VNE.instance?.render(true);
+  }
+}
+
 // ── Main application ─────────────────────────────────────────────────────────
 
 export class VNE extends FormApplication {
@@ -2361,6 +2437,7 @@ export class VNE extends FormApplication {
       // If VNE is not active (unlicensed), show the license prompt for the GM
       if (!VNE.instance) {
         if (game.user?.isGM) VndLicenseUI.show();
+        else ui.notifications?.warn(T("notify.vnInactive"));
         return;
       }
       if (game.user.isGM) {
@@ -2373,14 +2450,7 @@ export class VNE extends FormApplication {
           VNE.toggle();
         }
       } else {
-        _playerLocalHidden = !_playerLocalHidden;
-        const main = document.getElementById("vne-main");
-        if (_playerLocalHidden) {
-          main?.style.setProperty("display", "none", "important");
-        } else {
-          main?.style.removeProperty("display");
-          main?.classList.remove("vne-hidden");
-        }
+        _playerToggleLocalHidden();
       }
     });
     document.body.appendChild(fab);
@@ -2407,8 +2477,11 @@ export class VNE extends FormApplication {
     const zIndex      = game.settings.get(ID, "zIndex") || 90;
     const editMode    = d.editMode && game.user.isGM;
 
-    // Treat showForIds=[] (empty) as null so an empty list never silently locks out all players
-    const showForIds = (d.showForIds && d.showForIds.length > 0) ? d.showForIds : null;
+    // Treat showForIds=[] (empty) as null so an empty list never silently locks
+    // out all players. Ids of users that no longer exist (deleted/re-created
+    // players) are dropped — a fully-stale list also collapses to "everyone".
+    const validIds = (d.showForIds ?? []).filter(id => game.users.has(id));
+    const showForIds = validIds.length > 0 ? validIds : null;
     const visible = d.showVN &&
       (game.user.isGM || !showForIds || showForIds.includes(game.user.id)) &&
       (game.user.isGM || !_playerLocalHidden);
@@ -2766,6 +2839,16 @@ Hooks.on("updateSetting", (setting, _value, options) => {
 
   // Full re-render on show/hide, edit mode, combat mode, visibility change, or unknown change
   if (!change || ["showVN", "editMode", "visibility", "combatMode"].includes(change)) {
+    // GM flipped this player's eye toggle to visible → clear any local hide so
+    // the "show" actually shows (the player may have FAB-hidden themselves).
+    if (change === "visibility" && !game.user.isGM) {
+      const d2 = getDataRO();
+      const ids = (d2.showForIds && d2.showForIds.length > 0) ? d2.showForIds : null;
+      if (d2.showVN && (!ids || ids.includes(game.user.id))) {
+        _playerLocalHidden   = false;
+        _playerLocalUIHidden = false;
+      }
+    }
     if (change === "showVN") {
       const d2 = getData();
       if (d2.showVN) {
@@ -3122,7 +3205,8 @@ function _buildCastPortraitEl(p, side, tp, editMode) {
     ? `<div class="vne-remove-cast-btn" data-id="${p.id}" data-side="${side}" title="${_esc(T("ui.remove"))}"><i class="fas fa-times"></i></div>`
     : "";
   const quickCtrl  = editMode ? _portraitQuickCtrlHtml() : "";
-  div.innerHTML = `<img src="${_esc(tp.img || 'icons/svg/mystery-man.svg')}" class="vne-cast-img" style="${tp.imgStyle}"/>${speakRing}${ownedBadge}${removeBtn}${quickCtrl}`;
+  const nameTag    = `<div class="vne-cast-name">${_esc(p.name)}</div>`;
+  div.innerHTML = `<img src="${_esc(tp.img || 'icons/svg/mystery-man.svg')}" class="vne-cast-img" style="${tp.imgStyle}"/>${speakRing}${ownedBadge}${removeBtn}${quickCtrl}${nameTag}`;
   _bindImgFallback(div.querySelector("img"));
   return div;
 }
@@ -3777,6 +3861,11 @@ Hooks.on("deleteCombat",     () => {
   }
 
   _lastCombatTurns = [];                    // clear after use
+
+  // The encounter is gone — its VFX ghosts go with it. Without this, ending
+  // combat from Foundry's tracker (instead of the VNE toggle) stranded locked
+  // ghost tokens on the scene that the GM couldn't delete by hand.
+  if (game.user.isGM) _destroyGhostTokens();
 });
 Hooks.on("createCombat",     () => {
   _lastCombatTurns = [];
@@ -3889,14 +3978,7 @@ Hooks.once("init", () => {
         if (game.user.isGM) {
           VNE.toggle();
         } else {
-          _playerLocalHidden = !_playerLocalHidden;
-          const main = document.getElementById("vne-main");
-          if (_playerLocalHidden) {
-            main?.style.setProperty("display", "none", "important");
-          } else {
-            main?.style.removeProperty("display");
-            main?.classList.remove("vne-hidden");
-          }
+          _playerToggleLocalHidden();
         }
       }
     });
@@ -4092,6 +4174,7 @@ Hooks.on("ready", () => {
           ui.notifications?.warn("VNEnhanced | setCombatMode: could not create encounter.");
           return;
         }
+        _autoPopulateCastFromCombat(d, combat);
       }
       await saveData(d, { change: "combatMode" });
     },
@@ -4514,6 +4597,36 @@ Hooks.on("createChatMessage", (message) => {
 
   // Show the epic overlay immediately for all clients
   _showCriticalAnimation(critType, speakerActorId);
+});
+
+// Auto-cast: combatants added mid-fight join the matching VN side automatically
+Hooks.on("createCombatant", async (combatant) => {
+  if (!game.user.isGM) return;
+  if (combatant.parent !== game.combat) return;
+  if (combatant.hidden) return;                      // secret until the GM reveals it
+  const d = getData();
+  if (!d.showVN || !d.combatMode) return;
+  if (!game.settings.get(ID, "autoCastFromCombat")) return;
+  const actor = combatant.actor ?? game.actors.get(combatant.actorId);
+  if (!actor) return;
+  if (_addPortraitToCastData(d, actor, _combatantVNSide(combatant, actor))) {
+    await saveData(d, { change: "castChange" });
+  }
+});
+
+// Auto-cast: a hidden combatant revealed mid-fight joins the cast at that moment
+Hooks.on("updateCombatant", async (combatant, changed) => {
+  if (!game.user.isGM) return;
+  if (changed.hidden !== false) return;
+  if (combatant.parent !== game.combat) return;
+  const d = getData();
+  if (!d.showVN || !d.combatMode) return;
+  if (!game.settings.get(ID, "autoCastFromCombat")) return;
+  const actor = combatant.actor ?? game.actors.get(combatant.actorId);
+  if (!actor) return;
+  if (_addPortraitToCastData(d, actor, _combatantVNSide(combatant, actor))) {
+    await saveData(d, { change: "castChange" });
+  }
 });
 
 // Consolidated updateCombat hook — carousel + display + timer + speaker + whisper + Turn Card

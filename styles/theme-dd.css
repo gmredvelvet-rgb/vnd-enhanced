@@ -1,0 +1,667 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   VND Enhanced — "Darkest Dungeon" visual theme
+   ─────────────────────────────────────────────────────────────────────────────
+   Activated via Settings → Visual theme → Darkest Dungeon.
+   Every rule is scoped under body.vne-theme-dd so the classic design is
+   completely untouched when the theme is off.
+
+   Design language recreated in pure CSS (no game assets are bundled):
+   · near-black iron panels with beveled edges, zero border radius
+   · blood-red accents, parchment-beige engraved text
+   · heavy vignette + muted color grade on the stage background
+   · torch-flicker glow on the active speaker / active combatant
+   · oversized serif damage numbers with hard black outlines
+
+   Optional user assets (loaded from the "DD assets folder" setting, extracted
+   by the user from their OWN copy of the game — never distributed):
+   · title-font.ttf / body-font.ttf  → custom typefaces
+   · panel-texture.png               → panel background grain
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Design tokens ──────────────────────────────────────────────────────── */
+body.vne-theme-dd #vne-main {
+  --vne-accent:        #a91e1e;                       /* blood red            */
+  --vne-accent2:       #c47616;                       /* ember orange         */
+  --vne-dark:          rgba(5, 4, 3, 0.85);
+  --vne-darker:        rgba(3, 2, 2, 0.95);
+  --vne-panel:         rgba(14, 11, 9, 0.92);
+  --vne-border:        rgba(74, 60, 44, 0.85);        /* worn bronze bevel    */
+  --vne-text:          #cfc09a;                       /* parchment            */
+  --vne-text-dim:      rgba(178, 162, 126, 0.75);
+  --vne-shadow:        0 6px 28px rgba(0, 0, 0, 0.85);
+  --vne-radius:        0px;                           /* DD is all hard edges */
+  --vne-transition:    0.25s ease-out;
+  --vne-speaker-glow:  0 0 34px rgba(196, 118, 22, 0.50), 0 0 90px rgba(169, 30, 30, 0.25);
+
+  font-family: var(--vne-dd-body-font);
+}
+
+body.vne-theme-dd {
+  /* shared tokens for elements appended to <body> (overlays, FAB, dialogs) */
+  --vne-dd-red:        #a91e1e;
+  --vne-dd-red-deep:   #6e0d0d;
+  --vne-dd-ember:      #c47616;
+  --vne-dd-parchment:  #cfc09a;
+  --vne-dd-parch-dim:  rgba(178, 162, 126, 0.75);
+  --vne-dd-iron:       #14100d;
+  --vne-dd-bevel:      #4a3c2c;
+  --vne-dd-title-font: "VNE DD Title", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --vne-dd-body-font:  "VNE DD Body", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  /* Self-contained grit: SVG turbulence noise, no external asset needed.
+     Used as panel grain whenever the user hasn't supplied panel-texture.png. */
+  --vne-dd-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='linear' slope='0.16'/></feComponentTransfer></filter><rect width='140' height='140' filter='url(%23n)'/></svg>");
+}
+
+/* Reusable panel treatment: iron plate + bevel + optional user texture */
+body.vne-theme-dd .vne-top-bar,
+body.vne-theme-dd .vne-side-panel,
+body.vne-theme-dd .vne-combat-controls,
+body.vne-theme-dd .vne-player-panel,
+body.vne-theme-dd .vne-scenes-pill,
+body.vne-theme-dd #vne-scenes-panel,
+body.vne-theme-dd #vne-actor-picker,
+body.vne-theme-dd #vne-carousel-menu,
+body.vne-theme-dd .vne-portrait-action-menu,
+body.vne-theme-dd #vne-status-picker,
+body.vne-theme-dd .vne-help-panel {
+  background:
+    var(--vne-dd-panel-tex, var(--vne-dd-grain)),
+    linear-gradient(180deg, rgba(26, 20, 15, 0.96) 0%, rgba(10, 8, 6, 0.97) 100%);
+  background-blend-mode: overlay;
+  border: 1px solid #060504;
+  border-radius: 0;
+  box-shadow:
+    inset 0 0 0 1px rgba(74, 60, 44, 0.55),   /* bronze bevel        */
+    inset 0 0 22px rgba(0, 0, 0, 0.75),       /* inner soot          */
+    0 6px 28px rgba(0, 0, 0, 0.85);
+  color: var(--vne-dd-parchment);
+}
+
+/* ── Background grade + vignette ────────────────────────────────────────── */
+body.vne-theme-dd .vne-bg-img {
+  filter: saturate(0.78) contrast(1.08) brightness(0.92);
+}
+body.vne-theme-dd .vne-background-overlay {
+  background:
+    radial-gradient(ellipse at 50% 42%,
+      rgba(0, 0, 0, 0)    38%,
+      rgba(0, 0, 0, 0.38) 74%,
+      rgba(0, 0, 0, 0.82) 100%),
+    linear-gradient(to bottom,
+      rgba(0, 0, 0, 0.50) 0%,
+      rgba(0, 0, 0, 0.08) 42%,
+      rgba(0, 0, 0, 0.12) 60%,
+      rgba(0, 0, 0, 0.72) 100%);
+  /* smouldering ember breath — keyframes in the DD polish layer below */
+  animation: vne-dd-ember 7s ease-in-out infinite;
+}
+
+/* ── Top bar / location ─────────────────────────────────────────────────── */
+body.vne-theme-dd .vne-loc-name {
+  font-family: var(--vne-dd-title-font);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--vne-dd-parchment);
+  text-shadow: 0 2px 3px #000, 0 0 18px rgba(196, 118, 22, 0.35);
+}
+body.vne-theme-dd .vne-loc-parent,
+body.vne-theme-dd .vne-loc-weather,
+body.vne-theme-dd .vne-loc-time {
+  font-family: var(--vne-dd-body-font);
+  color: var(--vne-dd-parch-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.82em;
+}
+body.vne-theme-dd .vne-loc-sep { color: var(--vne-dd-red); }
+
+/* ── Control buttons: dark iron, red when lit ───────────────────────────── */
+body.vne-theme-dd .vne-ctrl-btn,
+body.vne-theme-dd .vne-turn-nav-btn,
+body.vne-theme-dd .vne-add-cast-btn,
+body.vne-theme-dd .vne-sp-hbtn,
+body.vne-theme-dd .vne-icon-btn {
+  background: linear-gradient(180deg, #241c15 0%, #0d0a08 100%);
+  border: 1px solid #060504;
+  border-radius: 0;
+  box-shadow: inset 0 0 0 1px rgba(74, 60, 44, 0.5), 0 2px 6px rgba(0, 0, 0, 0.7);
+  color: var(--vne-dd-parch-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+body.vne-theme-dd .vne-ctrl-btn:hover,
+body.vne-theme-dd .vne-turn-nav-btn:hover,
+body.vne-theme-dd .vne-add-cast-btn:hover,
+body.vne-theme-dd .vne-sp-hbtn:hover,
+body.vne-theme-dd .vne-icon-btn:hover {
+  color: #f0e6c8;
+  border-color: var(--vne-dd-red-deep);
+  box-shadow:
+    inset 0 0 0 1px rgba(169, 30, 30, 0.55),
+    0 0 12px rgba(169, 30, 30, 0.40),
+    0 2px 6px rgba(0, 0, 0, 0.7);
+}
+body.vne-theme-dd .vne-ctrl-btn.vne-active {
+  color: #f0e6c8;
+  background: linear-gradient(180deg, #4a1010 0%, #200606 100%);
+  border-color: #050302;
+  box-shadow:
+    inset 0 0 0 1px rgba(169, 30, 30, 0.7),
+    0 0 14px rgba(169, 30, 30, 0.45);
+}
+
+/* ── Side panels & cast portraits: roster frames ────────────────────────── */
+body.vne-theme-dd .vne-side-label {
+  font-family: var(--vne-dd-title-font);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--vne-dd-parch-dim);
+  text-shadow: 0 2px 2px #000;
+}
+
+body.vne-theme-dd .vne-cast-portrait {
+  border-radius: 0;
+  border: 2px solid #0a0806;
+  box-shadow:
+    inset 0 0 0 1px rgba(74, 60, 44, 0.55),
+    0 4px 14px rgba(0, 0, 0, 0.8);
+  background: #080605;
+}
+body.vne-theme-dd .vne-cast-portrait .vne-cast-img {
+  filter: brightness(0.52) saturate(0.55) sepia(0.12);
+}
+body.vne-theme-dd .vne-cast-portrait:hover {
+  border-color: #0a0806;
+  transform: none;                       /* DD frames don't float around     */
+  box-shadow:
+    inset 0 0 0 1px rgba(196, 118, 22, 0.55),
+    0 0 16px rgba(196, 118, 22, 0.25),
+    0 4px 14px rgba(0, 0, 0, 0.8);
+}
+body.vne-theme-dd .vne-cast-portrait:hover .vne-cast-img {
+  filter: brightness(0.8) saturate(0.85) sepia(0.08);
+}
+body.vne-theme-dd .vne-cast-portrait.vne-speaking {
+  border-color: #0a0806;
+  box-shadow:
+    inset 0 0 0 1px rgba(196, 118, 22, 0.85),
+    0 0 22px rgba(196, 118, 22, 0.45),
+    0 0 60px rgba(169, 30, 30, 0.25);
+  animation: vne-dd-torch 2.6s ease-in-out infinite;
+}
+body.vne-theme-dd .vne-cast-portrait.vne-speaking .vne-cast-img {
+  filter: brightness(1) saturate(1) sepia(0.05);
+}
+body.vne-theme-dd .vne-cast-name {
+  font-family: var(--vne-dd-title-font);
+  font-size: 0.64em;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--vne-dd-parchment);
+  text-shadow: 0 1px 2px #000, 0 0 6px rgba(0, 0, 0, 0.9);
+  background: linear-gradient(to top, rgba(4, 3, 2, 0.95) 0%, rgba(4, 3, 2, 0.6) 70%, rgba(4, 3, 2, 0) 100%);
+}
+body.vne-theme-dd .vne-cast-portrait.vne-targeted .vne-cast-name,
+body.vne-theme-dd .vne-cast-portrait.vne-combat-target .vne-cast-name {
+  color: #e04b4b;
+  text-shadow: 0 1px 2px #000, 0 0 10px rgba(169, 30, 30, 0.7);
+}
+
+body.vne-theme-dd .vne-speaking-ring {
+  border-radius: 0;
+  border: 2px solid rgba(196, 118, 22, 0.85);
+  animation: vne-dd-torch 2.6s ease-in-out infinite;
+}
+
+/* Torch flicker — irregular warm pulse, replaces the clean golden pulse */
+@keyframes vne-dd-torch {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(196,118,22,0.85), 0 0 22px rgba(196,118,22,0.45), 0 0 60px rgba(169,30,30,0.25); }
+  23%      { box-shadow: inset 0 0 0 1px rgba(196,118,22,0.70), 0 0 16px rgba(196,118,22,0.32), 0 0 44px rgba(169,30,30,0.18); }
+  38%      { box-shadow: inset 0 0 0 1px rgba(196,118,22,0.95), 0 0 28px rgba(196,118,22,0.55), 0 0 74px rgba(169,30,30,0.30); }
+  61%      { box-shadow: inset 0 0 0 1px rgba(196,118,22,0.62), 0 0 14px rgba(196,118,22,0.28), 0 0 40px rgba(169,30,30,0.15); }
+  79%      { box-shadow: inset 0 0 0 1px rgba(196,118,22,0.90), 0 0 26px rgba(196,118,22,0.50), 0 0 66px rgba(169,30,30,0.28); }
+}
+
+/* ── RP stage nameplates: engraved dialogue banner ──────────────────────── */
+body.vne-theme-dd .vne-rp-nameplate {
+  background: linear-gradient(180deg, rgba(20, 15, 11, 0.94) 0%, rgba(8, 6, 5, 0.96) 100%);
+  border: 1px solid #060504;
+  border-radius: 0;
+  box-shadow: inset 0 0 0 1px rgba(74, 60, 44, 0.55), 0 4px 16px rgba(0, 0, 0, 0.8);
+}
+body.vne-theme-dd .vne-rp-name {
+  font-family: var(--vne-dd-title-font);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--vne-dd-parchment);
+  text-shadow: 0 2px 3px #000;
+}
+body.vne-theme-dd .vne-rp-title { color: var(--vne-dd-red); font-style: normal; }
+
+/* ── Initiative carousel: DD turn-order rail ────────────────────────────── */
+body.vne-theme-dd .vne-carousel-item {
+  border-radius: 0;
+  border: 2px solid #0a0806;
+  box-shadow: inset 0 0 0 1px rgba(74, 60, 44, 0.5);
+  background: #080605;
+}
+body.vne-theme-dd .vne-carousel-item:hover {
+  border-color: #0a0806;
+  box-shadow: inset 0 0 0 1px rgba(196, 118, 22, 0.6), 0 6px 18px rgba(0, 0, 0, 0.75);
+  transform: translateY(-3px);
+}
+body.vne-theme-dd .vne-carousel-active {
+  border-color: #0a0806 !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(169, 30, 30, 0.95),
+    0 0 16px rgba(169, 30, 30, 0.65),
+    0 0 40px rgba(169, 30, 30, 0.30) !important;
+}
+body.vne-theme-dd .vne-carousel-next {
+  border-color: #0a0806;
+  box-shadow: inset 0 0 0 1px rgba(196, 118, 22, 0.55), 0 0 8px rgba(196, 118, 22, 0.25);
+}
+body.vne-theme-dd .vne-badge-now  { background: var(--vne-dd-red); color: #f0e6c8; border-radius: 0; }
+body.vne-theme-dd .vne-badge-next { background: var(--vne-dd-ember); color: #140c04; border-radius: 0; }
+body.vne-theme-dd .vne-badge-next2{ background: rgba(178, 162, 126, 0.6); color: #14100d; border-radius: 0; }
+body.vne-theme-dd .vne-carousel-turn-bar {
+  background: var(--vne-dd-red);
+  animation: vne-dd-turn-bar 1.4s ease-in-out infinite alternate;
+}
+@keyframes vne-dd-turn-bar {
+  from { opacity: 1;    box-shadow: 0 0 8px rgba(169, 30, 30, 0.9); }
+  to   { opacity: 0.55; box-shadow: 0 0 2px rgba(169, 30, 30, 0.35); }
+}
+body.vne-theme-dd .vne-carousel-cname { font-family: var(--vne-dd-body-font); color: var(--vne-dd-parchment); }
+body.vne-theme-dd .vne-carousel-cinit { color: var(--vne-dd-ember); }
+
+/* ── Combat controls: round counter as ominous plaque ───────────────────── */
+body.vne-theme-dd .vne-round-label,
+body.vne-theme-dd .vne-turn-name {
+  font-family: var(--vne-dd-title-font);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--vne-dd-parch-dim);
+}
+body.vne-theme-dd .vne-round-num {
+  font-family: var(--vne-dd-title-font);
+  color: var(--vne-dd-red);
+  text-shadow: 0 0 14px rgba(169, 30, 30, 0.55), 0 2px 3px #000;
+}
+body.vne-theme-dd .vne-timer-display { font-family: var(--vne-dd-title-font); letter-spacing: 0.08em; }
+body.vne-theme-dd .vne-timer-display.vne-timer-low {
+  color: var(--vne-dd-red);
+  text-shadow: 0 0 12px rgba(169, 30, 30, 0.8);
+}
+
+/* ── VS display: crimson HP ─────────────────────────────────────────────── */
+body.vne-theme-dd .vne-vs-name {
+  font-family: var(--vne-dd-title-font);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+body.vne-theme-dd .vne-vs-hp-bar-wrap {
+  border-radius: 0;
+  border: 1px solid #060504;
+  box-shadow: inset 0 0 0 1px rgba(74, 60, 44, 0.5);
+}
+body.vne-theme-dd .vne-vs-hp-bar {
+  background: linear-gradient(180deg, #c22727 0%, #6e0d0d 100%);
+  border-radius: 0;
+}
+body.vne-theme-dd .vne-vs-sep {
+  color: var(--vne-dd-red);
+  text-shadow: 0 0 20px rgba(169, 30, 30, 0.7);
+}
+
+/* ── Damage floaters: DD combat numbers ─────────────────────────────────── */
+body.vne-theme-dd .vne-damage-floater {
+  font-family: var(--vne-dd-title-font);
+  font-weight: 700;
+  -webkit-text-stroke: 1px #000;
+  text-shadow:
+    2px 2px 0 #000, -2px 2px 0 #000, 2px -2px 0 #000, -2px -2px 0 #000,
+    0 4px 10px rgba(0, 0, 0, 0.9);
+}
+body.vne-theme-dd .vne-df-damage { color: #e8dcc8; }
+body.vne-theme-dd .vne-df-heal   { color: #7fae5a; }
+body.vne-theme-dd .vne-damage-floater.vne-df-crit,
+body.vne-theme-dd .vne-df-damage.vne-df-crit { color: #ff9b2e; }
+
+/* ── Turn announcement cards ────────────────────────────────────────────── */
+body.vne-theme-dd .vne-tc-player {
+  background: linear-gradient(100deg, rgba(20, 16, 12, 0.97) 0%, rgba(9, 7, 5, 0.97) 100%);
+  border-color: #060504;
+}
+body.vne-theme-dd .vne-tc-enemy {
+  background: linear-gradient(100deg, rgba(52, 8, 8, 0.97) 0%, rgba(16, 3, 3, 0.97) 100%);
+  border-color: #060504;
+}
+body.vne-theme-dd .vne-tc-phase-label,
+body.vne-theme-dd .vne-tc-name,
+body.vne-theme-dd .vne-tc-turn-word {
+  font-family: var(--vne-dd-title-font);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  text-shadow: 0 2px 3px #000;
+}
+body.vne-theme-dd .vne-tc-player .vne-tc-turn-word { color: var(--vne-dd-parchment); }
+body.vne-theme-dd .vne-tc-enemy  .vne-tc-turn-word { color: #e04b4b; }
+body.vne-theme-dd .vne-tc-portrait { border-radius: 0; }
+body.vne-theme-dd .vne-tc-portrait-wrap {
+  border-radius: 0;
+  border: 2px solid #0a0806;
+  box-shadow: inset 0 0 0 1px rgba(74, 60, 44, 0.55);
+}
+
+/* ── Victory / defeat: engraved announcement ────────────────────────────── */
+body.vne-theme-dd .vne-victory-overlay {
+  background:
+    radial-gradient(ellipse at center,
+      rgba(10, 6, 4, 0.55) 0%,
+      rgba(3, 2, 2, 0.92) 100%);
+}
+body.vne-theme-dd .vne-victory-rays {
+  /* god-rays → smouldering embers */
+  filter: hue-rotate(-18deg) saturate(1.6) brightness(0.7);
+  opacity: 0.5;
+}
+body.vne-theme-dd .vne-victory-title {
+  font-family: var(--vne-dd-title-font);
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  color: var(--vne-dd-parchment);
+  text-shadow:
+    0 3px 4px #000,
+    0 0 30px rgba(196, 118, 22, 0.45),
+    0 0 90px rgba(169, 30, 30, 0.30);
+}
+body.vne-theme-dd .vne-victory-sub {
+  font-family: var(--vne-dd-body-font);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--vne-dd-parch-dim);
+}
+
+/* ── Crit / fumble overlay ──────────────────────────────────────────────── */
+body.vne-theme-dd .vne-crit-rays { filter: hue-rotate(-18deg) saturate(1.5) brightness(0.75); }
+body.vne-theme-dd .vne-crit-img  { border-radius: 0; }
+
+/* ── Scenes pill + panel ────────────────────────────────────────────────── */
+body.vne-theme-dd .vne-scenes-pill {
+  border-radius: 0;
+  font-family: var(--vne-dd-body-font);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+body.vne-theme-dd .vne-sp-title,
+body.vne-theme-dd .vne-player-panel-title,
+body.vne-theme-dd .vne-help-header {
+  font-family: var(--vne-dd-title-font);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--vne-dd-parchment);
+}
+body.vne-theme-dd .vne-sp-card,
+body.vne-theme-dd .vne-qap-card {
+  border-radius: 0;
+  border: 1px solid #060504;
+  box-shadow: inset 0 0 0 1px rgba(74, 60, 44, 0.45);
+  background: rgba(10, 8, 6, 0.9);
+}
+body.vne-theme-dd .vne-sp-card-active {
+  box-shadow:
+    inset 0 0 0 1px rgba(169, 30, 30, 0.85),
+    0 0 14px rgba(169, 30, 30, 0.4);
+}
+body.vne-theme-dd .vne-sp-tab {
+  border-radius: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+body.vne-theme-dd .vne-sp-tab-active {
+  background: linear-gradient(180deg, #4a1010 0%, #200606 100%);
+  color: #f0e6c8;
+}
+body.vne-theme-dd .vne-sp-search,
+body.vne-theme-dd .vne-qap-search,
+body.vne-theme-dd .vne-timer-input,
+body.vne-theme-dd .vne-preset-select,
+body.vne-theme-dd .vne-preset-name-input,
+body.vne-theme-dd .vne-rm-tpl-select,
+body.vne-theme-dd .vne-rm-tpl-name {
+  background: rgba(6, 5, 4, 0.9);
+  border: 1px solid #060504;
+  border-radius: 0;
+  box-shadow: inset 0 0 0 1px rgba(74, 60, 44, 0.4);
+  color: var(--vne-dd-parchment);
+  font-family: var(--vne-dd-body-font);
+}
+
+/* ── Floating toggle button (FAB) ───────────────────────────────────────── */
+body.vne-theme-dd #vne-toggle-fab {
+  border-radius: 0;
+  background: linear-gradient(180deg, #241c15 0%, #0d0a08 100%);
+  border: 1px solid #060504;
+  box-shadow:
+    inset 0 0 0 1px rgba(74, 60, 44, 0.55),
+    0 4px 14px rgba(0, 0, 0, 0.8);
+  color: var(--vne-dd-parch-dim);
+}
+body.vne-theme-dd #vne-toggle-fab:hover {
+  color: #f0e6c8;
+  box-shadow:
+    inset 0 0 0 1px rgba(169, 30, 30, 0.6),
+    0 0 14px rgba(169, 30, 30, 0.4),
+    0 4px 14px rgba(0, 0, 0, 0.8);
+}
+
+/* ── Help / presets / misc dialogs ──────────────────────────────────────── */
+body.vne-theme-dd .vne-help-tab {
+  border-radius: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-family: var(--vne-dd-body-font);
+}
+body.vne-theme-dd .vne-help-tab.vne-help-tab-active {
+  background: linear-gradient(180deg, #4a1010 0%, #200606 100%);
+  color: #f0e6c8;
+}
+body.vne-theme-dd .vne-help-step-title { font-family: var(--vne-dd-title-font); letter-spacing: 0.06em; }
+body.vne-theme-dd .vne-preset-btn,
+body.vne-theme-dd .vne-rm-tpl-btn,
+body.vne-theme-dd .vne-show-all-btn,
+body.vne-theme-dd .vne-sp-new-btn,
+body.vne-theme-dd .vne-rm-add-btn {
+  border-radius: 0;
+  background: linear-gradient(180deg, #241c15 0%, #0d0a08 100%);
+  border: 1px solid #060504;
+  box-shadow: inset 0 0 0 1px rgba(74, 60, 44, 0.5);
+  color: var(--vne-dd-parchment);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--vne-dd-body-font);
+}
+body.vne-theme-dd .vne-preset-btn:hover,
+body.vne-theme-dd .vne-rm-tpl-btn:hover,
+body.vne-theme-dd .vne-show-all-btn:hover,
+body.vne-theme-dd .vne-sp-new-btn:hover,
+body.vne-theme-dd .vne-rm-add-btn:hover {
+  box-shadow: inset 0 0 0 1px rgba(169, 30, 30, 0.55), 0 0 12px rgba(169, 30, 30, 0.35);
+  color: #f0e6c8;
+}
+body.vne-theme-dd .vne-preset-btn-del,
+body.vne-theme-dd .vne-rm-tpl-btn-del {
+  background: linear-gradient(180deg, #4a1010 0%, #200606 100%);
+}
+
+/* ── Spotlight vignette gets extra oppression ───────────────────────────── */
+body.vne-theme-dd .vne-spotlight-vignette {
+  box-shadow: inset 0 0 220px 90px rgba(0, 0, 0, 0.95);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DD POLISH LAYER — material depth pass. Also neutralizes the classic AAA
+   layer's glass/gold treatments where the iron-and-parchment language differs.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Classic layer paints titles as gradient gold text — reset to DD parchment */
+body.vne-theme-dd .vne-loc-name,
+body.vne-theme-dd .vne-victory-title,
+body.vne-theme-dd .vne-round-num {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  -webkit-text-fill-color: currentColor;
+  filter: none;
+}
+body.vne-theme-dd #vne-main ::selection { background: rgba(169, 30, 30, 0.4); }
+
+/* Iron doesn't float: cancel classic hover-lift, sink into the plate on press */
+body.vne-theme-dd .vne-ctrl-btn:hover,
+body.vne-theme-dd .vne-turn-nav-btn:hover,
+body.vne-theme-dd .vne-add-cast-btn:hover,
+body.vne-theme-dd .vne-sp-hbtn:hover,
+body.vne-theme-dd .vne-icon-btn:hover,
+body.vne-theme-dd .vne-preset-btn:hover,
+body.vne-theme-dd .vne-show-all-btn:hover,
+body.vne-theme-dd .vne-sp-new-btn:hover,
+body.vne-theme-dd .vne-rm-add-btn:hover,
+body.vne-theme-dd #vne-toggle-fab:hover {
+  transform: none;
+}
+body.vne-theme-dd .vne-ctrl-btn:active,
+body.vne-theme-dd .vne-turn-nav-btn:active,
+body.vne-theme-dd .vne-add-cast-btn:active,
+body.vne-theme-dd .vne-sp-hbtn:active,
+body.vne-theme-dd .vne-icon-btn:active,
+body.vne-theme-dd .vne-preset-btn:active,
+body.vne-theme-dd .vne-show-all-btn:active,
+body.vne-theme-dd .vne-sp-new-btn:active,
+body.vne-theme-dd .vne-rm-add-btn:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.85), inset 0 0 0 1px rgba(74, 60, 44, 0.4);
+}
+
+/* Glass is not iron: matte panels, no blur behind near-opaque plates */
+body.vne-theme-dd .vne-side-panel,
+body.vne-theme-dd .vne-player-panel,
+body.vne-theme-dd #vne-scenes-panel,
+body.vne-theme-dd #vne-actor-picker,
+body.vne-theme-dd .vne-help-panel,
+body.vne-theme-dd #vne-carousel-menu,
+body.vne-theme-dd .vne-portrait-action-menu,
+body.vne-theme-dd #vne-status-picker,
+body.vne-theme-dd .vne-scenes-pill,
+body.vne-theme-dd .vne-rp-nameplate,
+body.vne-theme-dd #vne-toggle-fab {
+  backdrop-filter: none;
+}
+
+/* ── Bronze corner brackets on the showcase panels ──────────────────────────
+   Drawn as background layers (never pseudo-elements) so they always paint
+   BELOW content: 8 corner bars + grain + iron gradient in one stack. */
+body.vne-theme-dd .vne-side-panel,
+body.vne-theme-dd .vne-player-panel,
+body.vne-theme-dd #vne-scenes-panel,
+body.vne-theme-dd #vne-actor-picker {
+  background:
+    linear-gradient(#6b5637, #6b5637), linear-gradient(#6b5637, #6b5637),
+    linear-gradient(#6b5637, #6b5637), linear-gradient(#6b5637, #6b5637),
+    linear-gradient(#6b5637, #6b5637), linear-gradient(#6b5637, #6b5637),
+    linear-gradient(#6b5637, #6b5637), linear-gradient(#6b5637, #6b5637),
+    var(--vne-dd-panel-tex, var(--vne-dd-grain)),
+    linear-gradient(180deg, rgba(26, 20, 15, 0.96) 0%, rgba(10, 8, 6, 0.97) 100%);
+  background-size:
+    18px 2px, 2px 18px,
+    18px 2px, 2px 18px,
+    18px 2px, 2px 18px,
+    18px 2px, 2px 18px,
+    140px 140px, 100% 100%;
+  background-position:
+    6px 6px, 6px 6px,
+    calc(100% - 6px) 6px, calc(100% - 6px) 6px,
+    6px calc(100% - 6px), 6px calc(100% - 6px),
+    calc(100% - 6px) calc(100% - 6px), calc(100% - 6px) calc(100% - 6px),
+    0 0, 0 0;
+  background-repeat:
+    no-repeat, no-repeat, no-repeat, no-repeat,
+    no-repeat, no-repeat, no-repeat, no-repeat,
+    repeat, no-repeat;
+  background-blend-mode:
+    normal, normal, normal, normal,
+    normal, normal, normal, normal,
+    overlay, normal;
+}
+
+/* ── Engraved lettering on structural titles ────────────────────────────── */
+body.vne-theme-dd .vne-loc-name,
+body.vne-theme-dd .vne-side-label,
+body.vne-theme-dd .vne-sp-title,
+body.vne-theme-dd .vne-player-panel-title,
+body.vne-theme-dd .vne-round-label,
+body.vne-theme-dd .vne-turn-name,
+body.vne-theme-dd .vne-rp-name {
+  text-shadow:
+    0 -1px 1px rgba(0, 0, 0, 0.95),
+    0 1px 0 rgba(255, 235, 190, 0.08),
+    0 2px 4px rgba(0, 0, 0, 0.75);
+}
+
+/* ── HP bars: segmented like the game's pip meters ──────────────────────── */
+body.vne-theme-dd .vne-carousel-hp-bar { background: rgba(0, 0, 0, 0.8); }
+body.vne-theme-dd .vne-carousel-hp-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg,
+    transparent 0px, transparent 9px,
+    rgba(0, 0, 0, 0.85) 9px, rgba(0, 0, 0, 0.85) 10px);
+  pointer-events: none;
+  z-index: 1;
+}
+body.vne-theme-dd .vne-vs-hp-bar::after {
+  background:
+    repeating-linear-gradient(90deg,
+      transparent 0px, transparent 22px,
+      rgba(0, 0, 0, 0.7) 22px, rgba(0, 0, 0, 0.7) 24px),
+    linear-gradient(180deg,
+      rgba(255, 255, 255, 0.18) 0%,
+      rgba(255, 255, 255, 0.05) 42%,
+      rgba(0, 0, 0, 0.15) 55%,
+      rgba(0, 0, 0, 0.35) 100%);
+}
+
+/* ── Smouldering vignette: the room breathes ────────────────────────────── */
+/* (animation attached to .vne-background-overlay in the base rule above) */
+@keyframes vne-dd-ember {
+  0%, 100% { box-shadow: inset 0 0 160px 30px rgba(70, 12, 6, 0.20); }
+  50%      { box-shadow: inset 0 0 230px 60px rgba(70, 12, 6, 0.34); }
+}
+
+/* ── Scrollbars: rust instead of gold ───────────────────────────────────── */
+body.vne-theme-dd .vne-portraits-list::-webkit-scrollbar-thumb,
+body.vne-theme-dd .vne-sp-grid::-webkit-scrollbar-thumb,
+body.vne-theme-dd .vne-qap-scroll::-webkit-scrollbar-thumb,
+body.vne-theme-dd .vne-help-body::-webkit-scrollbar-thumb,
+body.vne-theme-dd #vne-rm-rows::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(140, 40, 30, 0.65) 0%, rgba(80, 20, 15, 0.65) 100%);
+  border-radius: 0;
+  border: 2px solid rgba(0, 0, 0, 0.5);
+}
+body.vne-theme-dd .vne-portraits-list::-webkit-scrollbar-track,
+body.vne-theme-dd .vne-sp-grid::-webkit-scrollbar-track,
+body.vne-theme-dd .vne-qap-scroll::-webkit-scrollbar-track,
+body.vne-theme-dd .vne-help-body::-webkit-scrollbar-track,
+body.vne-theme-dd #vne-rm-rows::-webkit-scrollbar-track {
+  border-radius: 0;
+}
+
+/* ── Focus ring: ember, square ──────────────────────────────────────────── */
+body.vne-theme-dd #vne-main [role="button"]:focus-visible,
+body.vne-theme-dd #vne-main button:focus-visible,
+body.vne-theme-dd #vne-main input:focus-visible,
+body.vne-theme-dd #vne-toggle-fab:focus-visible {
+  outline: 2px solid rgba(196, 118, 22, 0.9);
+  border-radius: 0;
+}

@@ -22,7 +22,7 @@
     "scripts/ai-generator.js",
     "scripts/main.js"
   ],
-  "styles": ["styles/module.css", "styles/ai-generator.css"],
+  "styles": ["styles/module.css", "styles/theme-dd.css", "styles/ai-generator.css"],
   "languages": [
     { "lang": "en", "name": "English", "path": "language/en.json" },
     { "lang": "es", "name": "Español", "path": "language/es.json" }

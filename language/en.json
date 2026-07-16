@@ -14,6 +14,20 @@
         "label": "Manage License",
         "hint": "View your subscription tier and free installation slots."
       },
+      "visualTheme": {
+        "name": "Visual theme",
+        "hint": "Overall look of the VN interface. \"Darkest Dungeon\" applies a gothic dark-fantasy skin (iron panels, blood-red accents, torch-lit speaker glow) without changing any functionality.",
+        "classic": "Classic (default)",
+        "darkest": "Darkest Dungeon"
+      },
+      "ddAssetsPath": {
+        "name": "Darkest Dungeon theme — assets folder (optional)",
+        "hint": "Optional folder with your own assets for the theme: title-font.ttf, body-font.ttf and panel-texture.png. If you own the game you may extract assets for personal use — never redistribute them. The theme works fully without this folder."
+      },
+      "autoCastFromCombat": {
+        "name": "Auto-fill cast from combat",
+        "hint": "When the combat stage opens (and when combatants join mid-fight), automatically add them to the VN cast: player-owned and friendly tokens on the left, enemies on the right. Add-only — it never removes members you placed manually. Hidden combatants stay out until revealed."
+      },
       "bgFolderPath": {
         "name": "Background images folder",
         "hint": "Default folder opened when picking a background image."
@@ -235,6 +249,9 @@
       "noActorForCombatant": "VNE | Could not find actor for this combatant."
     },
     "notify": {
+      "vnClosed": "The GM hasn't opened the VN stage yet.",
+      "hiddenByGM": "The GM has hidden the VN stage from you.",
+      "vnInactive": "VN Dialogues Enhanced is not active in this world yet.",
       "actorNotFound": "Actor not found.",
       "stageFull": "VNE: Stage is full (max 5 per row).",
       "noTokenForActor": "VNE: No token found on this scene for that actor.",
