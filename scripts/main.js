@@ -3263,6 +3263,13 @@ function _bindCastPortrait(div, p, side, editMode) {
   });
 }
 
+// True when the side panels render as horizontal finger-scrolled strips
+// (phone portrait with Velvet Mobile active) — see styles/mobile.css.
+function _isMobileStrip() {
+  return document.body.classList.contains("vne-mobile-ready") &&
+         globalThis.matchMedia?.("(max-width: 640px)").matches === true;
+}
+
 function _patchSidePanel(side, d, worldOffsetY, editMode) {
   const panel = document.getElementById(`vne-${side}-portraits`);
   if (!panel) return;
@@ -3271,6 +3278,27 @@ function _patchSidePanel(side, d, worldOffsetY, editMode) {
 
   if (cast.length === 0) {
     panel.innerHTML = `<div class="vne-cast-empty"><i class="fas fa-user-plus"></i><span>${T("ui.dragHint")}</span></div>`;
+    return;
+  }
+
+  const combatModeEarly = d.combatMode ?? false;
+
+  // Mobile strip: the whole cast is reachable by swiping, so paging controls
+  // (and their up/down chevrons, meaningless on a horizontal strip) are dropped.
+  if (_isMobileStrip()) {
+    const stageIds = combatModeEarly
+      ? new Set([game.combat?.combatant?.actorId].filter(Boolean))
+      : new Set([...(d.stagePlayers || []), ...(d.stageNPCs || [])]);
+    for (const p of cast) {
+      const tp  = templatePortrait(p, side, stageIds, worldOffsetY, editMode, combatModeEarly);
+      const div = _buildCastPortraitEl(p, side, tp, editMode);
+      _bindCastPortrait(div, p, side, editMode);
+      panel.appendChild(div);
+    }
+    // Keep the active portrait in view as turns advance
+    panel.querySelector(".vne-speaking")?.scrollIntoView({
+      behavior: "smooth", block: "nearest", inline: "center"
+    });
     return;
   }
 
@@ -4072,12 +4100,14 @@ Hooks.once("setup", async () => {
     if (licensed) {
       // Confirmed active — write true so players can read it
       try { await game.settings.set(ID, "worldLicensed", true); } catch { /* ignore */ }
-    } else {
-      // Tokens missing or expired — show re-auth prompt.
+    } else if (!VndLicenseClient.instance.hasStoredCredentials) {
+      // Tokens missing or definitively rejected — show re-auth prompt.
       // Do NOT write false here: the persisted flag stays true if set in a prior session
       // (heartbeat and releaseInstallation are the only valid ways to revoke it).
       Hooks.once("ready", () => VndLicenseUI.show());
     }
+    // else: credentials stored but the license server was unreachable at load —
+    // the heartbeat auto-recovers (~60s); no re-auth prompt for a transient outage.
   }
 
   // All clients: activate only if the world flag is true
@@ -4087,9 +4117,33 @@ Hooks.once("setup", async () => {
   VNE.activate();
 });
 
+// Rotating a phone (or resizing a window) crosses the mobile breakpoint, which
+// switches the side panels between paginated column and finger-scrolled strip.
+// Both layouts are built in JS, so the DOM must be rebuilt — CSS alone can't
+// undo the pagination. Debounced; only fires when the mode actually flips.
+function _initViewportWatcher() {
+  let wasStrip = _isMobileStrip();
+  let timer = null;
+  const onResize = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const isStrip = _isMobileStrip();
+      if (isStrip === wasStrip) return;
+      wasStrip = isStrip;
+      const d = getDataRO();
+      if (!d.showVN) return;
+      _patchCast(getData());
+      renderVNECombatCarousel();
+    }, 180);
+  };
+  globalThis.addEventListener("resize", onResize, { passive: true });
+  globalThis.addEventListener("orientationchange", onResize, { passive: true });
+}
+
 Hooks.on("ready", () => {
   // FAB always injected — when unlicensed, clicking it opens the license prompt
   VNE._injectToggleButton();
+  _initViewportWatcher();
   _initSequencerHook();
   _initAAHook();
   // Seed HP baselines so the first damage event in a session shows floaters correctly

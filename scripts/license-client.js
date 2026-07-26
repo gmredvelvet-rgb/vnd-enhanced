@@ -45,7 +45,10 @@ export class VndLicenseClient {
   #heartbeatTimer        = null;
   #initialHeartbeatTimer = null;
   #lastHeartbeat         = 0;
-  #gracePeriodMs    = 5 * 60 * 1000;
+  // Must comfortably exceed the 15-min heartbeat interval: with the old 5-min
+  // grace, a SINGLE failed heartbeat suspended the module instantly.
+  #gracePeriodMs    = 60 * 60 * 1000;
+  #retryTimer       = null;   // one-off quick retry after a transient failure
   #degraded         = false;
   #rsaPublicKey     = null;   // cached CryptoKey — imported once, reused
 
@@ -81,7 +84,15 @@ export class VndLicenseClient {
         await this.#doRefresh();
         this.#startHeartbeat();
         return true;
-      } catch {
+      } catch (e) {
+        if (this.#isTransient(e)) {
+          // Server unreachable at world load — KEEP the credentials and let the
+          // heartbeat's refresh path recover automatically (first attempt ~60s).
+          // The persisted worldLicensed flag keeps the world running meanwhile.
+          this.#startHeartbeat();
+          return false;
+        }
+        // Definitive rejection — these tokens are dead, re-auth is required.
         this.#clearStoredTokens();
       }
     }
@@ -100,6 +111,17 @@ export class VndLicenseClient {
   get tier() { return this.#tier; }
   get isLicensed() { return this.#tier !== 'none' && !this.#degraded; }
   get installationId() { return this.#installationId; }
+  // True when a refresh token is stored — auto-recovery is possible, so the
+  // re-auth prompt should NOT be shown for a transient outage.
+  get hasStoredCredentials() { return !!this.#refreshToken; }
+
+  // Transport/server hiccups: safe to retry later, must never destroy tokens.
+  // Everything else (revoked, expired refresh, device mismatch, conflict…) is
+  // a definitive verdict from the license server.
+  #isTransient(e) {
+    if (!(e instanceof LicenseError)) return true; // unexpected runtime error — don't nuke auth over it
+    return ['NETWORK_ERROR', 'INTERNAL_ERROR', 'RATE_LIMITED', 'NOT_FOUND', 'API_ERROR'].includes(e.code);
+  }
 
   // ── License status (for the management UI) ─────────────────────────────────
 
@@ -318,6 +340,10 @@ export class VndLicenseClient {
       clearInterval(this.#heartbeatTimer);
       this.#heartbeatTimer = null;
     }
+    if (this.#retryTimer) {
+      clearTimeout(this.#retryTimer);
+      this.#retryTimer = null;
+    }
   }
 
   async #doHeartbeat() {
@@ -328,10 +354,23 @@ export class VndLicenseClient {
       // (laptop sleep, network outage) the token is expired and every heartbeat
       // would 401 forever. Recover via the refresh-token flow, then retry once.
       try {
-        if (!this.#refreshToken) throw new Error('no refresh token');
+        if (!this.#refreshToken) throw new LicenseError('no refresh token', 'UNAUTHORIZED');
         await this.#doRefresh();
         await this.#heartbeatOnce();
-      } catch {
+      } catch (e2) {
+        if (!this.#isTransient(e2)) {
+          // The server explicitly rejected us (revoked / expired refresh /
+          // conflict) — retrying is pointless. Suspend and ask for re-auth.
+          this.#clearStoredTokens();
+          this.#stopHeartbeat();
+          this.#degraded = true;
+          if (game.user?.isGM) {
+            game.settings?.set?.(MODULE_ID, 'worldLicensed', false).catch(() => {});
+            ui.notifications?.warn(L('suspended'));
+            VndLicenseUI.show();
+          }
+          return;
+        }
         this.#handleHeartbeatFailure();
       }
     }
@@ -357,6 +396,14 @@ export class VndLicenseClient {
   }
 
   #handleHeartbeatFailure() {
+    // Quick one-off retry: a single blip recovers in ~90s instead of waiting
+    // the full 15-minute interval.
+    if (!this.#retryTimer) {
+      this.#retryTimer = setTimeout(() => {
+        this.#retryTimer = null;
+        this.#doHeartbeat();
+      }, 90_000);
+    }
     const timeSinceLast = Date.now() - this.#lastHeartbeat;
     if (timeSinceLast > this.#gracePeriodMs) {
       if (!this.#degraded) {
@@ -393,11 +440,20 @@ export class VndLicenseClient {
     }
 
     const url  = `${API_BASE}${endpoint}`;
-    const resp = await fetch(url, init);
+    let resp;
+    try {
+      resp = await fetch(url, init);
+    } catch {
+      // fetch() rejects on DNS failure / offline / server down — a transport
+      // problem, never an auth verdict. Callers must not burn tokens over it.
+      throw new LicenseError('License server unreachable', 'NETWORK_ERROR');
+    }
 
     if (!resp.ok) {
-      const err = await resp.json().catch(() => ({ error: 'Network error', code: 'NETWORK_ERROR' }));
-      throw new LicenseError(err.error ?? 'Request failed', err.code ?? 'API_ERROR');
+      const err = await resp.json().catch(() => ({}));
+      // 5xx = server-side trouble → retryable; only 4xx codes carry auth meaning
+      const fallbackCode = resp.status >= 500 ? 'INTERNAL_ERROR' : 'API_ERROR';
+      throw new LicenseError(err.error ?? 'Request failed', err.code ?? fallbackCode);
     }
 
     const data = await resp.json();

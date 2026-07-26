@@ -1,0 +1,350 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   VND Enhanced — Mobile / tablet responsive layer
+   ─────────────────────────────────────────────────────────────────────────────
+   Active only when the companion module "Velvet Mobile" is enabled in the
+   world: settings.js adds `vne-mobile-ready` to <body>, and every rule here is
+   scoped under it + media queries. Desktop clients (wide viewports, fine
+   pointers) are never affected even with the class present.
+
+   Breakpoints
+   · ≤ 920px          — tablets & phone landscape: compress chrome, shrink art
+   · ≤ 640px          — phone portrait: restack the stage (players strip top,
+                        stage center, NPCs strip bottom), full-screen sheets
+   · ≤ 500px height   — phone landscape: vertical space is scarce — flatten
+                        every bar so the stage keeps the room
+   · pointer: coarse  — touch ergonomics: ≥40px targets, no hover-lift,
+                        16px inputs (prevents iOS focus auto-zoom)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Tablet & phone landscape (width) ───────────────────────────────────── */
+@media (max-width: 920px) {
+  body.vne-mobile-ready #vne-main { font-size: 13px; }
+
+  /* Chrome compression */
+  body.vne-mobile-ready .vne-top-bar { padding: 4px 8px; gap: 4px; }
+  body.vne-mobile-ready .vne-top-controls { gap: 4px; flex-wrap: wrap; }
+  body.vne-mobile-ready .vne-loc-name {
+    max-width: 38vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  body.vne-mobile-ready .vne-loc-weather,
+  body.vne-mobile-ready .vne-loc-time { display: none; }
+
+  /* Narrower cast columns */
+  body.vne-mobile-ready .vne-stage { grid-template-columns: 148px 1fr 148px; }
+  body.vne-mobile-ready .vne-cast-portrait { max-width: 132px; }
+
+  /* Initiative carousel: smaller cards, momentum scroll */
+  body.vne-mobile-ready #vne-unified-carousel {
+    padding: 4px 8px 3px;
+    gap: 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  body.vne-mobile-ready .vne-carousel-item { width: 52px; height: 72px; }
+  body.vne-mobile-ready .vne-carousel-effects { max-width: 48px; }
+  body.vne-mobile-ready .vne-carousel-footer { height: 16px; }
+  body.vne-mobile-ready .vne-carousel-hp-bar { bottom: 16px; }
+
+  /* Combat controls: wrap instead of overflowing */
+  body.vne-mobile-ready .vne-combat-controls {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 3px 8px;
+  }
+  body.vne-mobile-ready .vne-round-num { font-size: 1.4em; }
+
+  /* VS display: tighter center column, smaller lettering */
+  body.vne-mobile-ready #vne-combat-vs { grid-template-columns: 1fr 44px 1fr; }
+  body.vne-mobile-ready .vne-vs-sep { padding-bottom: 14px; }
+  body.vne-mobile-ready .vne-vs-sep span { font-size: 1.8em; }
+  body.vne-mobile-ready .vne-vs-name { font-size: 0.76em; }
+
+  /* Floating popups can never exceed the viewport */
+  body.vne-mobile-ready #vne-status-picker,
+  body.vne-mobile-ready #vne-carousel-menu,
+  body.vne-mobile-ready .vne-portrait-action-menu {
+    max-width: calc(100vw - 12px);
+    max-height: 78dvh;
+    overflow-y: auto;
+  }
+
+  /* Action-image overlay: let the art breathe on small screens */
+  body.vne-mobile-ready .vne-ao-img { max-width: 78vw; }
+
+  /* GM player panel: keep it out of the way */
+  body.vne-mobile-ready .vne-player-panel { max-width: 42vw; }
+}
+
+/* ── Phone portrait: restack the whole stage ────────────────────────────── */
+@media (max-width: 640px) {
+  body.vne-mobile-ready #vne-main { font-size: 12px; }
+
+  /* Safe areas (notches, gesture bars) */
+  body.vne-mobile-ready .vne-top-bar {
+    grid-template-columns: 1fr;             /* right section is empty — one column */
+    padding-top: calc(4px + env(safe-area-inset-top, 0px));
+  }
+  body.vne-mobile-ready .vne-top-left-section { flex-wrap: wrap; }
+  body.vne-mobile-ready .vne-bottom-bar {
+    padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px));
+  }
+  body.vne-mobile-ready #vne-toggle-fab {
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+    left: calc(8px + env(safe-area-inset-left, 0px));
+  }
+
+  /* Stage: 3 columns → 3 rows (players / stage / NPCs) */
+  body.vne-mobile-ready .vne-stage {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  body.vne-mobile-ready .vne-left-panel {
+    grid-column: 1;
+    grid-row: 1;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 100%);
+  }
+  body.vne-mobile-ready #vne-rp-stage { grid-column: 1; grid-row: 2; }
+  body.vne-mobile-ready .vne-right-panel {
+    grid-column: 1;
+    grid-row: 3;
+    background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 100%);
+  }
+
+  /* Side panels become horizontal scroll strips */
+  body.vne-mobile-ready .vne-side-panel {
+    height: auto;
+    padding: 2px 0;
+  }
+  body.vne-mobile-ready .vne-side-label { margin-bottom: 2px; }
+  body.vne-mobile-ready .vne-portraits-list {
+    flex-direction: row;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 6px;
+    padding: 0 8px 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+  body.vne-mobile-ready .vne-cast-portrait {
+    flex: 0 0 auto;
+    width: 60px;
+    min-width: 60px;
+    height: 80px;
+    min-height: 80px;
+    max-height: 80px;
+  }
+  body.vne-mobile-ready .vne-cast-name { font-size: 0.60em; padding: 1px 2px; }
+  /* Edit-mode quick controls must fit a 60px-wide card (3 × 18px + gaps) */
+  body.vne-mobile-ready .vne-portrait-qbtn { width: 18px; height: 18px; }
+  body.vne-mobile-ready .vne-remove-cast-btn { width: 20px; height: 20px; }
+  /* Empty-cast hint reads horizontally inside the strip */
+  body.vne-mobile-ready .vne-cast-empty {
+    flex-direction: row;
+    gap: 6px;
+    padding: 6px 10px;
+  }
+
+  /* RP stage nameplates & reactions scale down */
+  body.vne-mobile-ready .vne-rp-nameplate { padding: 3px 8px; }
+  body.vne-mobile-ready .vne-rp-name  { font-size: 0.85em; }
+  body.vne-mobile-ready .vne-rp-title { font-size: 0.65em; }
+  body.vne-mobile-ready .vne-rp-reactions { gap: 3px; padding: 3px 4px; }
+  body.vne-mobile-ready .vne-rp-reactions .vne-reaction-btn { width: 32px; height: 32px; }
+
+  /* VS display on a phone — lifted clear of the bottom NPC strip */
+  body.vne-mobile-ready #vne-combat-vs {
+    grid-template-columns: 1fr 34px 1fr;
+    padding-bottom: 96px;
+  }
+  body.vne-mobile-ready .vne-vs-img { max-height: 72%; }
+  body.vne-mobile-ready .vne-vs-sep { padding-bottom: 8px; }
+  body.vne-mobile-ready .vne-vs-sep span { font-size: 1.4em; }
+  body.vne-mobile-ready .vne-vs-name { font-size: 0.68em; letter-spacing: 0.04em; }
+
+  /* Overlays sized for small screens */
+  body.vne-mobile-ready .vne-victory-title { font-size: clamp(1.6em, 9vw, 3em); }
+  body.vne-mobile-ready .vne-victory-sub   { font-size: clamp(0.7em, 3.5vw, 1em); }
+  body.vne-mobile-ready .vne-tc-name      { font-size: clamp(1em, 5vw, 1.6em); }
+  body.vne-mobile-ready .vne-tc-turn-word { font-size: clamp(1.2em, 6vw, 2em); }
+  body.vne-mobile-ready .vne-tc-portrait-wrap { max-width: 34vw; }
+  body.vne-mobile-ready .vne-crit-img { max-width: 82vw; }
+  body.vne-mobile-ready .vne-ao-img { max-width: 86vw; }
+  body.vne-mobile-ready .vne-damage-floater { font-size: 1.15em; }
+
+  /* GM player panel: compact corner card */
+  body.vne-mobile-ready .vne-player-panel {
+    max-width: 56vw;
+    font-size: 0.9em;
+  }
+
+  /* Full-screen sheets: scenes panel, status picker, help. (NOT the actor
+     picker — that one is a horizontal top bar and already fits any width.) */
+  body.vne-mobile-ready #vne-scenes-panel,
+  body.vne-mobile-ready #vne-status-picker,
+  body.vne-mobile-ready .vne-help-panel {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-width: none !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    transform: none !important;
+    display: flex;
+    flex-direction: column;
+  }
+  /* Their inner scrollers stop self-limiting and take the remaining height */
+  body.vne-mobile-ready #vne-scenes-panel .vne-sp-grid,
+  body.vne-mobile-ready #vne-status-picker .vne-sfx-grid,
+  body.vne-mobile-ready .vne-help-panel .vne-help-body {
+    max-height: none;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  body.vne-mobile-ready .vne-sp-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* Scenes pill stays readable above the gesture bar */
+  body.vne-mobile-ready .vne-scenes-pill { font-size: 0.9em; }
+
+  /* Actor picker is a top bar anchored at a fixed 50px; the header grows when
+     its controls wrap, so push the picker clear of it and let it wrap too. */
+  body.vne-mobile-ready #vne-actor-picker {
+    top: calc(56px + env(safe-area-inset-top, 0px));
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 8px;
+  }
+  body.vne-mobile-ready .vne-qap-label { width: 100%; }
+  body.vne-mobile-ready .vne-qap-search { flex: 1 1 100%; }
+
+  /* Scene-panel controls stack instead of squeezing */
+  body.vne-mobile-ready .vne-sp-search { flex: 1 1 100%; }
+  body.vne-mobile-ready .vne-sp-tabs { flex-wrap: wrap; }
+}
+
+/* ── Foundry dialogs that host VNE content ──────────────────────────────────
+   Portrait editor, scene editor, cast presets and the reaction manager render
+   inside Foundry's own window frames, which keep desktop pixel widths on a
+   phone. Scoped with :has() so ONLY windows containing our markup are touched —
+   character sheets and other modules' windows are left alone. */
+@media (max-width: 640px) {
+  body.vne-mobile-ready .app.window-app:has(.vne-pe-form),
+  body.vne-mobile-ready .app.window-app:has(.vne-scene-editor),
+  body.vne-mobile-ready .app.window-app:has(.vne-presets-dialog),
+  body.vne-mobile-ready .app.window-app:has(.vne-reaction-manager) {
+    position: fixed !important;
+    inset: auto 0 0 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    max-height: 88dvh !important;
+    height: auto !important;
+    border-radius: 12px 12px 0 0 !important;
+    transform: none !important;
+  }
+  body.vne-mobile-ready .app.window-app:has(.vne-pe-form) .window-content,
+  body.vne-mobile-ready .app.window-app:has(.vne-scene-editor) .window-content,
+  body.vne-mobile-ready .app.window-app:has(.vne-presets-dialog) .window-content,
+  body.vne-mobile-ready .app.window-app:has(.vne-reaction-manager) .window-content {
+    max-height: 78dvh;
+    overflow-y: auto;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+  /* Two-column forms collapse to one */
+  body.vne-mobile-ready .vne-pe-form,
+  body.vne-mobile-ready .vne-presets-row { flex-direction: column; align-items: stretch; }
+  body.vne-mobile-ready .vne-pe-preview { max-width: 100%; }
+}
+
+/* ── Phone landscape: height is the scarce dimension ────────────────────── */
+@media (max-height: 500px) {
+  body.vne-mobile-ready #vne-main { font-size: 11px; }
+
+  /* Flatten every horizontal bar so the stage keeps the vertical room */
+  body.vne-mobile-ready .vne-top-bar { padding: 2px 8px; }
+  body.vne-mobile-ready #vne-unified-carousel { padding: 2px 8px 2px; }
+  body.vne-mobile-ready .vne-carousel-item { width: 44px; height: 60px; }
+  body.vne-mobile-ready .vne-carousel-footer { height: 14px; }
+  body.vne-mobile-ready .vne-carousel-hp-bar { bottom: 14px; }
+  body.vne-mobile-ready .vne-carousel-badge { display: none; }
+  body.vne-mobile-ready .vne-combat-controls { padding: 2px 8px; gap: 4px; }
+  body.vne-mobile-ready .vne-round-label { display: none; }
+  body.vne-mobile-ready .vne-round-num { font-size: 1.1em; }
+  body.vne-mobile-ready .vne-bottom-bar { padding: 2px 0; }
+  body.vne-mobile-ready .vne-scenes-pill { font-size: 0.85em; padding: 2px 10px; }
+
+  /* Side columns slim down; portraits stay usable */
+  body.vne-mobile-ready .vne-stage { grid-template-columns: 120px 1fr 120px; }
+  body.vne-mobile-ready .vne-cast-portrait { min-height: 44px; }
+  body.vne-mobile-ready .vne-side-label { margin-bottom: 2px; }
+
+  /* Overlays shrink with the height too */
+  body.vne-mobile-ready .vne-victory-title { font-size: clamp(1.4em, 8vh, 2.4em); }
+  body.vne-mobile-ready .vne-tc-portrait-wrap { max-height: 60vh; }
+  body.vne-mobile-ready .vne-ao-img { max-height: 62vh; }
+}
+
+/* ── Touch ergonomics (any touch-first device) ──────────────────────────── */
+@media (pointer: coarse) {
+  body.vne-mobile-ready #vne-main,
+  body.vne-mobile-ready #vne-toggle-fab {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Finger-sized targets */
+  body.vne-mobile-ready .vne-ctrl-btn,
+  body.vne-mobile-ready .vne-turn-nav-btn,
+  body.vne-mobile-ready .vne-add-cast-btn,
+  body.vne-mobile-ready .vne-panel-nav,
+  body.vne-mobile-ready .vne-sp-hbtn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  body.vne-mobile-ready .vne-qap-card { width: 64px; }
+  body.vne-mobile-ready .vne-sfx-cell { width: 48px; height: 48px; }
+
+  /* 16px inputs: anything smaller triggers iOS Safari's focus auto-zoom */
+  body.vne-mobile-ready .vne-timer-input,
+  body.vne-mobile-ready .vne-sp-search,
+  body.vne-mobile-ready .vne-qap-search,
+  body.vne-mobile-ready .vne-preset-name-input,
+  body.vne-mobile-ready .vne-preset-select,
+  body.vne-mobile-ready .vne-rm-tpl-name,
+  body.vne-mobile-ready .vne-rm-tpl-select,
+  body.vne-mobile-ready .vne-se-row input,
+  body.vne-mobile-ready .vne-se-row select,
+  body.vne-mobile-ready .vne-pe-fields input,
+  body.vne-mobile-ready .vne-pe-fields select {
+    font-size: 16px;
+  }
+
+  /* Edit-mode controls & remove buttons: hover doesn't exist on touch */
+  body.vne-mobile-ready .vne-cast-portrait .vne-remove-cast-btn,
+  body.vne-mobile-ready .vne-portrait-quick-ctrl { opacity: 1 !important; }
+  body.vne-mobile-ready .vne-portrait-quick-ctrl { pointer-events: all; }
+
+  /* No hover-lift on touch — avoids sticky "raised" buttons after a tap */
+  body.vne-mobile-ready .vne-ctrl-btn:hover,
+  body.vne-mobile-ready .vne-turn-nav-btn:hover,
+  body.vne-mobile-ready .vne-add-cast-btn:hover,
+  body.vne-mobile-ready .vne-sp-hbtn:hover,
+  body.vne-mobile-ready .vne-icon-btn:hover,
+  body.vne-mobile-ready #vne-toggle-fab:hover,
+  body.vne-mobile-ready .vne-cast-portrait:hover,
+  body.vne-mobile-ready .vne-carousel-item:hover,
+  body.vne-mobile-ready .vne-panel-nav:hover {
+    transform: none;
+  }
+
+  /* Native momentum scrolling everywhere we scroll */
+  body.vne-mobile-ready .vne-portraits-list,
+  body.vne-mobile-ready #vne-unified-carousel,
+  body.vne-mobile-ready .vne-sp-grid,
+  body.vne-mobile-ready .vne-qap-scroll,
+  body.vne-mobile-ready .vne-sfx-grid,
+  body.vne-mobile-ready .vne-help-body {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+}

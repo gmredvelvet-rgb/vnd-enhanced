@@ -34,7 +34,21 @@ export function applyVisualTheme() {
   document.head.appendChild(style);
 }
 
-Hooks.once("ready", applyVisualTheme);
+/**
+ * Mobile mode — when the companion module "Velvet Mobile" is active in this
+ * world, tag <body> so styles/mobile.css activates its responsive layer.
+ * Desktop clients are unaffected: every rule in that sheet also requires a
+ * small-viewport or coarse-pointer media query to match.
+ */
+export function applyMobileMode() {
+  const on = game.modules.get("velvet-mobile")?.active ?? false;
+  document.body.classList.toggle("vne-mobile-ready", on);
+}
+
+Hooks.once("ready", () => {
+  applyVisualTheme();
+  applyMobileMode();
+});
 
 export function registerSettings() {
   // License manager — tier, installation slots, self-service slot release
