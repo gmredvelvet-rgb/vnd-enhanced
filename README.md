@@ -2,8 +2,8 @@
 
 **Visual Novel-style dialogue display for Foundry Virtual Tabletop — with cinematic combat, AI image generation, and full session immersion.**
 
-> Made by **GM RedVelvet** · **The GM Studio**
-> 🔐 Requires an active [Patreon subscription](https://www.patreon.com/TheGMStudio)
+> Made by **GM RedVelvet** · **GM RedVelvet**
+> 🔐 Requires an active [Patreon subscription](https://www.patreon.com/gmredvelvet)
 
 ---
 
@@ -157,7 +157,7 @@ VNEnhanced.loadCastPreset("Main Party");
 
 - **Bug reports:** [GitHub Issues](https://github.com/gmredvelvet-rgb/vnd-enhanced/issues)
 - **Discord / Support:** Contact `gmredvelvet` on Discord
-- **Patreon:** [patreon.com/TheGMStudio](https://www.patreon.com/TheGMStudio)
+- **Patreon:** [patreon.com/gmredvelvet](https://www.patreon.com/gmredvelvet)
 
 ---
 
@@ -166,14 +166,41 @@ VNEnhanced.loadCastPreset("Main Party");
 | Role | Name |
 |---|---|
 | Design & Development | **GM RedVelvet** |
-| Production & Studio | **The GM Studio** |
+| Production & Studio | **GM RedVelvet** |
 
-Critical success / fumble artwork included in `assets/imgs/` is original work by The GM Studio.
+Critical success / fumble artwork included in `assets/imgs/` is original work by GM RedVelvet.
 
 ---
 
-## License
+## Licensing
 
-This module is **proprietary software**. Use requires an active Patreon subscription to The GM Studio.
+VN Dialogues Enhanced requires an active, qualifying **Patreon** subscription to [GM RedVelvet](https://www.patreon.com/gmredvelvet).
+
+**Only the GM authorises.** On their first load the GM is prompted to connect their Patreon account, which unlocks the module for everyone in the world. Players never see a prompt and never need an account of their own. If popups are blocked — common on phones — use the **auth-code** flow instead: connect on any device, copy the code, and paste it in.
+
+### What happens if the subscription lapses
+
+**Please read this before subscribing.** This is a subscription, not a one-off purchase, and the module re-checks it periodically against a licence server. Plainly:
+
+- **If the subscription lapses, the module stops working.** The dialogue stage, the combat stage and the AI generator are no longer available.
+- **Nothing else is affected.** Foundry, your world, your actors, your scenes, your journals and your settings are untouched. Your scene and portrait configuration is stored in world settings and stays there — no data is altered, withheld or lost, and no content becomes unopenable. Resubscribing turns it straight back on.
+- **An internet connection is required while playing.** Verification is periodic, so a client that cannot reach the licence server deactivates the module until it can. Fully offline or air-gapped games are not supported.
+
+If a perpetual licence is what you need, this is not that today. I would rather say so here than have anyone find out mid-campaign.
+
+### Terms
+
+This module is **proprietary software**. Use requires an active Patreon subscription to GM RedVelvet.
 Redistribution, resale, and public re-upload are strictly prohibited.
 See [LICENSE](LICENSE) for full terms.
+
+## FAQ
+
+**Do my players need their own subscription?**
+No. Only the GM authorises, and that unlocks the world for everyone connected.
+
+**If I stop subscribing, do I lose my scenes and dialogue setup?**
+No. Your configuration lives in world settings and your actors are never modified. Only the module deactivates, and resubscribing brings it straight back.
+
+**Can I use it offline?**
+No. The licence is verified periodically over the internet, and a client that cannot reach the licence server deactivates the module until it can.
