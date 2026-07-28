@@ -35,23 +35,39 @@ const tierCases = [
   ['$10/mes activo',                    member({ cents: 1000 }),                                     'premium'],
   ['$3 en prueba gratuita (cents 0)',   member({ cents: 0, willPay: 300, freeTrial: true }),         'mobile'],
   ['$6 en prueba gratuita (cents 0)',   member({ cents: 0, willPay: 600, freeTrial: true }),         'basic'],
+  // Patreon puede no mandar patron_status mientras no haya cobro: el flag de
+  // trial hace de sustituto, pero solo cuando el estado viene vacío.
+  ['$3 trial sin patron_status',        member({ status: null, cents: 0, willPay: 300, freeTrial: true }), 'mobile'],
+  // ...y sin el flag tampoco: un patrón activo comprometido a pagar $3 entra.
+  ['$3 activo, cents 0, sin flag trial', member({ cents: 0, willPay: 300 }),                         'mobile'],
   ['prueba gratuita cancelada',         member({ status: 'declined_patron', cents: 0, willPay: 300, freeTrial: true }), 'none'],
+  ['former_patron con flag trial rancio', member({ status: 'former_patron', cents: 0, willPay: 600, freeTrial: true }), 'none'],
   ['trial sin will_pay (degradado)',    member({ cents: 0, freeTrial: true }),                       'none'],
   ['$6 sin campos nuevos (Patreon viejo)', member({ cents: 600 }),                                   'basic'],
   ['atributos ausentes',                { type: 'member' },                                          'none']
 ];
 
+// `patron_status` ausente y `patron_status: null` son casos distintos aquí, así
+// que la tabla los distingue en vez de mostrar ambos como vacío.
+function statusLabel(m) {
+  if (m === null) return '—';
+  const s = m.attributes?.patron_status;
+  if (s === null) return 'null';
+  return s ?? '—';
+}
+
 console.log('\n== resolveTier ==============================================================');
-console.log('caso                                     | cents | will_pay | trial | tier    | check');
-console.log('-----------------------------------------+-------+----------+-------+---------+-------');
+console.log('caso                                     | status          | cents | will_pay | trial | tier    | check');
+console.log('-----------------------------------------+-----------------+-------+----------+-------+---------+-------');
 for (const [label, m, expected] of tierCases) {
   const a      = m?.attributes ?? {};
   const tier   = PatreonClient.resolveTier(m);
+  const status = statusLabel(m);
   const cents  = m === null ? '—' : String(a.currently_entitled_amount_cents ?? '—');
   const pay    = a.will_pay_amount_cents ?? '—';
   const trial  = a.is_free_trial === true ? 'sí' : '—';
   console.log(
-    `${label.padEnd(40)} | ${cents.padStart(5)} | ${String(pay).padStart(8)} | ` +
+    `${label.padEnd(40)} | ${String(status).padEnd(15)} | ${cents.padStart(5)} | ${String(pay).padStart(8)} | ` +
     `${String(trial).padStart(5)} | ${tier.padEnd(7)} | ${check(tier, expected)}`
   );
 }

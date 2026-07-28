@@ -179,17 +179,29 @@ router.post('/exchange', async (c) => {
   // Check if this installation_id already exists on this user (re-activation)
   let installation = allInstalls.find(i => i.installation_id === installationId) ?? null;
 
-  // Also check globally in case it belongs to a different user (conflict guard)
+  // Also check globally. An ID held by ANOTHER account is a real conflict; the
+  // caller's own row is not, even when it is filed under a different module —
+  // activations made before a module reached isValidModuleId were recorded
+  // under the 'vnd-enhanced' fallback, and must be allowed to migrate.
   if (!installation) {
     const foreign = await db.findOne('vnd_installations', { installation_id: installationId });
-    if (foreign) return c.json({ error: 'Installation ID conflict', code: 'INSTALL_CONFLICT' }, 409);
+    if (foreign && foreign.user_id !== userId) {
+      return c.json({ error: 'Installation ID conflict', code: 'INSTALL_CONFLICT' }, 409);
+    }
+    installation = foreign ?? null;
   }
 
   if (installation) {
-    // Re-activation on same world — update in place
+    // Re-activation on same world — update in place. module_id is rewritten so
+    // a row adopted from the old fallback lands on the module it is really for.
     installation = await db.update('vnd_installations',
       { id: installation.id },
-      { fingerprint_hash: fingerprintHash, status: 'active', updated_at: new Date().toISOString() }
+      {
+        module_id:        moduleId,
+        fingerprint_hash: fingerprintHash,
+        status:           'active',
+        updated_at:       new Date().toISOString()
+      }
     );
   } else if (allInstalls.length >= MAX_SLOTS) {
     // Table is full (UNIQUE on slot_number covers all statuses) — must overwrite a row.

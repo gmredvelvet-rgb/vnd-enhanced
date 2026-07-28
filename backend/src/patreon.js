@@ -83,6 +83,19 @@ export class PatreonClient {
       i.relationships?.campaign?.data?.id === this.#campaignId
     ) ?? null;
 
+    // A patron who pays but resolves to 'none' is almost always this: the
+    // membership is there, filed under a campaign id we are not looking for.
+    // Log the ids so the mismatch is visible instead of being guessed at.
+    if (!membership) {
+      const members = included.filter(i => i.type === 'member');
+      console.log('[VND patreon] no membership matched', JSON.stringify({
+        want:        this.#campaignId,
+        campaignIds: members.map(m => m.relationships?.campaign?.data?.id ?? null),
+        memberCount: members.length,
+        includedTypes: [...new Set(included.map(i => i.type))]
+      }));
+    }
+
     return { user, membership };
   }
 
@@ -114,25 +127,41 @@ export class PatreonClient {
   }
 
   static resolveTier(membership) {
-    if (!membership) return 'none';
+    if (!membership) {
+      // Either the patron supports no campaign of ours, or the campaign filter
+      // in getIdentity matched nothing — worth telling apart in `wrangler tail`.
+      console.log('[VND tier] none — no membership matched the campaign');
+      return 'none';
+    }
 
-    const attrs  = membership.attributes ?? {};
-    const status = attrs.patron_status;
-    const cents  = attrs.currently_entitled_amount_cents ?? 0;
+    const attrs    = membership.attributes ?? {};
+    const status   = attrs.patron_status;
+    const entitled = attrs.currently_entitled_amount_cents ?? 0;
+    const willPay  = attrs.will_pay_amount_cents ?? 0;
+    const inTrial  = attrs.is_free_trial === true;
 
-    // Must be an active patron (matches TheGMStudio.API CheckIfPatreon logic)
-    if (status !== 'active_patron') return 'none';
+    // 'active_patron' is the normal signal. Inside a free trial nothing has been
+    // charged yet and the field can come back empty, so an explicit trial flag
+    // stands in for it — but a patron Patreon has actively marked former or
+    // declined is never let through on the strength of a stale flag.
+    const active = status === 'active_patron' || (inTrial && status == null);
+    if (!active) {
+      // Dump the attributes verbatim. `fields[member]` limits the response to
+      // the four we ask for, so this is the whole picture and carries no PII.
+      console.log('[VND tier] none — inactive', JSON.stringify(attrs));
+      return 'none';
+    }
 
-    // A patron inside the tier's free trial is entitled to the benefits but has
-    // not paid yet, and Patreon can report the entitled amount as 0 for them.
-    // Fall back to what they are committed to pay so the trial actually works.
-    const amount = attrs.is_free_trial === true
-      ? Math.max(cents, attrs.will_pay_amount_cents ?? 0)
-      : cents;
+    // A patron in a free trial is entitled to the benefits without having paid,
+    // so Patreon reports 0 entitled cents. What they are committed to pay is the
+    // real entitlement. Only ever raises 0 to the pledge, never lowers a charge.
+    const amount = entitled > 0 ? entitled : willPay;
 
     if (amount >= 1000) return 'premium'; // $10+/month — GmStudio member
     if (amount >= 600)  return 'basic';   // $6+/month  — Supporter
     if (amount >= 300)  return 'mobile';  // $3+/month  — Foundry Mobil Module Only
+
+    console.log('[VND tier] none — below $3', JSON.stringify({ ...attrs, amount }));
     return 'none';
   }
 
