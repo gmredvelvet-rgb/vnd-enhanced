@@ -61,7 +61,9 @@ export class PatreonClient {
     // include memberships + campaign relationship so we can filter by campaign ID
     const params = new URLSearchParams({
       'include':           'memberships,memberships.campaign',
-      'fields[member]':    'patron_status,currently_entitled_amount_cents',
+      // will_pay_amount_cents + is_free_trial are needed because a patron inside a
+      // free trial can report currently_entitled_amount_cents = 0 — see resolveTier.
+      'fields[member]':    'patron_status,currently_entitled_amount_cents,will_pay_amount_cents,is_free_trial',
       'fields[campaign]':  'creation_name',
       'fields[user]':      'email,full_name,thumb_url'
     });
@@ -114,15 +116,45 @@ export class PatreonClient {
   static resolveTier(membership) {
     if (!membership) return 'none';
 
-    const status = membership.attributes?.patron_status;
-    const cents  = membership.attributes?.currently_entitled_amount_cents ?? 0;
+    const attrs  = membership.attributes ?? {};
+    const status = attrs.patron_status;
+    const cents  = attrs.currently_entitled_amount_cents ?? 0;
 
     // Must be an active patron (matches TheGMStudio.API CheckIfPatreon logic)
     if (status !== 'active_patron') return 'none';
 
-    if (cents >= 1000) return 'premium'; // $10+/month
-    if (cents >= 600)  return 'basic';   // $6+/month
+    // A patron inside the tier's free trial is entitled to the benefits but has
+    // not paid yet, and Patreon can report the entitled amount as 0 for them.
+    // Fall back to what they are committed to pay so the trial actually works.
+    const amount = attrs.is_free_trial === true
+      ? Math.max(cents, attrs.will_pay_amount_cents ?? 0)
+      : cents;
+
+    if (amount >= 1000) return 'premium'; // $10+/month — GmStudio member
+    if (amount >= 600)  return 'basic';   // $6+/month  — Supporter
+    if (amount >= 300)  return 'mobile';  // $3+/month  — Foundry Mobil Module Only
     return 'none';
+  }
+
+  // ── Per-module entitlement ────────────────────────────────────────────────
+
+  /**
+   * Modules the $3 "Foundry Mobil Module Only" tier is allowed to unlock.
+   * Everything else stays behind Supporter ($6) or above.
+   */
+  static MOBILE_TIER_MODULES = new Set(['velvet-mobile']);
+
+  /**
+   * Narrow the account-wide tier down to what a given module actually grants.
+   *
+   * The tier is stored once per user, but clients gate on `tier !== 'none'`, so
+   * a restricted tier must be reported as 'none' to the modules it does not
+   * cover — otherwise a $3 patron would unlock the whole catalogue. Doing this
+   * server-side also locks out already-installed clients we cannot update.
+   */
+  static effectiveTier(tier, moduleId) {
+    if (tier === 'mobile' && !PatreonClient.MOBILE_TIER_MODULES.has(moduleId)) return 'none';
+    return tier;
   }
 
   // ── Feature list per tier ─────────────────────────────────────────────────
@@ -159,6 +191,17 @@ export class PatreonClient {
         none:    [],
         basic:   ['dnd-velvet-sheet'],
         premium: ['dnd-velvet-sheet']
+      },
+      'velvet-journals': {
+        none:    [],
+        basic:   ['velvet-journals'],
+        premium: ['velvet-journals']
+      },
+      'velvet-mobile': {
+        none:    [],
+        mobile:  ['mobile-shell'],
+        basic:   ['mobile-shell'],
+        premium: ['mobile-shell']
       }
     };
     const map = allFeatures[moduleId] ?? allFeatures['vnd-enhanced'];
@@ -170,7 +213,8 @@ export class PatreonClient {
   static isValidModuleId(moduleId) {
     return [
       'vnd-enhanced', 'sf2e-cyber-sheet', 'starfinderdashboard',
-      'hopefinder-sheet', 'pf2e-velvet-sheet', 'dnd-velvet-sheets'
+      'hopefinder-sheet', 'pf2e-velvet-sheet', 'dnd-velvet-sheets',
+      'velvet-journals', 'velvet-mobile'
     ].includes(moduleId);
   }
 }

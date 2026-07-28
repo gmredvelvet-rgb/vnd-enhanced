@@ -86,9 +86,17 @@ router.post('/refresh',
     }
 
     // Issue new tokens
-    const moduleId      = installation.module_id ?? 'vnd-enhanced';
-    const features      = PatreonClient.featuresForTier(user.tier, moduleId);
-    const jwtPayload    = buildAccessToken(user, installation, features);
+    const moduleId = installation.module_id ?? 'vnd-enhanced';
+    const tier     = PatreonClient.effectiveTier(user.tier, moduleId);
+    if (tier === 'none') {
+      return c.json({
+        error: 'Your Patreon tier does not include this module.',
+        code:  'TIER_INSUFFICIENT'
+      }, 403);
+    }
+
+    const features      = PatreonClient.featuresForTier(tier, moduleId);
+    const jwtPayload    = buildAccessToken({ ...user, tier }, installation, features);
     const accessToken   = await signJWT(jwtPayload, c.env);
     const { refreshToken: newRt } = await issueRefreshToken(
       db, user.id, installation.id, fingerprintHash
@@ -97,7 +105,9 @@ router.post('/refresh',
     // Mark old RT as replaced
     await db.update('vnd_refresh_tokens', { id: rt.id }, {});
 
-    return signedJson(c, { accessToken, refreshToken: newRt, expiresIn: 3600, features });
+    // `tier` must be returned: clients persist whatever this response carries,
+    // and omitting it made them fall back to 'none' after every rotation.
+    return signedJson(c, { accessToken, refreshToken: newRt, expiresIn: 3600, tier, features });
   }
 );
 
@@ -154,6 +164,7 @@ router.post('/heartbeat',
       return c.json({ error: 'Account inactive', code: 'ACCOUNT_INACTIVE' }, 403);
     }
 
+    const moduleId            = payload.mid ?? 'vnd-enhanced';
     const shouldVerifyPatreon = (installation.heartbeat_count ?? 0) % 24 === 0;
     let tier = user.tier;
 
@@ -178,12 +189,21 @@ router.post('/heartbeat',
       }
     }
 
-    const moduleId    = payload.mid ?? 'vnd-enhanced';
-    const features    = PatreonClient.featuresForTier(tier, moduleId);
-    const jwtPayload  = buildAccessToken({ ...user, tier }, installation, features);
+    // Re-narrow every beat: a downgrade on Patreon must lock the module on the
+    // next heartbeat, not only at the next activation.
+    const effTier = PatreonClient.effectiveTier(tier, moduleId);
+    if (effTier === 'none') {
+      return c.json({
+        error: 'Your Patreon tier does not include this module.',
+        code:  'TIER_INSUFFICIENT'
+      }, 403);
+    }
+
+    const features    = PatreonClient.featuresForTier(effTier, moduleId);
+    const jwtPayload  = buildAccessToken({ ...user, tier: effTier }, installation, features);
     const accessToken = await signJWT(jwtPayload, c.env);
 
-    return signedJson(c, { accessToken, expiresIn: 3600, tier, features });
+    return signedJson(c, { accessToken, expiresIn: 3600, tier: effTier, features });
   }
 );
 
@@ -202,9 +222,13 @@ router.get('/license/status',
       status:  'active'
     });
 
+    // Report against the caller's module, not the vnd-enhanced default.
+    const moduleId = payload.mid ?? 'vnd-enhanced';
+    const tier     = PatreonClient.effectiveTier(user.tier, moduleId);
+
     return signedJson(c, {
-      tier:           user.tier,
-      features:       PatreonClient.featuresForTier(user.tier),
+      tier,
+      features:       PatreonClient.featuresForTier(tier, moduleId),
       installations:  installations.map(i => ({
         installation_id: i.installation_id,
         slot:            i.slot_number,

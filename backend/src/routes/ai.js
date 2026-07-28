@@ -280,7 +280,9 @@ router.post('/generate',
     if (user?.status !== 'active') {
       return c.json({ error: 'Account inactive', code: 'ACCOUNT_INACTIVE' }, 403);
     }
-    if (user.tier === 'none') {
+    // 'mobile' is the $3 module-only tier: active on Patreon, but with no
+    // AI Studio entitlement — answer with the reason, not an empty quota.
+    if (user.tier === 'none' || user.tier === 'mobile') {
       return c.json({ error: 'Se requiere suscripción Patreon activa.', code: 'NO_SUBSCRIPTION' }, 403);
     }
 

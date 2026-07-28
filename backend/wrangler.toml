@@ -30,7 +30,7 @@ OWNER_EMAILS    = "gmredvelvet@gmail.com"
 # ── AI Studio ─────────────────────────────────────────────────────────────────
 # Generation limits per Patreon tier (per billing cycle)
 # Each successful image generation consumes exactly 1 generation.
-AI_TIER_TOKENS  = '{"none":0,"basic":10,"premium":20}'
+AI_TIER_TOKENS  = '{"none":0,"mobile":0,"basic":10,"premium":20}'
 
 # ── Secrets — set via CLI, NOT here (never commit secrets) ────────────────────
 # wrangler secret put PATREON_CLIENT_SECRET

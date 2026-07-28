@@ -87,6 +87,19 @@ router.get('/callback', async (c) => {
 
     if (user.status !== 'active') return serveErrorPage(c, 'Your account has been suspended.');
 
+    // The tier stored on the account is global; this module may grant less than
+    // that. Say so here — announcing the account tier and then failing at
+    // /oauth/exchange with TIER_INSUFFICIENT tells the patron nothing.
+    // (`tier === 'none'` keeps its existing path: no membership is a separate
+    //  case, and the client already surfaces it after the exchange.)
+    const moduleTier = PatreonClient.effectiveTier(tier, moduleId);
+    if (tier !== 'none' && moduleTier === 'none') {
+      return serveErrorPage(c,
+        `Your Patreon tier does not include ${moduleId}. ` +
+        `This module requires the Supporter ($6) tier or above.`
+      );
+    }
+
     // Opaque random auth code — does NOT embed user data (avoids info leak via base64 decode)
     const authCode = crypto.randomUUID().replaceAll('-', '') + crypto.randomUUID().replaceAll('-', '');
 
@@ -97,7 +110,8 @@ router.get('/callback', async (c) => {
       { expirationTtl: 300 }
     );
 
-    return serveSuccessPage(c, { authCode, tier, username: user.username, allowedOrigin });
+    // Badge the module-scoped tier, not the account-wide one
+    return serveSuccessPage(c, { authCode, tier: moduleTier, username: user.username, allowedOrigin });
   } catch (err) {
     console.error('OAuth callback error:', err);
     return serveErrorPage(c, 'An error occurred during authentication. Please try again.');
@@ -142,6 +156,16 @@ router.post('/exchange', async (c) => {
   const user = await db.findOne('vnd_users', { id: userId });
   if (user?.status !== 'active') {
     return c.json({ error: 'User not found or suspended', code: 'USER_INVALID' }, 403);
+  }
+
+  // Reject before claiming a slot: a restricted tier must not burn an
+  // installation slot on a module it is not entitled to.
+  const tier = PatreonClient.effectiveTier(user.tier, moduleId);
+  if (tier === 'none') {
+    return c.json({
+      error: 'Your Patreon tier does not include this module.',
+      code:  'TIER_INSUFFICIENT'
+    }, 403);
   }
 
   const MAX_SLOTS = 2;
@@ -219,9 +243,9 @@ router.post('/exchange', async (c) => {
     return c.json({ error: 'Failed to claim installation slot', code: 'SLOT_ERROR' }, 500);
   }
 
-  // Issue access + refresh tokens
-  const features    = PatreonClient.featuresForTier(user.tier, moduleId);
-  const jwtPayload  = buildAccessToken(user, installation, features);
+  // Issue access + refresh tokens — always against the module-scoped tier
+  const features    = PatreonClient.featuresForTier(tier, moduleId);
+  const jwtPayload  = buildAccessToken({ ...user, tier }, installation, features);
   const accessToken = await signJWT(jwtPayload, c.env);
   const { refreshToken } = await issueRefreshToken(db, user.id, installation.id, fingerprintHash);
 
@@ -236,7 +260,7 @@ router.post('/exchange', async (c) => {
     accessToken,
     refreshToken,
     expiresIn: 3600,
-    tier:      user.tier,
+    tier,
     features
   });
 });
