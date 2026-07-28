@@ -69,6 +69,8 @@
       "connecting": "Opening Patreon...",
       "codeTitle": "VND Enhanced — Enter Auth Code",
       "codeHint": "Paste the code shown after connecting your Patreon account.",
+      "migrationTitle": "Why am I being asked to reconnect?",
+      "migrationBody": "We changed how Patreon subscriptions are verified, so activations made before the change no longer validate. Reconnecting your account once puts it right. This is not a new charge and not a price change: your Patreon subscription is untouched, you will not be billed again, and you keep your installation slots. Only the authorisation is renewed.",
       "codePh": "Paste auth code here...",
       "activate": "Activate",
       "connected": "VND Enhanced: Connected as {tier} subscriber. Welcome!",

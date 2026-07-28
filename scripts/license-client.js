@@ -584,6 +584,7 @@ export class VndLicenseUI {
       <p style="font-size:.85rem;color:#a09080;margin-bottom:16px;line-height:1.4">
         ${L('connectHint')}
       </p>
+      ${VndLicenseUI.migrationNotice()}
       <div style="display:flex;flex-direction:column;gap:8px">
         <button id="vnd-connect-btn" style="
           background:#c89b3c;color:#1a1a2e;border:none;border-radius:8px;
@@ -704,10 +705,26 @@ export class VndLicenseUI {
     dialog.render(true);
   }
 
+  /**
+   * Transitional notice for patrons whose earlier activation stopped validating.
+   * Being asked to re-authorise out of the blue looks like a scam, so say what
+   * changed and — just as important — what did not: no new charge, same
+   * subscription, same slots. Remove once the migration has settled.
+   */
+  static migrationNotice() {
+    return `
+      <div style="margin-bottom:12px;padding:10px 12px;border-radius:6px;
+                  border:1px solid #c89b3c55;background:#c89b3c14;font-size:.85rem;line-height:1.45">
+        <strong style="color:#c89b3c">${L('migrationTitle')}</strong><br/>
+        ${L('migrationBody')}
+      </div>`;
+  }
+
   static showCodeInput() {
     new Dialog({
       title: L('codeTitle'),
       content: `
+        ${VndLicenseUI.migrationNotice()}
         <p style="margin-bottom:12px;font-size:.9rem">
           ${L('codeHint')}
         </p>
