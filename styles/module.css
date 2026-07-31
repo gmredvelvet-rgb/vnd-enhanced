@@ -728,6 +728,45 @@
   color: var(--vne-text-dim);
   margin-bottom: 8px;
   padding: 0 10px;
+  width: 100%;
+}
+.vne-right-panel .vne-side-label { justify-content: flex-end; }
+.vne-side-label-text { flex: 1; }
+.vne-left-panel  .vne-side-label-text { text-align: left; }
+.vne-right-panel .vne-side-label-text { text-align: right; }
+
+/* ── Collapsible side panels (per-client) ───────────────────────────────── */
+.vne-panel-collapse-btn {
+  width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  pointer-events: all;
+  color: var(--vne-text-dim);
+  border-radius: 5px;
+  transition: color 0.2s, background 0.2s, transform 0.2s;
+}
+.vne-panel-collapse-btn:hover { color: var(--vne-accent); background: rgba(200,155,60,0.15); }
+.vne-panel-collapse-btn.vne-collapsed i { transform: rotate(180deg); }
+
+/* Grid column shrinks to a thin bar when its side is collapsed */
+.vne-stage.vne-left-collapsed  { grid-template-columns: 34px 1fr 220px; }
+.vne-stage.vne-right-collapsed { grid-template-columns: 220px 1fr 34px; }
+.vne-stage.vne-left-collapsed.vne-right-collapsed { grid-template-columns: 34px 1fr 34px; }
+
+/* Collapsed panel: only the expand chevron remains reachable */
+.vne-stage.vne-left-collapsed  .vne-left-panel  .vne-portraits-list,
+.vne-stage.vne-left-collapsed  .vne-left-panel  .vne-add-cast-btn,
+.vne-stage.vne-left-collapsed  .vne-left-panel  .vne-side-label-text,
+.vne-stage.vne-right-collapsed .vne-right-panel .vne-portraits-list,
+.vne-stage.vne-right-collapsed .vne-right-panel .vne-add-cast-btn,
+.vne-stage.vne-right-collapsed .vne-right-panel .vne-side-label-text {
+  display: none;
+}
+.vne-stage.vne-left-collapsed  .vne-left-panel  .vne-side-label,
+.vne-stage.vne-right-collapsed .vne-right-panel .vne-side-label {
+  padding: 0;
+  justify-content: center;
 }
 
 .vne-add-cast-btn {

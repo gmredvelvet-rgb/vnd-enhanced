@@ -72,6 +72,7 @@ export function registerSettings() {
       showForIds: null,
       editMode: false,
       combatMode: false,
+      vsRevealed: false,
       stagePlayers: [],
       stageNPCs: [],
       leftCast: [],
@@ -123,6 +124,18 @@ export function registerSettings() {
   game.settings.register(ID, "autoCastFromCombat", {
     name: "vnd-enhanced.settings.autoCastFromCombat.name",
     hint: "vnd-enhanced.settings.autoCastFromCombat.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true
+  });
+
+  // Manual combat reveal — when true the VS "duel" display (both fighters shown
+  // large, front and center) stays hidden until the GM toggles it, and auto-hides
+  // when the turn ends. When false it behaves as before (always shown in combat).
+  game.settings.register(ID, "combatManualReveal", {
+    name: "vnd-enhanced.settings.combatManualReveal.name",
+    hint: "vnd-enhanced.settings.combatManualReveal.hint",
     scope: "world",
     config: true,
     type: Boolean,

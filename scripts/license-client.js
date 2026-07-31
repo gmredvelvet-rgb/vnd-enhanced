@@ -44,10 +44,6 @@ export class VndLicenseClient {
   #tier             = 'none';
   #heartbeatTimer        = null;
   #initialHeartbeatTimer = null;
-  #lastHeartbeat         = 0;
-  // Must comfortably exceed the 15-min heartbeat interval: with the old 5-min
-  // grace, a SINGLE failed heartbeat suspended the module instantly.
-  #gracePeriodMs    = 60 * 60 * 1000;
   #retryTimer       = null;   // one-off quick retry after a transient failure
   #degraded         = false;
   #rsaPublicKey     = null;   // cached CryptoKey — imported once, reused
@@ -321,7 +317,6 @@ export class VndLicenseClient {
   #startHeartbeat() {
     this.#stopHeartbeat();
     const INTERVAL = 15 * 60 * 1000; // 15 minutes
-    this.#lastHeartbeat = Date.now();
 
     // First heartbeat after 1 minute (let Foundry finish loading)
     this.#initialHeartbeatTimer = setTimeout(() => {
@@ -359,15 +354,15 @@ export class VndLicenseClient {
         await this.#heartbeatOnce();
       } catch (e2) {
         if (!this.#isTransient(e2)) {
-          // The server explicitly rejected us (revoked / expired refresh /
-          // conflict) — retrying is pointless. Suspend and ask for re-auth.
+          // Server definitively rejected us (subscription ended / revoked).
+          // SOFT GATE: nothing is suspended — the module keeps every feature.
+          // We just clear the dead tokens and let the periodic reminder resume.
           this.#clearStoredTokens();
           this.#stopHeartbeat();
           this.#degraded = true;
           if (game.user?.isGM) {
             game.settings?.set?.(MODULE_ID, 'worldLicensed', false).catch(() => {});
-            ui.notifications?.warn(L('suspended'));
-            VndLicenseUI.show();
+            VndLicenseUI.startReminder();
           }
           return;
         }
@@ -383,37 +378,27 @@ export class VndLicenseClient {
     });
 
     this.#storeTokens(result.accessToken, this.#refreshToken, result.expiresIn, result.tier, result.features);
-    this.#lastHeartbeat = Date.now();
 
-    // Recovered after a degraded period — restore the world flag we cleared
+    // Recovered after a degraded period — restore the world flag + stop the reminder
     if (this.#degraded) {
       this.#degraded = false;
       if (game.user?.isGM) {
         game.settings?.set?.(MODULE_ID, 'worldLicensed', true).catch(() => {});
+        VndLicenseUI.stopReminder();
         ui.notifications?.info(L('reconnected'));
       }
     }
   }
 
   #handleHeartbeatFailure() {
-    // Quick one-off retry: a single blip recovers in ~90s instead of waiting
-    // the full 15-minute interval.
+    // Transient outage (server unreachable / 5xx / rate-limited). SOFT GATE:
+    // never suspend, never nag a paying customer over a network blip. Keep the
+    // world flag as-is and just retry — a single blip recovers in ~90s.
     if (!this.#retryTimer) {
       this.#retryTimer = setTimeout(() => {
         this.#retryTimer = null;
         this.#doHeartbeat();
       }, 90_000);
-    }
-    const timeSinceLast = Date.now() - this.#lastHeartbeat;
-    if (timeSinceLast > this.#gracePeriodMs) {
-      if (!this.#degraded) {
-        this.#degraded = true;
-        if (game.user?.isGM) {
-          // Lock the module for all clients until the GM reconnects
-          game.settings?.set?.(MODULE_ID, 'worldLicensed', false).catch(() => {});
-          ui.notifications?.warn(L('suspended'));
-        }
-      }
     }
   }
 
@@ -560,8 +545,53 @@ export class LicenseError extends Error {
 // ── License Prompt UI ─────────────────────────────────────────────────────────
 // Shown to GM when the module is not licensed
 
+// ── Soft-gate reminder cadence ────────────────────────────────────────────────
+// This module is NEVER gated: an unlicensed world keeps every feature and only
+// receives a periodic reminder that it's running unlicensed. Mirrors the Velvet
+// Journals model. Nothing here may ever block functionality.
+const REMINDER_MS  = 10 * 60 * 1000;  // remind every 10 minutes
+const AUTO_HIDE_MS = 30 * 1000;       // the reminder card lingers 30s then leaves
+
+// Read the world-level flag the GM writes, so players reach the same verdict
+// without contacting the server.
+export function isWorldLicensed() {
+  try { return game.settings.get(MODULE_ID, 'worldLicensed') === true; }
+  catch { return false; }
+}
+
 export class VndLicenseUI {
-  static show() {
+  static #reminderTimer = null;
+  static #hideTimer     = null;
+
+  // Start the periodic unlicensed reminder. Safe to call repeatedly (restarts a
+  // single timer). Re-checks the licence on every tick, so connecting mid-session
+  // silences it without a reload.
+  static startReminder() {
+    VndLicenseUI.#clearReminderTimer();
+    if (isWorldLicensed()) return;
+    VndLicenseUI.#reminderTimer = setInterval(() => {
+      if (isWorldLicensed()) { VndLicenseUI.stopReminder(); return; }
+      VndLicenseUI.show({ autoHide: true });
+    }, REMINDER_MS);
+  }
+
+  static stopReminder() {
+    VndLicenseUI.#clearReminderTimer();
+    const el = document.getElementById('vnd-license-prompt');
+    if (el) el.remove();
+  }
+
+  static #clearReminderTimer() {
+    if (VndLicenseUI.#reminderTimer) clearInterval(VndLicenseUI.#reminderTimer);
+    VndLicenseUI.#reminderTimer = null;
+  }
+
+  static #cancelAutoHide() {
+    if (VndLicenseUI.#hideTimer) clearTimeout(VndLicenseUI.#hideTimer);
+    VndLicenseUI.#hideTimer = null;
+  }
+
+  static show({ autoHide = false } = {}) {
     // Only show to GM
     if (!game.user?.isGM) return;
 
@@ -602,12 +632,13 @@ export class VndLicenseUI {
     `;
 
     el.querySelector('#vnd-connect-btn').addEventListener('click', async () => {
+      VndLicenseUI.#cancelAutoHide();
       const btn = el.querySelector('#vnd-connect-btn');
       btn.textContent = L('connecting');
       btn.disabled = true;
       try {
         const success = await VndLicenseClient.instance.startOAuth();
-        if (success) el.remove();
+        if (success) { VndLicenseUI.stopReminder(); el.remove(); }
         else { btn.textContent = L('connectBtn'); btn.disabled = false; }
       } catch (e) {
         btn.textContent = L('connectBtn'); btn.disabled = false;
@@ -616,13 +647,24 @@ export class VndLicenseUI {
     });
 
     el.querySelector('#vnd-code-btn').addEventListener('click', () => {
+      VndLicenseUI.#cancelAutoHide();
       VndLicenseUI.showCodeInput();
       el.remove();
     });
 
     el.querySelector('#vnd-dismiss-btn').addEventListener('click', () => el.remove());
 
+    // Reading the card must not make it vanish mid-sentence.
+    el.addEventListener('pointerenter', () => VndLicenseUI.#cancelAutoHide());
+
     document.body.appendChild(el);
+
+    if (autoHide) {
+      VndLicenseUI.#hideTimer = setTimeout(() => {
+        VndLicenseUI.#hideTimer = null;
+        el.remove();
+      }, AUTO_HIDE_MS);
+    }
   }
 
   // ── License Manager (module settings → Manage License) ─────────────────────

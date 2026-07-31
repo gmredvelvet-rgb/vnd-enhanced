@@ -37,6 +37,10 @@
             <div id="vne-combat-stage-btn" class="vne-ctrl-btn vne-combat-stage-toggle{{#if combatMode}} vne-active vne-combat-active{{/if}}" title="{{localize 'vnd-enhanced.ui.combatStage'}}">
               <i class="fas fa-crosshairs"></i>
             </div>
+            {{!-- Reveal the VS duel display for the current combatant + target (manual mode only) --}}
+            <div id="vne-vs-reveal-btn" class="vne-ctrl-btn vne-vs-reveal-toggle{{#unless combatMode}} vne-hidden{{/unless}}{{#unless manualReveal}} vne-hidden{{/unless}}{{#if vsRevealed}} vne-active{{/if}}" title="{{localize 'vnd-enhanced.ui.revealVS'}}">
+              <i class="fas fa-eye"></i>
+            </div>
             <div id="vne-editmode-btn" class="vne-ctrl-btn{{#if editMode}} vne-active vne-editmode-active{{/if}}" title="{{#if editMode}}{{localize 'vnd-enhanced.ui.editModeOn'}}{{else}}{{localize 'vnd-enhanced.ui.editModeOff'}}{{/if}}">
               <i class="fas fa-{{#if editMode}}lock-open{{else}}pencil-alt{{/if}}"></i>
             </div>
@@ -136,7 +140,8 @@
       <div class="vne-left-panel vne-side-panel vne-drop-zone" data-side="left">
         <div class="vne-side-label">
           {{#if isGM}}<div id="vne-add-left-btn" class="vne-add-cast-btn" title="{{localize 'vnd-enhanced.ui.addActorLeft'}}"><i class="fas fa-user-plus"></i></div>{{/if}}
-          <span>{{localize 'vnd-enhanced.ui.players'}}</span>
+          <span class="vne-side-label-text">{{localize 'vnd-enhanced.ui.players'}}</span>
+          <div class="vne-panel-collapse-btn" data-side="left" title="{{localize 'vnd-enhanced.ui.collapsePanel'}}" role="button" tabindex="0"><i class="fas fa-chevron-left"></i></div>
         </div>
         {{!-- Populated by _patchSidePanel (single JS renderer — no template/JS drift) --}}
         <div id="vne-left-portraits" class="vne-portraits-list"></div>
@@ -148,7 +153,8 @@
       {{!-- RIGHT CAST DROP ZONE --}}
       <div class="vne-right-panel vne-side-panel vne-drop-zone" data-side="right">
         <div class="vne-side-label">
-          <span>{{localize 'vnd-enhanced.ui.npcs'}}</span>
+          <div class="vne-panel-collapse-btn" data-side="right" title="{{localize 'vnd-enhanced.ui.collapsePanel'}}" role="button" tabindex="0"><i class="fas fa-chevron-right"></i></div>
+          <span class="vne-side-label-text">{{localize 'vnd-enhanced.ui.npcs'}}</span>
           {{#if isGM}}<div id="vne-add-right-btn" class="vne-add-cast-btn" title="{{localize 'vnd-enhanced.ui.addActorRight'}}"><i class="fas fa-user-plus"></i></div>{{/if}}
         </div>
         {{!-- Populated by _patchSidePanel (single JS renderer — no template/JS drift) --}}

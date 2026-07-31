@@ -2,7 +2,9 @@
   "vnd-enhanced": {
     "title": "VN Dialogues Enhanced",
     "keybindings": {
-      "toggleVN": "Toggle VN window"
+      "toggleVN": "Toggle VN window",
+      "toggleCombatStage": "Toggle combat stage",
+      "toggleCombatReveal": "Reveal / hide combat duel (VS)"
     },
     "toolbar": {
       "toggle": "Toggle VN (Alt+V)",
@@ -13,6 +15,10 @@
         "name": "License",
         "label": "Manage License",
         "hint": "View your subscription tier and free installation slots."
+      },
+      "combatManualReveal": {
+        "name": "Manual combat reveal",
+        "hint": "When on, the VS duel display (both fighters shown large, front and center) stays hidden during combat until you toggle it — via the eye button in the top bar or the 'Reveal combat duel' keybinding (Alt+B by default). It shows the current fighter versus their target, and auto-hides when the turn ends, waiting for the next reveal. Turn off to keep the classic behavior where the duel is always visible in combat."
       },
       "visualTheme": {
         "name": "Visual theme",
@@ -62,10 +68,10 @@
       "releaseConfirmOther": "This frees the slot used by another device (it will stop working there). Continue?",
       "noInstallations": "No active installations.",
       "hint": "Each Patreon account can activate the module on up to 2 devices. Release a slot here if you switched browser or computer.",
-      "connectHint": "Connect your Patreon account to enable premium features.",
+      "connectHint": "You're using VND Enhanced unlicensed — every feature is unlocked. If it's useful at your table, please support development by connecting your Patreon.",
       "connectBtn": "Connect Patreon",
       "haveCode": "I have an auth code",
-      "dismiss": "Dismiss",
+      "dismiss": "Later",
       "connecting": "Opening Patreon...",
       "codeTitle": "VND Enhanced — Enter Auth Code",
       "codeHint": "Paste the code shown after connecting your Patreon account.",
@@ -76,13 +82,14 @@
       "connected": "VND Enhanced: Connected as {tier} subscriber. Welcome!",
       "released": "VND Enhanced: Installation slot released.",
       "releaseFailed": "VND Enhanced: Failed to release slot — {message}",
-      "reconnected": "VND Enhanced: License server reconnected. Premium features restored.",
-      "suspended": "VND Enhanced: License server unreachable. Premium features suspended until reconnected."
+      "reconnected": "VND Enhanced: License verified. Thanks for your support!"
     },
     "ui": {
       "players": "Players",
       "npcs": "NPCs",
       "combatStage": "Combat Stage",
+      "revealVS": "Reveal duel (current fighter vs target)",
+      "collapsePanel": "Collapse / expand this panel",
       "editModeOn": "Exit edit mode",
       "editModeOff": "Edit mode: reorder, scale and remove portraits",
       "aiGenerator": "AI Image Generator (GM only)",

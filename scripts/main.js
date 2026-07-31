@@ -10,7 +10,7 @@
  */
 
 import { registerSettings } from "./settings.js";
-import { VndLicenseClient, VndLicenseUI } from "./license-client.js";
+import { VndLicenseClient, VndLicenseUI, isWorldLicensed } from "./license-client.js";
 import { VNDAIGenerator } from "./ai-generator.js";
 
 const ID = "vnd-enhanced";
@@ -910,8 +910,30 @@ async function toggleCombatStage() {
     await _syncGhostTokens(d);
   } else {
     await _destroyGhostTokens();
+    d.vsRevealed = false;   // clean slate for the next encounter
   }
   await saveData(d, { change: "combatMode" });
+}
+
+// Reveal / hide the VS duel display for the current combatant + target.
+// Bound to the top-bar button and the "toggleCombatReveal" keybinding.
+// If combat mode isn't on yet, this turns it on and reveals in one press.
+async function toggleCombatReveal() {
+  if (!game.user.isGM) return;
+  const d = getData();
+  if (!d.combatMode) {
+    // Not in combat yet — enter combat stage, then reveal
+    await toggleCombatStage();
+    const d2 = getData();
+    if (!d2.combatMode) return;      // stage failed (no encounter) — abort
+    d2.vsRevealed = true;
+    _updateVSFromCombat();           // rebuild _vsLeft/_vsRight for this turn
+    await saveData(d2, { change: "vsReveal" });
+    return;
+  }
+  d.vsRevealed = !d.vsRevealed;
+  if (d.vsRevealed) _updateVSFromCombat();
+  await saveData(d, { change: "vsReveal" });
 }
 
 function openActorSheet(actorId) {
@@ -1451,11 +1473,17 @@ function _checkVictoryCondition(turnsSnapshot) {
 
 // ── VS Combat Display ─────────────────────────────────────────────────────────
 
+// True when the VS duel display should stay hidden right now: manual-reveal
+// mode is on AND the GM hasn't revealed this turn yet.
+function _vsRevealHidden(d = getDataRO()) {
+  return game.settings.get(ID, "combatManualReveal") && !d.vsRevealed;
+}
+
 function _renderVSDisplay() {
   const d = getDataRO();
   const stage = document.querySelector(".vne-stage");
   if (!stage) return;
-  if (!d.showVN || !d.combatMode) {
+  if (!d.showVN || !d.combatMode || _vsRevealHidden(d)) {
     document.getElementById("vne-combat-vs")?.remove();
     return;
   }
@@ -2509,6 +2537,8 @@ export class VNE extends FormApplication {
       hideBack:        d.hideBack,
       editMode,
       combatMode,
+      vsRevealed:      d.vsRevealed ?? false,
+      manualReveal:    game.settings.get(ID, "combatManualReveal"),
       isGM:            game.user.isGM,
       backgroundImage:   d.location?.backgroundImage || "",
       backgroundIsVideo: /\.(mp4|webm)$/i.test(d.location?.backgroundImage || ""),
@@ -2593,6 +2623,20 @@ export class VNE extends FormApplication {
     root.querySelectorAll(".vne-combat-stage-toggle").forEach(btn => {
       btn.addEventListener("click", toggleCombatStage);
     });
+
+    // Reveal VS duel display (GM only)
+    root.querySelectorAll(".vne-vs-reveal-toggle").forEach(btn => {
+      btn.addEventListener("click", toggleCombatReveal);
+    });
+
+    // Collapsible side panels (per-client view preference)
+    root.querySelectorAll(".vne-panel-collapse-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        _toggleSidePanelCollapse(btn.dataset.side);
+      });
+    });
+    _applySidePanelCollapse();
 
     // Cast Presets (GM only)
     root.querySelector("#vne-presets-btn")?.addEventListener("click", () => {
@@ -2822,11 +2866,15 @@ Hooks.on("vnd-enhanced.activate", () => {
 });
 
 Hooks.on("updateSetting", (setting, _value, options) => {
-  // GM connected Patreon mid-session → activate for all clients now
   if (setting.key === `${ID}.worldLicensed`) {
-    if (game.settings.get(ID, "worldLicensed") === true && !VNE.instance) {
+    if (game.settings.get(ID, "worldLicensed") === true) {
+      // Licensed now → drop any reminder card and stop nagging on every client
       document.getElementById("vnd-license-prompt")?.remove();
-      VNE.activate();
+      VndLicenseUI.stopReminder?.();
+      if (!VNE.instance) VNE.activate();   // safety net; soft gate already activates
+    } else if (game.user?.isGM) {
+      // Licence lapsed → resume the periodic reminder
+      VndLicenseUI.startReminder?.();
     }
     return;
   }
@@ -2895,6 +2943,14 @@ Hooks.on("updateSetting", (setting, _value, options) => {
     if (nameEl) nameEl.textContent = d.location?.name || "";
     if (parEl)  parEl.textContent  = d.location?.parent || "";
     _patchSceneBar(d);
+  }
+
+  if (change === "vsReveal") {
+    // GM revealed / hid the VS duel display — reflect it on every client
+    _updateVSFromCombat();
+    _renderVSDisplay();
+    document.querySelectorAll(".vne-vs-reveal-toggle").forEach(btn =>
+      btn.classList.toggle("vne-active", !!d.vsRevealed));
   }
 
   if (change === "hideBack") {
@@ -3261,6 +3317,32 @@ function _bindCastPortrait(div, p, side, editMode) {
   div.addEventListener("dragstart", (e) => {
     e.dataTransfer.setData("text/plain", JSON.stringify({ type: "vne-portrait", id: p.id, side }));
   });
+}
+
+// ── Collapsible side panels (per-client view preference) ─────────────────────
+const _COLLAPSE_KEY = { left: `${ID}:collapse-left`, right: `${ID}:collapse-right` };
+
+function _isSidePanelCollapsed(side) {
+  try { return localStorage.getItem(_COLLAPSE_KEY[side]) === "1"; } catch { return false; }
+}
+
+// Reflects the stored collapse state onto the stage grid + toggle chevrons.
+function _applySidePanelCollapse() {
+  const stage = document.querySelector(".vne-stage");
+  if (!stage) return;
+  for (const side of ["left", "right"]) {
+    const collapsed = _isSidePanelCollapsed(side);
+    stage.classList.toggle(`vne-${side}-collapsed`, collapsed);
+    document.querySelector(`.vne-panel-collapse-btn[data-side="${side}"]`)
+      ?.classList.toggle("vne-collapsed", collapsed);
+  }
+}
+
+function _toggleSidePanelCollapse(side) {
+  if (side !== "left" && side !== "right") return;
+  const next = !_isSidePanelCollapsed(side);
+  try { localStorage.setItem(_COLLAPSE_KEY[side], next ? "1" : "0"); } catch { /* ignore */ }
+  _applySidePanelCollapse();
 }
 
 // True when the side panels render as horizontal finger-scrolled strips
@@ -4010,6 +4092,20 @@ Hooks.once("init", () => {
         }
       }
     });
+
+    // Toggle combat stage (GM only) — enter/leave the combat UI
+    game.keybindings.register(ID, "toggleCombatStage", {
+      name: "vnd-enhanced.keybindings.toggleCombatStage",
+      editable: [{ key: "KeyC", modifiers: ["Alt"] }],
+      onUp: () => { if (game.user.isGM) toggleCombatStage(); }
+    });
+
+    // Reveal / hide the VS duel display for the current combatant (GM only)
+    game.keybindings.register(ID, "toggleCombatReveal", {
+      name: "vnd-enhanced.keybindings.toggleCombatReveal",
+      editable: [{ key: "KeyB", modifiers: ["Alt"] }],
+      onUp: () => { if (game.user.isGM) toggleCombatReveal(); }
+    });
   } catch(e) {
     console.warn("vnd-enhanced | keybinding registration failed:", e);
   }
@@ -4031,14 +4127,12 @@ Hooks.once("setup", async () => {
 
     // vnVictory — broadcast to all clients when VN is active
     if (msg.type === "vnVictory") {
-      if (!game.settings.get(ID, "worldLicensed")) return;
       if (!getDataRO().showVN) return;
       _showVictoryOverlay();
       return;
     }
 
     if (msg.type === "vnDefeat") {
-      if (!game.settings.get(ID, "worldLicensed")) return;
       if (!getDataRO().showVN) return;
       _showDefeatOverlay();
       return;
@@ -4046,7 +4140,6 @@ Hooks.once("setup", async () => {
 
     // vnProjectile — CSS projectile animation broadcast to all clients
     if (msg.type === "vnProjectile") {
-      if (!game.settings.get(ID, "worldLicensed")) return;
       if (!getDataRO().showVN) return;
       // Validate file has a safe media extension (prevents arbitrary URL injection)
       const safeFile = (typeof msg.file === "string" &&
@@ -4094,26 +4187,20 @@ Hooks.once("setup", async () => {
     // vnDataSet removed — direct data injection is no longer permitted
   });
 
-  // ── License gate ────────────────────────────────────────────────────────────
+  // ── License: SOFT gate ──────────────────────────────────────────────────────
+  // The module is NEVER blocked: every world gets every feature. Licensing only
+  // decides whether a periodic reminder appears (see VndLicenseUI.startReminder).
   if (game.user?.isGM) {
     const licensed = await VndLicenseClient.instance.initialize();
     if (licensed) {
-      // Confirmed active — write true so players can read it
+      // Confirmed active — write true so players read the same verdict
       try { await game.settings.set(ID, "worldLicensed", true); } catch { /* ignore */ }
-    } else if (!VndLicenseClient.instance.hasStoredCredentials) {
-      // Tokens missing or definitively rejected — show re-auth prompt.
-      // Do NOT write false here: the persisted flag stays true if set in a prior session
-      // (heartbeat and releaseInstallation are the only valid ways to revoke it).
-      Hooks.once("ready", () => VndLicenseUI.show());
     }
-    // else: credentials stored but the license server was unreachable at load —
-    // the heartbeat auto-recovers (~60s); no re-auth prompt for a transient outage.
+    // Unlicensed (or outage): the reminder is started in the ready hook below.
+    // Nothing is gated, so there's nothing to withhold in the meantime.
   }
 
-  // All clients: activate only if the world flag is true
-  const worldLicensed = game.settings.get(ID, "worldLicensed") ?? false;
-  if (!worldLicensed) return;
-
+  // All clients activate unconditionally — soft gate, no worldLicensed check.
   VNE.activate();
 });
 
@@ -4149,11 +4236,15 @@ Hooks.on("ready", () => {
   // Seed HP baselines so the first damage event in a session shows floaters correctly
   _seedCastHP();
 
-  // Safety net: activate VNE for clients that missed the setup hook activation.
-  // This covers the race condition where worldLicensed=true was already persisted and
-  // the setup hook completed before the setting was readable by non-GM clients.
-  if (!VNE.instance && game.settings.get(ID, "worldLicensed")) {
-    VNE.activate();
+  // Safety net: activate VNE for any client that missed the setup-hook activation.
+  // Soft gate — activation is unconditional.
+  if (!VNE.instance) VNE.activate();
+
+  // Unlicensed GM → one reminder shortly after load, then every 10 min (all
+  // auto-hiding). Nothing is blocked; this is the only nudge to support the module.
+  if (game.user?.isGM && !isWorldLicensed()) {
+    setTimeout(() => { if (!isWorldLicensed()) VndLicenseUI.show({ autoHide: true }); }, 8000);
+    VndLicenseUI.startReminder();
   }
 
   // Rich API for macros and Active Tile Triggers
@@ -4706,6 +4797,14 @@ Hooks.on("updateCombat", async (combat, changed) => {
 
   if (turnChanged) {
     _lastTurnChangeMs = Date.now();
+    // Manual reveal: the duel closes at turn's end and waits for the GM to
+    // toggle it again for whoever is next in initiative. GM writes the flag once;
+    // it syncs to every client via the vsReveal change.
+    if (game.user.isGM && d.vsRevealed && game.settings.get(ID, "combatManualReveal")) {
+      const d2 = getData();
+      d2.vsRevealed = false;
+      saveData(d2, { change: "vsReveal" });
+    }
     _updateVSFromCombat();
     // Refresh side panels so the active-combatant ring and the "your turn"
     // badge follow the tracker instead of freezing until the next full render.

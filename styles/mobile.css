@@ -208,6 +208,24 @@
   /* Scenes pill stays readable above the gesture bar */
   body.vne-mobile-ready .vne-scenes-pill { font-size: 0.9em; }
 
+  /* Collapse on a phone: the row (strip) folds to a thin bar with only the
+     chevron, giving the stage back the vertical space. Overrides the desktop
+     grid-column rules, which don't apply in the single-column phone layout. */
+  body.vne-mobile-ready .vne-stage.vne-left-collapsed,
+  body.vne-mobile-ready .vne-stage.vne-right-collapsed,
+  body.vne-mobile-ready .vne-stage.vne-left-collapsed.vne-right-collapsed {
+    grid-template-columns: 1fr;
+  }
+  body.vne-mobile-ready .vne-stage.vne-left-collapsed  .vne-left-panel  .vne-portraits-list,
+  body.vne-mobile-ready .vne-stage.vne-right-collapsed .vne-right-panel .vne-portraits-list {
+    display: none;
+  }
+  body.vne-mobile-ready .vne-stage.vne-left-collapsed  .vne-left-panel  .vne-side-label,
+  body.vne-mobile-ready .vne-stage.vne-right-collapsed .vne-right-panel .vne-side-label {
+    justify-content: center;
+    padding: 2px 0;
+  }
+
   /* Actor picker is a top bar anchored at a fixed 50px; the header grows when
      its controls wrap, so push the picker clear of it and let it wrap too. */
   body.vne-mobile-ready #vne-actor-picker {

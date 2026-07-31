@@ -2,7 +2,9 @@
   "vnd-enhanced": {
     "title": "VN Dialogues Enhanced",
     "keybindings": {
-      "toggleVN": "Mostrar/ocultar ventana VN"
+      "toggleVN": "Mostrar/ocultar ventana VN",
+      "toggleCombatStage": "Activar/desactivar escenario de combate",
+      "toggleCombatReveal": "Revelar / ocultar duelo de combate (VS)"
     },
     "toolbar": {
       "toggle": "Mostrar/ocultar VN (Alt+V)",
@@ -13,6 +15,10 @@
         "name": "Licencia",
         "label": "Gestionar licencia",
         "hint": "Consulta tu nivel de suscripción y libera slots de instalación."
+      },
+      "combatManualReveal": {
+        "name": "Revelar combate manual",
+        "hint": "Cuando está activo, el display VS del duelo (ambos luchadores en grande, al frente y centrados) permanece oculto durante el combate hasta que lo activas — con el botón del ojo en la barra superior o el atajo 'Revelar duelo de combate' (Alt+B por defecto). Muestra al luchador actual contra su objetivo, y se oculta solo al terminar el turno, esperando la siguiente revelación. Desactívalo para el comportamiento clásico donde el duelo siempre está visible en combate."
       },
       "visualTheme": {
         "name": "Tema visual",
@@ -62,10 +68,10 @@
       "releaseConfirmOther": "Esto libera el slot usado por otro equipo (dejará de funcionar allí). ¿Continuar?",
       "noInstallations": "No hay instalaciones activas.",
       "hint": "Cada cuenta de Patreon puede activar el módulo en hasta 2 equipos. Libera un slot aquí si cambiaste de navegador u ordenador.",
-      "connectHint": "Conecta tu cuenta de Patreon para activar las funciones premium.",
+      "connectHint": "Estás usando VND Enhanced sin licencia — todas las funciones están desbloqueadas. Si te resulta útil en tu mesa, apoya el desarrollo conectando tu Patreon.",
       "connectBtn": "Conectar Patreon",
       "haveCode": "Tengo un código de activación",
-      "dismiss": "Descartar",
+      "dismiss": "Más tarde",
       "connecting": "Abriendo Patreon...",
       "codeTitle": "VND Enhanced — Introducir código",
       "codeHint": "Pega el código que aparece tras conectar tu cuenta de Patreon.",
@@ -76,13 +82,14 @@
       "connected": "VND Enhanced: Conectado como suscriptor {tier}. ¡Bienvenido!",
       "released": "VND Enhanced: Slot de instalación liberado.",
       "releaseFailed": "VND Enhanced: No se pudo liberar el slot — {message}",
-      "reconnected": "VND Enhanced: Servidor de licencias reconectado. Funciones premium restauradas.",
-      "suspended": "VND Enhanced: Servidor de licencias inaccesible. Funciones premium suspendidas hasta reconectar."
+      "reconnected": "VND Enhanced: Licencia verificada. ¡Gracias por tu apoyo!"
     },
     "ui": {
       "players": "Jugadores",
       "npcs": "PNJs",
       "combatStage": "Escenario de combate",
+      "revealVS": "Revelar duelo (luchador actual vs objetivo)",
+      "collapsePanel": "Colapsar / expandir este panel",
       "editModeOn": "Salir del modo edición",
       "editModeOff": "Modo edición: reordenar, escalar y quitar retratos",
       "aiGenerator": "Generador de imágenes IA (solo GM)",
