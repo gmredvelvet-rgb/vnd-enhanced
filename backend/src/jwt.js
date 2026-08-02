@@ -16,21 +16,27 @@ function b64urlDecode(str) {
   return Uint8Array.from(binary, c => c.charCodeAt(0));
 }
 
-// Cache imported keys per request context (Worker instances are ephemeral)
+// Cache imported keys per isolate (Worker instances are ephemeral). Keyed on the
+// key material itself: caching by presence alone meant a warm isolate kept
+// signing with the previous key after a rotation, until it happened to recycle.
 let _cachedPrivateKey = null;
+let _cachedPrivateSrc = null;
 let _cachedPublicKey  = null;
+let _cachedPublicSrc  = null;
 
 async function getPrivateKey(privateKeyBase64url) {
-  if (_cachedPrivateKey) return _cachedPrivateKey;
+  if (_cachedPrivateKey && _cachedPrivateSrc === privateKeyBase64url) return _cachedPrivateKey;
   const keyBytes = b64urlDecode(privateKeyBase64url);
   _cachedPrivateKey = await crypto.subtle.importKey('pkcs8', keyBytes, ALG, false, ['sign']);
+  _cachedPrivateSrc = privateKeyBase64url;
   return _cachedPrivateKey;
 }
 
 async function getPublicKey(publicKeyBase64url) {
-  if (_cachedPublicKey) return _cachedPublicKey;
+  if (_cachedPublicKey && _cachedPublicSrc === publicKeyBase64url) return _cachedPublicKey;
   const keyBytes = b64urlDecode(publicKeyBase64url);
   _cachedPublicKey = await crypto.subtle.importKey('spki', keyBytes, ALG, false, ['verify']);
+  _cachedPublicSrc = publicKeyBase64url;
   return _cachedPublicKey;
 }
 

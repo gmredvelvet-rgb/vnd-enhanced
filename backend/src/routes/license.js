@@ -18,7 +18,14 @@ const router = new Hono();
 // ── POST /token/refresh ───────────────────────────────────────────────────────
 
 router.post('/refresh',
-  rateLimiter({ max: 10, windowSec: 3600 }),
+  // Keyed per installation, not per IP: one GM running several modules behind a
+  // single address shares an IP, and a flat 10/hour across the whole catalogue
+  // meant the modules starved each other out of token rotation.
+  rateLimiter({
+    max: 10,
+    windowSec: 3600,
+    keyFn: (c) => c.req.header('X-Installation-ID') ?? c.req.header('CF-Connecting-IP') ?? 'unknown'
+  }),
   requireNonce,
   async (c) => {
     const { refreshToken, fingerprintHash } = c.get('body');
@@ -102,9 +109,6 @@ router.post('/refresh',
       db, user.id, installation.id, fingerprintHash
     );
 
-    // Mark old RT as replaced
-    await db.update('vnd_refresh_tokens', { id: rt.id }, {});
-
     // `tier` must be returned: clients persist whatever this response carries,
     // and omitting it made them fall back to 'none' after every rotation.
     return signedJson(c, { accessToken, refreshToken: newRt, expiresIn: 3600, tier, features });
@@ -129,12 +133,21 @@ router.post('/heartbeat',
     const installation = await db.findOne('vnd_installations', {
       installation_id: installationId,
       user_id:         payload.sub,
-      module_id:       payload.mid ?? 'vnd-enhanced',
       status:          'active'
     });
 
     if (!installation) {
       return c.json({ error: 'Installation not found', code: 'INSTALL_NOT_FOUND' }, 404);
+    }
+
+    // The stored row is the authority on which module this is — never the
+    // token. `payload.mid ?? 'vnd-enhanced'` promoted any token that omitted
+    // `mid` to the module with the largest feature set. A NULL column, by
+    // contrast, is a row from before multi-module support existed, when
+    // vnd-enhanced was the only module: that fallback is a historical fact.
+    const moduleId = installation.module_id ?? 'vnd-enhanced';
+    if (payload.mid && payload.mid !== moduleId) {
+      return c.json({ error: 'Module mismatch', code: 'MODULE_MISMATCH' }, 403);
     }
 
     // Verify fingerprint — constant-time full comparison (prevents prefix-guessing & timing attacks)
@@ -164,7 +177,6 @@ router.post('/heartbeat',
       return c.json({ error: 'Account inactive', code: 'ACCOUNT_INACTIVE' }, 403);
     }
 
-    const moduleId            = payload.mid ?? 'vnd-enhanced';
     const shouldVerifyPatreon = (installation.heartbeat_count ?? 0) % 24 === 0;
     let tier = user.tier;
 
@@ -184,8 +196,11 @@ router.post('/heartbeat',
           patreon_refresh:    newTokens.refresh_token,
           patreon_expires_at: new Date(Date.now() + newTokens.expires_in * 1000).toISOString()
         });
-      } catch {
-        // Patreon API down — use cached tier, don't punish user
+      } catch (err) {
+        // Patreon API down — use the cached tier, don't punish the user. Logged
+        // because a silent swallow here freezes everyone's tier indefinitely:
+        // a sustained Patreon outage is invisible without this line.
+        console.warn('[VND heartbeat] Patreon re-verification failed, keeping cached tier:', err.message);
       }
     }
 
@@ -217,14 +232,19 @@ router.get('/license/status',
     const user    = await db.findOne('vnd_users', { id: payload.sub });
     if (!user) return c.json({ error: 'User not found', code: 'NOT_FOUND' }, 404);
 
-    const installations = await db.findMany('vnd_installations', {
+    const moduleId = await callerModuleId(db, payload);
+    if (!moduleId) return c.json({ error: 'Installation not found', code: 'NOT_FOUND' }, 404);
+
+    // Only this module's slots. The unfiltered query listed every module's
+    // installations in the licence manager, so a GM saw rows that /license/release
+    // would then refuse to free — they belong to a different module.
+    const all = await db.findMany('vnd_installations', {
       user_id: user.id,
       status:  'active'
     });
+    const installations = all.filter(i => (i.module_id ?? 'vnd-enhanced') === moduleId);
 
-    // Report against the caller's module, not the vnd-enhanced default.
-    const moduleId = payload.mid ?? 'vnd-enhanced';
-    const tier     = PatreonClient.effectiveTier(user.tier, moduleId);
+    const tier = PatreonClient.effectiveTier(user.tier, moduleId);
 
     return signedJson(c, {
       tier,
@@ -251,13 +271,19 @@ router.post('/license/release',
     const payload = c.get('jwtPayload');
     const db      = new Supabase(c.env);
 
+    const moduleId = await callerModuleId(db, payload);
+    if (!moduleId) return c.json({ error: 'Installation not found', code: 'NOT_FOUND' }, 404);
+
     const installation = await db.findOne('vnd_installations', {
       installation_id: installationId,
-      user_id:         payload.sub,
-      module_id:       payload.mid ?? 'vnd-enhanced'
+      user_id:         payload.sub
     });
 
-    if (!installation) return c.json({ error: 'Installation not found', code: 'NOT_FOUND' }, 404);
+    // Same owner is not enough: a token for one module must not be able to free
+    // another module's slot.
+    if (!installation || (installation.module_id ?? 'vnd-enhanced') !== moduleId) {
+      return c.json({ error: 'Installation not found', code: 'NOT_FOUND' }, 404);
+    }
 
     await db.update('vnd_installations', { id: installation.id }, {
       status:            'revoked',
@@ -276,6 +302,28 @@ router.post('/license/release',
 );
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Which module the caller's token belongs to, resolved from their installation
+ * row rather than from the token itself.
+ *
+ * `payload.mid ?? 'vnd-enhanced'` used to answer this, which promoted any token
+ * missing `mid` to the module with the largest feature set. The row is
+ * authoritative; a NULL column means a row predating multi-module support, back
+ * when vnd-enhanced was the only module. Returns null when there is no row.
+ */
+async function callerModuleId(db, payload) {
+  const own = await db.findOne('vnd_installations', {
+    installation_id: payload.iid,
+    user_id:         payload.sub
+  });
+  if (!own) return null;
+  const moduleId = own.module_id ?? 'vnd-enhanced';
+  // A token that names a different module than its own row is either stale or
+  // forged-adjacent; refuse rather than pick a winner.
+  if (payload.mid && payload.mid !== moduleId) return null;
+  return moduleId;
+}
 
 // Constant-time string comparison — prevents timing-based enumeration attacks.
 // Signs both strings with a one-shot ephemeral HMAC key, then XOR-compares the MACs.

@@ -13,7 +13,16 @@ export async function requireAuth(c, next) {
   if (!token) return c.json({ error: 'Missing authorization', code: 'UNAUTHORIZED' }, 401);
 
   try {
-    const payload   = await verifyJWT(token, c.env);
+    const payload = await verifyJWT(token, c.env);
+
+    // Response-signature tokens (signedJson) are minted with the same key pair
+    // and therefore verify here too. They carry no subject, so every route
+    // happened to reject them further down — by accident, not by design. Refuse
+    // anything that is not an access token before any of it is trusted.
+    if (payload.type === 'res' || !payload.sub || !payload.iid || !payload.jti) {
+      return c.json({ error: 'Invalid token', code: 'INVALID_TOKEN' }, 401);
+    }
+
     const revoked   = await c.env.KV.get(`revoked:jwt:${payload.jti}`);
     if (revoked) return c.json({ error: 'Token revoked', code: 'TOKEN_REVOKED' }, 401);
 
@@ -33,16 +42,32 @@ export async function requireAuth(c, next) {
 export function rateLimiter({ max, windowSec, keyFn }) {
   return async (c, next) => {
     const identifier = typeof keyFn === 'function' ? keyFn(c) : c.req.header('CF-Connecting-IP') ?? 'unknown';
-    const path = new URL(c.req.url).pathname.replace(/\//g, '_');
+    const path = new URL(c.req.url).pathname.replaceAll('/', '_');
     const key  = `rl:${path}:${identifier}`;
 
-    const current = parseInt(await c.env.KV.get(key) ?? '0', 10);
+    // The window start is stored with the counter. Re-putting a bare counter
+    // reset the TTL on every request, so a caller under sustained load could
+    // never fall out of its own window and stayed rate-limited indefinitely.
+    const raw     = await c.env.KV.get(key);
+    const now     = Date.now();
+    const parsed  = raw ? JSON.parse(raw) : null;
+    const started = parsed?.t ?? now;
+    const elapsed = Math.floor((now - started) / 1000);
+    const expired = elapsed >= windowSec;
+
+    const current = expired ? 0 : (parsed?.n ?? 0);
     if (current >= max) {
       return c.json({ error: 'Too many requests', code: 'RATE_LIMITED' }, 429);
     }
 
-    // Increment counter. On first request, also set TTL.
-    await c.env.KV.put(key, String(current + 1), { expirationTtl: windowSec });
+    // Not atomic — KV has no compare-and-set, so two simultaneous requests can
+    // both read the same count. Acceptable for a soft throttle; never rely on
+    // this as a security control.
+    await c.env.KV.put(
+      key,
+      JSON.stringify({ n: current + 1, t: expired ? now : started }),
+      { expirationTtl: expired ? windowSec : Math.max(60, windowSec - elapsed) }
+    );
 
     return next();
   };
@@ -80,18 +105,11 @@ export async function requireNonce(c, next) {
   return next();
 }
 
-// ── CORS headers ──────────────────────────────────────────────────────────────
-
-export function cors(c, next) {
-  // Foundry is self-hosted on arbitrary domains — we allow all origins.
-  // Security comes from token validation, not CORS.
-  c.res = new Response(c.res?.body, c.res);
-  c.header('Access-Control-Allow-Origin', '*');
-  c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Installation-ID');
-  c.header('Access-Control-Max-Age', '86400');
-  return next();
-}
+// CORS lives in index.js, on hono/cors. A second hand-rolled implementation
+// used to sit here, unreferenced — it read as the active policy during audits
+// while the real one was elsewhere. Foundry is self-hosted on arbitrary
+// domains, so `origin: '*'` there is deliberate: there are no cookies and no
+// ambient credentials, so security comes from token validation, not CORS.
 
 // ── Response signing (RS256 asymmetric) ───────────────────────────────────────
 // Server signs with RSA private key. Client verifies with embedded public key.

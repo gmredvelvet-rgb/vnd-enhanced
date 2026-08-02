@@ -76,7 +76,8 @@ for (const [label, m, expected] of tierCases) {
 
 const MODULES = [
   'velvet-mobile', 'vnd-enhanced', 'sf2e-cyber-sheet', 'starfinderdashboard',
-  'hopefinder-sheet', 'pf2e-velvet-sheet', 'dnd-velvet-sheets', 'velvet-journals'
+  'hopefinder-sheet', 'pf2e-velvet-sheet', 'dnd-velvet-sheets', 'velvet-journals',
+  'dnd-shops', 'directional-token-images', 'velvet-move', 'isometric-tokens-creator'
 ];
 const TIERS = ['none', 'mobile', 'basic', 'premium'];
 

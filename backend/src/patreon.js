@@ -231,19 +231,50 @@ export class PatreonClient {
         mobile:  ['mobile-shell'],
         basic:   ['mobile-shell'],
         premium: ['mobile-shell']
+      },
+      // The shop catalogue is served from /shops/data, which gates on this exact
+      // feature name. It is also granted by vnd-enhanced, whose tier has always
+      // included the shop — promoting the module must not take that away.
+      'dnd-shops': {
+        none:    [],
+        basic:   ['dnd-shops'],
+        premium: ['dnd-shops']
+      },
+      'directional-token-images': {
+        none:    [],
+        basic:   ['directional-images'],
+        premium: ['directional-images']
+      },
+      'velvet-move': {
+        none:    [],
+        basic:   ['velvet-move'],
+        premium: ['velvet-move']
+      },
+      'isometric-tokens-creator': {
+        none:    [],
+        basic:   ['iso-token-editor'],
+        premium: ['iso-token-editor']
       }
     };
-    const map = allFeatures[moduleId] ?? allFeatures['vnd-enhanced'];
+    // No fallback. `allFeatures[moduleId] ?? allFeatures['vnd-enhanced']` meant
+    // an unregistered module inherited the largest feature set in the catalogue
+    // — including 'dnd-shops', the one feature that is actually enforced
+    // server-side. An unknown module is entitled to nothing.
+    const map = allFeatures[moduleId];
+    if (!map) return [];
     return map[tier] ?? [];
   }
 
   // ── Whitelist of known module IDs ─────────────────────────────────────────
 
+  static VALID_MODULE_IDS = new Set([
+    'vnd-enhanced', 'sf2e-cyber-sheet', 'starfinderdashboard',
+    'hopefinder-sheet', 'pf2e-velvet-sheet', 'dnd-velvet-sheets',
+    'velvet-journals', 'velvet-mobile',
+    'dnd-shops', 'directional-token-images', 'velvet-move', 'isometric-tokens-creator'
+  ]);
+
   static isValidModuleId(moduleId) {
-    return [
-      'vnd-enhanced', 'sf2e-cyber-sheet', 'starfinderdashboard',
-      'hopefinder-sheet', 'pf2e-velvet-sheet', 'dnd-velvet-sheets',
-      'velvet-journals', 'velvet-mobile'
-    ].includes(moduleId);
+    return PatreonClient.VALID_MODULE_IDS.has(moduleId);
   }
 }

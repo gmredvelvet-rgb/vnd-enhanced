@@ -20,14 +20,16 @@ router.post('/start',
   rateLimiter({ max: 20, windowSec: 60 }),
   async (c) => {
     const body   = await c.req.json().catch(() => ({}));
-    const origin = typeof body.origin === 'string' && body.origin.startsWith('http')
-      ? body.origin
-      : null;
+    const origin = parseOrigin(body.origin);
 
-    // Validate moduleId — reject unknown modules to prevent token abuse
-    const moduleId = typeof body.moduleId === 'string' && PatreonClient.isValidModuleId(body.moduleId)
-      ? body.moduleId
-      : 'vnd-enhanced';
+    // Reject unknown modules outright. Degrading to 'vnd-enhanced' handed the
+    // caller that module's whole feature set — including 'dnd-shops', the only
+    // server-gated one — and filed its installation under vnd-enhanced's slots,
+    // where it evicted a real one.
+    const moduleId = body.moduleId;
+    if (typeof moduleId !== 'string' || !PatreonClient.isValidModuleId(moduleId)) {
+      return c.json({ error: 'Unknown module', code: 'UNKNOWN_MODULE' }, 400);
+    }
 
     const state = crypto.randomUUID();
     await c.env.KV.put(
@@ -56,10 +58,14 @@ router.get('/callback', async (c) => {
   if (!stateRaw) return serveErrorPage(c, 'Invalid or expired OAuth state.');
   await c.env.KV.delete(`oauth:state:${state}`);
   const stateData     = (() => { try { return JSON.parse(stateRaw); } catch { return {}; } })();
-  const allowedOrigin = stateData.origin ?? null;
-  const moduleId      = typeof stateData.moduleId === 'string' && PatreonClient.isValidModuleId(stateData.moduleId)
-    ? stateData.moduleId
-    : 'vnd-enhanced';
+  const allowedOrigin = parseOrigin(stateData.origin);
+  // /oauth/start only ever stores a whitelisted id, so a bad one here means the
+  // state was tampered with or the whitelist shrank — neither may fall through
+  // to vnd-enhanced and hand out its entitlements.
+  const moduleId      = stateData.moduleId;
+  if (typeof moduleId !== 'string' || !PatreonClient.isValidModuleId(moduleId)) {
+    return serveErrorPage(c, 'This module is not recognised by the licence server.');
+  }
 
   try {
     const patreon = new PatreonClient(c.env);
@@ -121,17 +127,26 @@ router.get('/callback', async (c) => {
 // ── POST /oauth/exchange ──────────────────────────────────────────────────────
 // The Foundry client calls this to exchange the auth code for real tokens.
 
-router.post('/exchange', async (c) => {
+router.post('/exchange',
+  rateLimiter({
+    max: 20,
+    windowSec: 3600,
+    keyFn: (c) => c.req.header('X-Installation-ID') ?? c.req.header('CF-Connecting-IP') ?? 'unknown'
+  }),
+  async (c) => {
   const body = await c.req.json().catch(() => null);
   if (!body?.authCode || !body?.installationId || !body?.fingerprintHash) {
     return c.json({ error: 'Missing parameters', code: 'BAD_REQUEST' }, 400);
   }
 
   const { authCode, installationId, fingerprintHash } = body;
-  // Accept moduleId from client; fall back to vnd-enhanced for old clients
-  const moduleId = typeof body.moduleId === 'string' && PatreonClient.isValidModuleId(body.moduleId)
-    ? body.moduleId
-    : 'vnd-enhanced';
+  // Must be a module the server knows. The old fallback to 'vnd-enhanced' also
+  // defeated the MODULE_MISMATCH check below: both sides degraded to the same
+  // value, so a mismatch could never be detected.
+  const moduleId = body.moduleId;
+  if (typeof moduleId !== 'string' || !PatreonClient.isValidModuleId(moduleId)) {
+    return c.json({ error: 'Unknown module', code: 'UNKNOWN_MODULE' }, 400);
+  }
 
   // Validate and consume the auth code
   const authCodeRaw = await c.env.KV.get(`authcode:${authCode}`);
@@ -389,11 +404,58 @@ function serveErrorPage(c, message) {
   return c.html(html, 400);
 }
 
+/**
+ * Shape a real origin can take: scheme, host (DNS name, IPv4, or bracketed
+ * IPv6), optional port. Nothing else.
+ *
+ * URL parsing alone is NOT enough here, which is easy to get wrong: WHATWG host
+ * parsing rejects `<` and `>` but happily keeps `'`, `"` and a backtick inside
+ * a hostname, so `new URL("http://x'+alert(1)+'").origin` round-trips intact.
+ * Since the value lands in a JS string literal, that is a quote away from an
+ * escape. This whitelist is what actually makes the value safe.
+ */
+const ORIGIN_RE = /^https?:\/\/(?:[a-zA-Z0-9.-]+|\[[0-9a-fA-F:.]+\])(?::\d{1,5})?$/;
+
+/**
+ * Reduce a client-supplied origin to `scheme://host[:port]`, or null.
+ *
+ * The value is echoed into the OAuth success page as a JS string literal, so it
+ * is never trusted verbatim: the old `startsWith('http')` check let
+ * `http://x</script><script>…` through, closing the script tag and running
+ * attacker code on this origin — where the victim's auth code sits in the DOM.
+ */
+export function parseOrigin(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return ORIGIN_RE.test(url.origin) ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 function escHtml(str) {
   return String(str ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 }
-function escJs(str) {
-  return String(str ?? '').split('\\').join('\\\\').split("'").join("\\'").split('"').join('\\"');
+
+// Defence in depth behind parseOrigin: `<` and `>` are escaped so no value can
+// close the surrounding <script>, and the line terminators JS treats as breaks
+// are escaped so none can terminate the string literal early.
+export function escJs(str) {
+  return String(str ?? '')
+    .replaceAll('\\', '\\\\')
+    .replaceAll("'", "\\'")
+    .replaceAll('"', '\\"')
+    .replaceAll('<', '\\x3C')
+    .replaceAll('>', '\\x3E')
+    .replaceAll('\n', '\\n')
+    .replaceAll('\r', '\\r')
+    // Written as regex escapes on purpose: the raw U+2028/U+2029 code points
+    // are line terminators, and pasting them into this source would break
+    // the very literal meant to neutralise them.
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
 }
 
 export default router;

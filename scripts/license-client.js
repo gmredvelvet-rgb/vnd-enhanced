@@ -304,7 +304,20 @@ export class VndLicenseClient {
 
   // ── Internal: refresh ───────────────────────────────────────────────────────
 
+  // Serialises token rotation. The server revokes the old refresh token the
+  // moment it is used and treats a second presentation as reuse — a critical
+  // SECURITY_VIOLATION that revokes the whole family. The heartbeat's recovery
+  // path and the interval could overlap and trigger exactly that, pushing a
+  // paying GM back through Patreon for no reason.
+  #refreshInFlight = null;
+
   async #doRefresh() {
+    this.#refreshInFlight ??= this.#doRefreshOnce()
+      .finally(() => { this.#refreshInFlight = null; });
+    return this.#refreshInFlight;
+  }
+
+  async #doRefreshOnce() {
     const result = await this.#apiCall('/token/refresh', {
       refreshToken:    this.#refreshToken,
       fingerprintHash: this.#fingerprint
