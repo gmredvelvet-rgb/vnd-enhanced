@@ -22,12 +22,8 @@ router.post('/start',
     const body   = await c.req.json().catch(() => ({}));
     const origin = parseOrigin(body.origin);
 
-    // Reject unknown modules outright. Degrading to 'vnd-enhanced' handed the
-    // caller that module's whole feature set — including 'dnd-shops', the only
-    // server-gated one — and filed its installation under vnd-enhanced's slots,
-    // where it evicted a real one.
-    const moduleId = body.moduleId;
-    if (typeof moduleId !== 'string' || !PatreonClient.isValidModuleId(moduleId)) {
+    const moduleId = resolveModuleId(body.moduleId);
+    if (!moduleId) {
       return c.json({ error: 'Unknown module', code: 'UNKNOWN_MODULE' }, 400);
     }
 
@@ -140,11 +136,8 @@ router.post('/exchange',
   }
 
   const { authCode, installationId, fingerprintHash } = body;
-  // Must be a module the server knows. The old fallback to 'vnd-enhanced' also
-  // defeated the MODULE_MISMATCH check below: both sides degraded to the same
-  // value, so a mismatch could never be detected.
-  const moduleId = body.moduleId;
-  if (typeof moduleId !== 'string' || !PatreonClient.isValidModuleId(moduleId)) {
+  const moduleId = resolveModuleId(body.moduleId);
+  if (!moduleId) {
     return c.json({ error: 'Unknown module', code: 'UNKNOWN_MODULE' }, 400);
   }
 
@@ -402,6 +395,31 @@ function serveErrorPage(c, message) {
 </body>
 </html>`;
   return c.html(html, 400);
+}
+
+/**
+ * Resolve the module a client is claiming to be.
+ *
+ * An **absent** id means a client built before multi-module support, and those
+ * are still installed — D&D Shops up to v0.6.0 never sends one, so refusing it
+ * would break activation in every world running the current release. It is also
+ * pointless to refuse: rejecting an absent id buys no security, because anyone
+ * can simply claim 'vnd-enhanced' instead.
+ *
+ * A **claimed but unknown** id is the case that matters. Silently degrading it
+ * to 'vnd-enhanced' is what handed unregistered modules that module's whole
+ * feature set — including 'dnd-shops', the only server-gated one — and filed
+ * their installations under its 2 slots, evicting real ones. It also defeated
+ * the MODULE_MISMATCH check at /oauth/exchange, since both sides degraded to
+ * the same value. Those are integration mistakes and must fail loudly.
+ *
+ * @param {unknown} claimed
+ * @returns {string|null} The resolved id, or null if one was claimed and is unknown.
+ */
+export function resolveModuleId(claimed) {
+  if (claimed === undefined || claimed === null) return 'vnd-enhanced';
+  if (typeof claimed !== 'string' || !PatreonClient.isValidModuleId(claimed)) return null;
+  return claimed;
 }
 
 /**

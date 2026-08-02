@@ -12,7 +12,7 @@
  * No network, no DB. Exits non-zero if any expectation fails.
  */
 
-import { parseOrigin, escJs } from '../src/routes/auth.js';
+import { parseOrigin, escJs, resolveModuleId } from '../src/routes/auth.js';
 import { PatreonClient }      from '../src/patreon.js';
 
 let failures = 0;
@@ -103,6 +103,23 @@ for (const id of ['', 'no-such-module', 'VND-ENHANCED', 'vnd-enhanced ', null, u
 const leaked = PatreonClient.featuresForTier('basic', 'no-such-module');
 check('módulo desconocido no hereda features de vnd-enhanced',
   leaked.includes('dnd-shops'), false);
+
+// ── 4. resolveModuleId ────────────────────────────────────────────────────────
+// Absent vs. claimed-and-unknown are deliberately different: clients built
+// before multi-module support are still installed (D&D Shops ≤ v0.6.0 sends no
+// moduleId at all), and refusing them would break activation in live worlds
+// while buying nothing — anyone can claim 'vnd-enhanced' outright.
+
+console.log('\n== resolveModuleId ==========================================================');
+
+check('id válido se conserva',
+  resolveModuleId('directional-token-images'), 'directional-token-images');
+check('ausente → vnd-enhanced (cliente antiguo)', resolveModuleId(undefined), 'vnd-enhanced');
+check('null → vnd-enhanced (cliente antiguo)',    resolveModuleId(null), 'vnd-enhanced');
+check('reclamado y desconocido → rechazado',      resolveModuleId('no-such-module'), null);
+check('cadena vacía → rechazada',                 resolveModuleId(''), null);
+check('tipo no-string → rechazado',               resolveModuleId(42), null);
+check('id con espacio final → rechazado',         resolveModuleId('vnd-enhanced '), null);
 
 // dnd-shops keeps the feature name /shops/data gates on, from both directions.
 check('dnd-shops entrega su propio feature',
