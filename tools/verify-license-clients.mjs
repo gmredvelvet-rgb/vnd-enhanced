@@ -27,7 +27,8 @@ const TARGETS = [
   ['vnd-enhanced',            M + 'vnd-enhanced/scripts/license-client.js',            'VndLicenseClient'],
   ['velvet-journals',         M + 'velvet-journals/scripts/license.js',                'default'],
   ['directional-token-images', M + 'directional-token-images/scripts/license/license.js', 'default'],
-  ['velvet-mobile',           M + 'velvet-mobile/scripts/license/license-client.mjs',  'LicenseClient']
+  ['velvet-mobile',           M + 'velvet-mobile/scripts/license/license-client.mjs',  'LicenseClient'],
+  ['isometric-tokens-creator', M + 'isometric-tokens-creator/scripts/license/license-client.js', 'default']
 ];
 
 let failures = 0;
