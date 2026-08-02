@@ -28,7 +28,8 @@ const TARGETS = [
   ['velvet-journals',         M + 'velvet-journals/scripts/license.js',                'default'],
   ['directional-token-images', M + 'directional-token-images/scripts/license/license.js', 'default'],
   ['velvet-mobile',           M + 'velvet-mobile/scripts/license/license-client.mjs',  'LicenseClient'],
-  ['isometric-tokens-creator', M + 'isometric-tokens-creator/scripts/license/license-client.js', 'default']
+  ['isometric-tokens-creator', M + 'isometric-tokens-creator/scripts/license/license-client.js', 'default'],
+  ['velvet-move',             M + 'velvet-move/scripts/license/license-client.js',       'default']
 ];
 
 let failures = 0;
