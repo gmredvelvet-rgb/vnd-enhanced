@@ -1,5 +1,9 @@
-# Backend dependencies only — source files ARE committed, node_modules are not
-backend/node_modules/
+# El backend (Cloudflare Worker de licencias) ya NO vive aquí: se movió a su
+# propio repo privado, gmredvelvet-rgb/velvet-license-backend. Este repo es
+# público y el Worker sirve ya a 12 módulos, así que no pinta en el repo de uno
+# solo de ellos. Ignorado para que una copia de trabajo local no vuelva a
+# colarse en un commit.
+backend/
 
 # Local generated images
 generated/
