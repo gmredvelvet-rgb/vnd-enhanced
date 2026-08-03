@@ -36,8 +36,12 @@ PATREON_REDIRECT_URI = "https://vnd-license.gmredvelvet.workers.dev/oauth/callba
 # Since Foundry is self-hosted, * is acceptable here — auth is token-based
 ALLOWED_ORIGINS = "*"
 
-# Developer accounts — always granted premium regardless of Patreon subscription
-OWNER_EMAILS    = "gmredvelvet@gmail.com"
+# Developer accounts — always granted premium regardless of Patreon subscription.
+# Vive en secrets, no en [vars]: este repo es público y aquí quedaba tanto el
+# correo (PII) como la pista de que existe un bypass de owner.
+#   wrangler secret put OWNER_EMAILS
+# Si el secret no está puesto, isOwner() simplemente no casa con nadie y la
+# cuenta cae a su tier real de Patreon — degrada, no rompe.
 
 # ── AI Studio ─────────────────────────────────────────────────────────────────
 # Generation limits per Patreon tier (per billing cycle)
