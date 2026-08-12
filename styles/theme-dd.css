@@ -55,7 +55,8 @@ body.vne-theme-dd {
 /* Reusable panel treatment: iron plate + bevel + optional user texture */
 body.vne-theme-dd .vne-top-bar,
 body.vne-theme-dd .vne-side-panel,
-body.vne-theme-dd .vne-combat-controls,
+/* The controls no longer own a surface — the HUD panel around them does. */
+body.vne-theme-dd .vne-combat-hud,
 body.vne-theme-dd .vne-player-panel,
 body.vne-theme-dd .vne-scenes-pill,
 body.vne-theme-dd #vne-scenes-panel,
@@ -312,6 +313,36 @@ body.vne-theme-dd .vne-vs-hp-bar {
 body.vne-theme-dd .vne-vs-sep {
   color: var(--vne-dd-red);
   text-shadow: 0 0 20px rgba(169, 30, 30, 0.7);
+}
+
+/* ── Battlefield: hammered iron bars, no rounded corners ────────────────── */
+body.vne-theme-dd .vne-bf-name,
+body.vne-theme-dd .vne-hud-name,
+body.vne-theme-dd .vne-hud-label {
+  font-family: var(--vne-dd-title-font);
+  letter-spacing: 0.12em;
+}
+body.vne-theme-dd .vne-bf-hp,
+body.vne-theme-dd .vne-hud-hp {
+  border-radius: 0;
+  border: 1px solid #060504;
+  box-shadow: inset 0 0 0 1px rgba(74, 60, 44, 0.5);
+}
+body.vne-theme-dd .vne-bf-hp-fill,
+body.vne-theme-dd .vne-hud-hp-fill { border-radius: 0; }
+body.vne-theme-dd .vne-bf-enemy .vne-bf-hp-fill {
+  background: linear-gradient(180deg, #c22727 0%, #6e0d0d 100%) !important;
+}
+body.vne-theme-dd .vne-bf-vs span {
+  font-family: var(--vne-dd-title-font);
+  color: var(--vne-dd-red);
+  text-shadow: 0 0 20px rgba(169, 30, 30, 0.7);
+}
+body.vne-theme-dd .vne-hud-card,
+body.vne-theme-dd .vne-hud-portrait {
+  border-radius: 0;
+  border-color: #060504;
+  box-shadow: inset 0 0 0 1px rgba(74, 60, 44, 0.45);
 }
 
 /* ── Damage floaters: DD combat numbers ─────────────────────────────────── */

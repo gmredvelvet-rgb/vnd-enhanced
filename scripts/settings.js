@@ -45,9 +45,25 @@ export function applyMobileMode() {
   document.body.classList.toggle("vne-mobile-ready", on);
 }
 
+/**
+ * RPG Classic Style — opt-in Combat Mode layout where the combatants stand on
+ * the battlefield in automatic formations with a bottom combat HUD, instead of
+ * the side panels + VS duel arrangement.
+ *
+ * Tagging <body> (same pattern as the theme and mobile switches) rather than
+ * #vne-main lets the stylesheet reach elements that live outside the VN window,
+ * notably the floating toggle button. Everything the option changes is gated on
+ * this class, so turning it off restores the released behaviour exactly.
+ */
+export function applyRpgStyle() {
+  const on = game.settings.get(ID, "combatRpgStyle") === true;
+  document.body.classList.toggle("vne-rpg-style", on);
+}
+
 Hooks.once("ready", () => {
   applyVisualTheme();
   applyMobileMode();
+  applyRpgStyle();
 });
 
 export function registerSettings() {
@@ -130,9 +146,50 @@ export function registerSettings() {
     default: true
   });
 
+  // Death tombstone — drop a gravestone tile where a combatant's token stood
+  // when it is marked defeated; removed on revive or when combat ends.
+  game.settings.register(ID, "deathTombstone", {
+    name: "vnd-enhanced.settings.deathTombstone.name",
+    hint: "vnd-enhanced.settings.deathTombstone.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true
+  });
+
+  // Select-on-target — when you target from the VN, also SELECT that token so
+  // the system's damage buttons (which apply to selected tokens) hit it. Client
+  // setting: each user decides whether VN targeting drives their selection.
+  game.settings.register(ID, "selectOnTarget", {
+    name: "vnd-enhanced.settings.selectOnTarget.name",
+    hint: "vnd-enhanced.settings.selectOnTarget.hint",
+    scope: "client",
+    config: true,
+    type: Boolean,
+    default: true
+  });
+
+  // RPG Classic Style — opt-in battlefield layout for Combat Mode. Default off:
+  // an existing world keeps the side-panel + VS arrangement it already knows.
+  game.settings.register(ID, "combatRpgStyle", {
+    name: "vnd-enhanced.settings.combatRpgStyle.name",
+    hint: "vnd-enhanced.settings.combatRpgStyle.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: () => {
+      applyRpgStyle();
+      // Both layouts are built at render time, so the open window has to be
+      // rebuilt for the switch to take effect without a reload.
+      Hooks.callAll("vnd-enhanced.rerender");
+    }
+  });
+
   // Manual combat reveal — when true the VS "duel" display (both fighters shown
   // large, front and center) stays hidden until the GM toggles it, and auto-hides
   // when the turn ends. When false it behaves as before (always shown in combat).
+  // Under RPG Classic Style the duel is always opt-in (it overlays the field).
   game.settings.register(ID, "combatManualReveal", {
     name: "vnd-enhanced.settings.combatManualReveal.name",
     hint: "vnd-enhanced.settings.combatManualReveal.hint",

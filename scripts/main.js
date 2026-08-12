@@ -12,6 +12,7 @@
 import { registerSettings } from "./settings.js";
 import { VndLicenseClient, VndLicenseUI, isWorldLicensed } from "./license-client.js";
 import { VNDAIGenerator } from "./ai-generator.js";
+import { buildBattlefieldHtml, hpPresentation, resolveMaxPerRow, clamp01 } from "./combat-formation.js";
 
 const ID = "vnd-enhanced";
 
@@ -233,14 +234,18 @@ function defaultPortrait(actor) {
 
 // Adds an actor's portrait to a side cast in `d`, reusing any saved portrait
 // config. Evicts the oldest entry past MAX_CAST. Mutates `d`; the caller saves.
+// `displayName` (from combat auto-cast) overrides the shown name with the
+// combatant/token name — e.g. Token Mold's "1", "2", "3" — but only for a
+// fresh entry, never clobbering a portrait the GM already customised.
 // Returns true if the cast changed.
-function _addPortraitToCastData(d, actor, side) {
+function _addPortraitToCastData(d, actor, side, displayName = null) {
   if (!actor) return false;
   const key = `${side}Cast`;
   if (d[key].some(p => p.id === actor.id)) return false;
   const saved    = d.portraits[actor.id];
   const portrait = (saved?.img) ? { ...saved } : defaultPortrait(actor);
   if (!portrait) return false;
+  if (displayName && !saved?.img) portrait.name = displayName;
   if (d[key].length >= MAX_CAST) d[key].shift();
   d[key].push(portrait);
   d.portraits[actor.id] = portrait;
@@ -268,7 +273,7 @@ function _autoPopulateCastFromCombat(d, combat) {
     if (c.hidden) continue;
     const actor = c.actor ?? game.actors.get(c.actorId);
     if (!actor) continue;
-    changed = _addPortraitToCastData(d, actor, _combatantVNSide(c, actor)) || changed;
+    changed = _addPortraitToCastData(d, actor, _combatantVNSide(c, actor), c.name) || changed;
   }
   return changed;
 }
@@ -279,6 +284,15 @@ function getPortraitImg(p) {
   }
   if (p.reactions?.default) return p.reactions.default;
   return p.img;
+}
+
+// RPG Classic Style — the opt-in battlefield layout for Combat Mode. When off,
+// every combat path below falls back to the released behaviour: cast side
+// panels plus the VS duel display. Read through a helper so the gate is a
+// single, greppable place rather than a settings lookup scattered around.
+function _isRpgStyle() {
+  try { return game.settings.get(ID, "combatRpgStyle") === true; }
+  catch { return false; }        // called before settings register (early hooks)
 }
 
 function canControlActor(actorId) {
@@ -444,7 +458,16 @@ function _portraitQuickCtrlHtml() {
 }
 
 // Binds click events on the quick-ctrl buttons inside `container` for `actorId`.
-function _bindPortraitQuickCtrl(container, actorId) {
+// `scaleField` selects which size the +/- buttons drive: "scale" frames the RP
+// stage, "bfScale" frames the battlefield. They are separate on purpose — the
+// two stages have completely different cell sizes, so one slider cannot serve
+// both without resizing for combat wrecking the roleplay framing.
+function _bindPortraitQuickCtrl(container, actorId, scaleField = "scale") {
+  const bf   = scaleField === "bfScale";
+  const min  = bf ? BF_SCALE_MIN : 20;
+  const max  = bf ? BF_SCALE_MAX : 300;
+  const step = 10;
+
   container.querySelectorAll(".vne-portrait-qbtn").forEach(btn => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -454,9 +477,10 @@ function _bindPortraitQuickCtrl(container, actorId) {
       const p = d.leftCast.find(x => x.id === actorId)
               || d.rightCast.find(x => x.id === actorId);
       if (!p) return;
-      const action = btn.dataset.action;
-      if      (action === "scale-up")   await _quickAdjustPortrait(actorId, { scale: Math.min(300, (p.scale || 100) + 10) });
-      else if (action === "scale-down") await _quickAdjustPortrait(actorId, { scale: Math.max(20,  (p.scale || 100) - 10) });
+      const action  = btn.dataset.action;
+      const current = Number.isFinite(Number(p[scaleField])) ? Number(p[scaleField]) : 100;
+      if      (action === "scale-up")   await _quickAdjustPortrait(actorId, { [scaleField]: Math.min(max, current + step) });
+      else if (action === "scale-down") await _quickAdjustPortrait(actorId, { [scaleField]: Math.max(min, current - step) });
       else if (action === "mirror")     await _quickAdjustPortrait(actorId, { mirrorX: !p.mirrorX });
     });
   });
@@ -494,6 +518,18 @@ function targetActorToken(actorId) {
   // Targeting a NEW actor: release all other targets first (clean single-target UX).
   // Clicking the SAME actor again: untarget only that one, no side effects.
   token.setTarget(!alreadyTargeted, { user: game.user, releaseOthers: !alreadyTargeted });
+
+  // Also SELECT the token when targeting, so the system's damage buttons — which
+  // apply to selected tokens (PF2e/SF2e/dnd5e) — land on it instead of erroring
+  // "Select at least one token". Only when we just targeted, only for a token
+  // this user may control, and only if the client opted in. control() no-ops
+  // safely when the user lacks permission (e.g. a player on an enemy token).
+  try {
+    const selectOn = game.settings.get(ID, "selectOnTarget");
+    if (selectOn && !alreadyTargeted && token.isOwner && typeof token.control === "function") {
+      token.control({ releaseOthers: true });
+    }
+  } catch { /* selection is a convenience, never fatal */ }
 }
 
 function getVNECastTokens(d = getDataRO()) {
@@ -604,6 +640,54 @@ async function _destroyGhostTokens() {
   }
 }
 
+// ── Death tombstone ───────────────────────────────────────────────────────────
+// Drops a gravestone tile where a combatant's token stood when it dies, and
+// clears it on revive or when the encounter ends. GM-only (tile documents).
+
+const _TOMBSTONE_IMG = `modules/${ID}/assets/imgs/tombstone.png`;
+
+async function _placeTombstone(combatant) {
+  if (!game.user.isGM) return;
+  if (!game.settings.get(ID, "deathTombstone")) return;
+  const tokenDoc = combatant?.token;
+  if (!tokenDoc) return;
+  if (tokenDoc.flags?.[ID]?.isGhost) return;        // never mark an invisible VFX ghost
+  const scene = tokenDoc.parent ?? canvas.scene;
+  if (!scene) return;
+  const actorId = combatant.actorId;
+  // One stone per fallen combatant
+  if (scene.tiles.some(t => t.flags?.[ID]?.tombstone && t.flags?.[ID]?.combatantId === combatant.id)) return;
+
+  const gs = scene.grid?.size ?? 100;
+  const w  = (tokenDoc.width  ?? 1) * gs;
+  const h  = (tokenDoc.height ?? 1) * gs;
+  try {
+    await scene.createEmbeddedDocuments("Tile", [{
+      texture: { src: _TOMBSTONE_IMG },
+      x: tokenDoc.x, y: tokenDoc.y,
+      width: w, height: h,
+      alpha: 1,
+      hidden: tokenDoc.hidden ?? false,
+      flags: { [ID]: { tombstone: true, actorId, combatantId: combatant.id } }
+    }]);
+  } catch (e) {
+    console.warn("VNE | tombstone placement failed:", e);
+  }
+}
+
+// Remove tombstones — for one combatant (revive) or all (combat end / cleanup).
+async function _removeTombstones({ combatantId = null, all = false } = {}) {
+  if (!game.user.isGM) return;
+  for (const scene of game.scenes) {
+    const ids = scene.tiles
+      .filter(t => t.flags?.[ID]?.tombstone && (all || t.flags?.[ID]?.combatantId === combatantId))
+      .map(t => t.id);
+    if (ids.length) {
+      try { await scene.deleteEmbeddedDocuments("Tile", ids); } catch { /* ignore */ }
+    }
+  }
+}
+
 // Returns the TokenDocument for actorId's ghost token (or null).
 function getGhostTokenDoc(actorId) {
   return _ghostTokens.get(actorId) ?? null;
@@ -649,8 +733,14 @@ async function _syncGhostTokens(d) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function _getPortraitContainer(actorId) {
-  // Prefer the big stage portrait over the small panel card
-  return document.querySelector(`.vne-rp-slot[data-id="${actorId}"]`)
+  // Order matters: battlefield unit (combat) → RP stage slot (roleplay) → side
+  // panel card (fallback). Damage floaters, hit shake, Sequencer/AA screen FX
+  // and CSS projectiles all resolve their anchor through here, so the
+  // battlefield MUST come first — in combat the RP stage and the side panels
+  // are hidden, and a hidden anchor yields a zero-size rect that silently
+  // parks every effect in the top-left corner.
+  return document.querySelector(`.vne-bf-unit[data-id="${actorId}"] .vne-bf-art`)
+      ?? document.querySelector(`.vne-rp-slot[data-id="${actorId}"]`)
       ?? document.querySelector(`.vne-cast-portrait[data-id="${actorId}"]`)
       ?? null;
 }
@@ -1261,6 +1351,262 @@ async function openStatusEffectPicker(actorId) {
   }, { capture: true, signal: pickerAC.signal });
 }
 
+// ── Quick Action HUD ──────────────────────────────────────────────────────────
+// RPG-style popup that lists an actor's attacks / spells / items and uses them
+// straight from the VN (no sheet). System-aware for pf2e and dnd5e, with a
+// generic fallback. Entries are also draggable to Foundry's macro hotbar.
+
+const _QA_IMG_FALLBACK = "icons/svg/item-bag.svg";
+
+// Collect an actor's usable actions, grouped into attacks / spells / items.
+// Strikes carry the index into actor.system.actions (pf2e needs it to roll);
+// everything else carries an itemId.
+function _quickActionData(actor) {
+  const out = { attacks: [], spells: [], items: [] };
+  if (!actor) return out;
+  const sys = game.system?.id;
+  const img = (i) => i?.img || _QA_IMG_FALLBACK;
+
+  // PF2e and Starfinder 2e both run the PF2e engine (strikes in system.actions,
+  // Multiple Attack Penalty variants). Detect either by id or by the strike array.
+  const pf2eLike = sys === "pf2e" || sys === "sf2e" || sys === "starfinder"
+                || Array.isArray(actor.system?.actions);
+
+  if (sys === "dnd5e") {
+    for (const item of actor.items ?? []) {
+      const t = item.type;
+      const base = { itemId: item.id, name: item.name, img: img(item) };
+      if (t === "weapon")      out.attacks.push({ ...base, kind: "item", sub: "weapon", group: "Weapon" });
+      else if (t === "spell")  {
+        const lvl = item.system?.level ?? 0;
+        const group = lvl === 0 ? "Cantrip" : `Lvl ${lvl}`;
+        out.spells.push({ ...base, kind: "spell", sub: group, group });
+      }
+      else if (["consumable", "equipment", "tool", "feat"].includes(t))
+                               out.items.push({ ...base, kind: "item", sub: t, group: t });
+    }
+    return out;
+  }
+
+  if (pf2eLike) {
+    (actor.system?.actions ?? []).forEach((a, idx) => {
+      if (a?.type !== "strike") return;
+      // MAP variants: [full, -5, -10]. Keep each label so the player can pick.
+      const variants = (a.variants ?? []).map((v, i) =>
+        v?.label ?? ["", "-5", "-10"][i] ?? `MAP ${i}`);
+      out.attacks.push({ kind: "strike", strikeIdx: idx,
+        name: a.label ?? a.item?.name ?? "Strike",
+        img: a.item?.img ?? a.imageUrl ?? "icons/svg/sword.svg",
+        sub: a.item?.name && a.item.name !== a.label ? a.item.name : "",
+        variants });
+    });
+    for (const item of actor.items ?? []) {
+      if (item.type === "spell") {
+        const isCantrip = item.isCantrip ?? item.system?.traits?.value?.includes?.("cantrip") ?? false;
+        const rank = item.rank ?? item.system?.level?.value;
+        const group = isCantrip ? "Cantrip" : (rank != null ? `Rank ${rank}` : "Spell");
+        out.spells.push({ kind: "spell", itemId: item.id, name: item.name, img: img(item),
+          sub: group, group });
+      } else if (["consumable", "equipment", "weapon", "armor"].includes(item.type)) {
+        out.items.push({ kind: "item", itemId: item.id, name: item.name, img: img(item),
+          sub: item.type, group: item.type });
+      }
+    }
+    return out;
+  }
+
+  // Generic fallback for any other system.
+  for (const item of actor.items ?? [])
+    out.items.push({ kind: "item", itemId: item.id, name: item.name, img: img(item), sub: item.type ?? "" });
+  return out;
+}
+
+// Perform one quick action, using the right per-system entry point.
+// `variantIdx` picks the PF2e Multiple Attack Penalty variant (0 = full, 1 = -5,
+// 2 = -10); ignored for everything else.
+async function _useQuickAction(actor, entry, ev, variantIdx = 0) {
+  const sys = game.system?.id;
+  try {
+    if (entry.kind === "strike") {
+      const strike  = actor.system?.actions?.[entry.strikeIdx];
+      const variant = strike?.variants?.[variantIdx] ?? strike?.variants?.[0];
+      if (variant?.roll)  return void variant.roll({ event: ev });
+      if (strike?.attack) return void strike.attack({ event: ev });
+      ui.notifications?.warn(T("notify.qaCantUse"));
+      return;
+    }
+    const item = actor.items.get(entry.itemId);
+    if (!item) { ui.notifications?.warn(T("notify.qaCantUse")); return; }
+
+    if (sys === "dnd5e" && item.use)  return void await item.use({}, { event: ev });
+
+    if (entry.kind === "spell") {
+      // PF2e: cast through the owning spellcasting entry when possible.
+      const entryId  = item.system?.location?.value;
+      const entryDoc = entryId ? actor.items.get(entryId) : null;
+      if (entryDoc?.cast) {
+        const rank = item.rank ?? item.system?.level?.value;
+        return void await entryDoc.cast(item, rank != null ? { rank } : {});
+      }
+    }
+    if (item.toMessage) return void await item.toMessage(ev);
+    if (item.toChat)    return void await item.toChat(ev);
+    if (item.use)       return void await item.use();
+    ui.notifications?.warn(T("notify.qaCantUse"));
+  } catch (e) {
+    console.warn("VNE | quick action failed:", e);
+    ui.notifications?.error(T("notify.qaFailed"));
+  }
+}
+
+function closeQuickActionWindow() {
+  document.getElementById("vne-qa-window")?.remove();
+}
+
+// The RPG popup. `category` picks the initial tab; the header carries the
+// portrait + name; entries are click-to-use and drag-to-hotbar.
+function _openQuickActionWindow(actorId, category, anchorEl) {
+  closeQuickActionWindow();
+  const actor = game.actors.get(actorId);
+  if (!actor) { ui.notifications?.warn(T("notify.actorNotFound")); return; }
+  const data = _quickActionData(actor);
+
+  const cats = [
+    { key: "attacks", icon: "fa-hand-fist",      label: T("qa.attacks"), list: data.attacks },
+    { key: "spells",  icon: "fa-wand-sparkles",  label: T("qa.spells"),  list: data.spells },
+    { key: "items",   icon: "fa-bag-shopping",   label: T("qa.items"),   list: data.items }
+  ].filter(c => c.list.length);
+
+  if (!cats.length) { ui.notifications?.info(T("qa.emptyAll")); return; }
+  let active = cats.find(c => c.key === category) ? category : cats[0].key;
+
+  const portrait = actor.img || actor.prototypeToken?.texture?.src || _QA_IMG_FALLBACK;
+  const win = document.createElement("div");
+  win.id = "vne-qa-window";
+  win.className = "vne-qa-window";
+
+  const tabsHtml = cats.map(c =>
+    `<button type="button" class="vne-qa-tab${c.key === active ? " vne-qa-tab-active" : ""}" data-cat="${c.key}">
+       <i class="fas ${c.icon}"></i> ${_esc(c.label)} <span class="vne-qa-count">${c.list.length}</span>
+     </button>`).join("");
+
+  // Filter chips — by spell rank / cantrip and by item type. Reset per tab.
+  let activeFilter = "";
+  const groupsFor = (cat) => [...new Set(
+    (cats.find(c => c.key === cat)?.list ?? []).map(e => e.group).filter(Boolean)
+  )];
+  const filtersHtml = (cat) => {
+    const groups = groupsFor(cat);
+    if (groups.length < 2) return "";   // nothing worth filtering
+    return `<button type="button" class="vne-qa-filter${activeFilter === "" ? " vne-qa-filter-active" : ""}" data-g="">${_esc(T("qa.all"))}</button>` +
+      groups.map(g => `<button type="button" class="vne-qa-filter${activeFilter === g ? " vne-qa-filter-active" : ""}" data-g="${_esc(g)}">${_esc(g)}</button>`).join("");
+  };
+
+  const gridHtml = (cat) => {
+    const list = cats.find(c => c.key === cat)?.list ?? [];
+    // Keep the ORIGINAL index in data-idx so the click handler still resolves
+    // against the full list even when a filter hides some entries.
+    const shown = list.map((e, i) => ({ e, i }))
+      .filter(({ e }) => !activeFilter || e.group === activeFilter);
+    if (!shown.length) return `<div class="vne-qa-empty">${_esc(T("qa.emptyCat"))}</div>`;
+    return shown.map(({ e, i }) => {
+      // PF2e strikes with Multiple Attack Penalty → a row of MAP buttons so the
+      // player picks which attack (full / -5 / -10) instead of always the first.
+      const mapRow = (e.kind === "strike" && e.variants && e.variants.length > 1)
+        ? `<div class="vne-qa-map">` + e.variants.map((lbl, vi) =>
+            `<button type="button" class="vne-qa-map-btn" data-v="${vi}" title="MAP ${vi}">${_esc(lbl || (vi === 0 ? "1st" : vi === 1 ? "-5" : "-10"))}</button>`
+          ).join("") + `</div>`
+        : "";
+      return `<div class="vne-qa-entry${mapRow ? " vne-qa-has-map" : ""}" data-cat="${cat}" data-idx="${i}"${e.itemId ? ` data-item-id="${_esc(e.itemId)}" draggable="true"` : ""} role="button" tabindex="0" title="${_esc(e.name)}${e.sub ? " — " + _esc(e.sub) : ""}">
+         <img src="${_esc(e.img)}" alt=""/>
+         <div class="vne-qa-entry-name">${_esc(e.name)}</div>
+         ${e.sub ? `<div class="vne-qa-entry-sub">${_esc(e.sub)}</div>` : ""}
+         ${mapRow}
+       </div>`;
+    }).join("");
+  };
+
+  win.innerHTML = `
+    <div class="vne-qa-header">
+      <img class="vne-qa-portrait" src="${_esc(portrait)}" alt=""/>
+      <span class="vne-qa-title">${_esc(actor.name)}</span>
+      <button type="button" class="vne-qa-close" title="${_esc(T("ui.closeShort"))}"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="vne-qa-tabs">${tabsHtml}</div>
+    <div class="vne-qa-filters">${filtersHtml(active)}</div>
+    <div class="vne-qa-grid">${gridHtml(active)}</div>`;
+
+  const grid    = win.querySelector(".vne-qa-grid");
+  const filters = win.querySelector(".vne-qa-filters");
+
+  const rebuildFilters = () => {
+    filters.innerHTML = filtersHtml(active);
+    filters.style.display = filters.children.length ? "" : "none";
+  };
+  rebuildFilters();
+
+  win.querySelector(".vne-qa-close").addEventListener("click", closeQuickActionWindow);
+
+  win.querySelectorAll(".vne-qa-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      active = tab.dataset.cat;
+      activeFilter = "";                 // reset filter when switching category
+      win.querySelectorAll(".vne-qa-tab").forEach(t => t.classList.toggle("vne-qa-tab-active", t === tab));
+      rebuildFilters();
+      grid.innerHTML = gridHtml(active);
+    });
+  });
+
+  filters.addEventListener("click", (e) => {
+    const btn = e.target.closest(".vne-qa-filter");
+    if (!btn) return;
+    activeFilter = btn.dataset.g ?? "";
+    filters.querySelectorAll(".vne-qa-filter").forEach(b => b.classList.toggle("vne-qa-filter-active", b === btn));
+    grid.innerHTML = gridHtml(active);
+  });
+
+  grid.addEventListener("click", (e) => {
+    const cell = e.target.closest(".vne-qa-entry");
+    if (!cell) return;
+    const list = cats.find(c => c.key === cell.dataset.cat)?.list ?? [];
+    const entry = list[Number(cell.dataset.idx)];
+    if (!entry) return;
+    // A MAP button rolls its specific variant; anywhere else uses variant 0.
+    const mapBtn = e.target.closest(".vne-qa-map-btn");
+    _useQuickAction(actor, entry, e, mapBtn ? Number(mapBtn.dataset.v) : 0);
+  });
+
+  // Drag any real item to the macro hotbar, exactly like dragging from a sheet.
+  grid.addEventListener("dragstart", (e) => {
+    const cell = e.target.closest(".vne-qa-entry[data-item-id]");
+    if (!cell) return;
+    const item = actor.items.get(cell.dataset.itemId);
+    const dd = item?.toDragData?.();
+    if (dd) e.dataTransfer.setData("text/plain", JSON.stringify(dd));
+  });
+
+  document.body.appendChild(win);
+
+  // Position beside the anchor, clamped to the viewport.
+  const r = anchorEl?.getBoundingClientRect?.();
+  const w = win.offsetWidth, h = win.offsetHeight;
+  let left = r ? r.right + 8 : (window.innerWidth - w) / 2;
+  let top  = r ? r.top : (window.innerHeight - h) / 2;
+  if (left + w > window.innerWidth - 8)  left = r ? r.left - w - 8 : left;
+  left = Math.max(8, Math.min(left, window.innerWidth  - w - 8));
+  top  = Math.max(8, Math.min(top,  window.innerHeight - h - 8));
+  win.style.left = `${left}px`;
+  win.style.top  = `${top}px`;
+
+  const ac = new AbortController();
+  setTimeout(() => document.addEventListener("mousedown", (ev) => {
+    if (!win.contains(ev.target)) { closeQuickActionWindow(); ac.abort(); }
+  }, { signal: ac.signal }), 50);
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") { closeQuickActionWindow(); ac.abort(); }
+  }, { signal: ac.signal });
+}
+
 function showPortraitActionMenu(trigger, actorId, side) {
   closePortraitActionMenu();
   const actor = game.actors.get(actorId);
@@ -1275,12 +1621,19 @@ function showPortraitActionMenu(trigger, actorId, side) {
   const removeCombatBtn    = (game.user.isGM && inCombat) ? `<button type="button" data-action="removeCombat"><i class="fas fa-skull"></i><span>${_esc(T("menu.removeCombat"))}</span></button>` : "";
   const statusEffectsBtn   = game.user.isGM ? `<button type="button" data-action="statusEffects"><i class="fas fa-shield-alt"></i><span>${_esc(T("menu.statusEffects"))}</span></button>` : "";
 
+  // Quick-action HUD entries — only for categories this actor actually has.
+  const qa = _quickActionData(actor);
+  const qaAttackBtn = qa.attacks.length ? `<button type="button" class="vne-pam-attack" data-action="qa-attacks"><i class="fas fa-hand-fist"></i><span>${_esc(T("qa.attacks"))}</span></button>` : "";
+  const qaSpellBtn  = qa.spells.length  ? `<button type="button" class="vne-pam-spell" data-action="qa-spells"><i class="fas fa-wand-sparkles"></i><span>${_esc(T("qa.spells"))}</span></button>` : "";
+  const qaItemBtn   = qa.items.length   ? `<button type="button" class="vne-pam-item" data-action="qa-items"><i class="fas fa-bag-shopping"></i><span>${_esc(T("qa.items"))}</span></button>` : "";
+
   const menu = document.createElement("div");
   menu.id = "vne-portrait-action-menu";
   menu.className = "vne-portrait-action-menu";
   menu.innerHTML = `
-    <button type="button" data-action="sheet"><i class="fas fa-id-card"></i><span>${_esc(T("menu.openSheet"))}</span></button>
+    ${qaAttackBtn}${qaSpellBtn}${qaItemBtn}
     <button type="button" data-action="target"><i class="fas fa-crosshairs"></i><span>${_esc(T("menu.selectTarget"))}</span></button>
+    <button type="button" data-action="sheet"><i class="fas fa-id-card"></i><span>${_esc(T("menu.openSheet"))}</span></button>
     ${inCombat ? initiativeBtn : ""}
     <button type="button" data-action="speaker"><i class="fas fa-comment-dots"></i><span>${_esc(T("menu.setSpeaker"))}</span></button>
     ${removeVNBtn}
@@ -1291,6 +1644,13 @@ function showPortraitActionMenu(trigger, actorId, side) {
     const action = event.target.closest("button")?.dataset.action;
     if (!action) return;
     event.stopPropagation();
+
+    if (action === "qa-attacks" || action === "qa-spells" || action === "qa-items") {
+      const cat = action.slice(3);
+      closePortraitActionMenu();
+      _openQuickActionWindow(actorId, cat, trigger);
+      return;
+    }
     closePortraitActionMenu();
 
     if (action === "sheet") {
@@ -1476,6 +1836,12 @@ function _checkVictoryCondition(turnsSnapshot) {
 // True when the VS duel display should stay hidden right now: manual-reveal
 // mode is on AND the GM hasn't revealed this turn yet.
 function _vsRevealHidden(d = getDataRO()) {
+  // Under RPG Classic Style the duel is an overlay ON TOP of the battlefield,
+  // so it must be opt-in: the legacy "always visible in combat" mode would
+  // permanently cover the formation. `combatManualReveal` keeps its second job
+  // there — auto-closing the duel when the turn ends (see the updateCombat hook).
+  if (_isRpgStyle()) return !d.vsRevealed;
+  // Classic layout — unchanged from the released behaviour.
   return game.settings.get(ID, "combatManualReveal") && !d.vsRevealed;
 }
 
@@ -1506,15 +1872,34 @@ function _renderVSDisplay() {
       <div class="vne-vs-hp-bar" style="width:${fillW};background:${color};opacity:${fillOp};"></div>
     </div>${showNums ? `<div class="vne-vs-hp-text">${p.hp}/${p.hpMax}</div>` : ""}`;
   };
+  // GM edit mode → the big VS portraits become editable straight from the front:
+  // quick scale/mirror controls, and right-click opens the full portrait editor.
+  const editMode = game.user.isGM && d.editMode;
   const mkSide = (p, side) => p
-    ? `<div class="vne-vs-img-wrap"><img class="vne-vs-img" src="${_esc(p.img || FALLBACK_IMG)}" style="${p.imgStyle || ''}" /></div><div class="vne-vs-name">${_esc(p.name)}</div>${mkHpBar(p, side)}`
+    ? `<div class="vne-vs-img-wrap"><img class="vne-vs-img" src="${_esc(p.img || FALLBACK_IMG)}" style="${p.imgStyle || ''}" /></div>` +
+      `<div class="vne-vs-name">${_esc(p.name)}</div>${mkHpBar(p, side)}` +
+      (editMode ? _portraitQuickCtrlHtml() : "")
     : "";
   const showVS = !!(_vsLeft || _vsRight);
+  const sideAttr = (p, side) => p ? ` data-id="${_esc(p.id)}" data-side="${side}"` : "";
+  vsEl.classList.toggle("vne-vs-editable", editMode);
   vsEl.innerHTML = `
-    <div class="vne-vs-side vne-vs-left">${mkSide(_vsLeft, "left")}</div>
+    <div class="vne-vs-side vne-vs-left"${sideAttr(_vsLeft, "left")}>${mkSide(_vsLeft, "left")}</div>
     <div class="vne-vs-sep">${showVS ? "<span>VS</span>" : ""}</div>
-    <div class="vne-vs-side vne-vs-right">${mkSide(_vsRight, "right")}</div>`;
+    <div class="vne-vs-side vne-vs-right"${sideAttr(_vsRight, "right")}>${mkSide(_vsRight, "right")}</div>`;
   _bindImgFallbacks(vsEl, "img.vne-vs-img");
+
+  if (editMode) {
+    vsEl.querySelectorAll(".vne-vs-side[data-id]").forEach(sideEl => {
+      const actorId = sideEl.dataset.id;
+      const side    = sideEl.dataset.side;
+      _bindPortraitQuickCtrl(sideEl, actorId);
+      sideEl.addEventListener("contextmenu", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        openPortraitEditor(actorId, side);
+      });
+    });
+  }
 }
 
 function _vsDataFromPortrait(p, side = "left") {
@@ -1527,7 +1912,7 @@ function _vsDataFromPortrait(p, side = "left") {
   const oy = (p.offsetY || 0) - worldOffsetY;
   const ox = p.offsetX || 0;
   const imgStyle = `transform:translateY(${oy}px) translateX(${ox}px) scale(${scaleVal}) scaleX(${scaleX});`;
-  return { img: getPortraitImg(p), name: p.name, hp, hpMax, imgStyle };
+  return { id: p.id, img: getPortraitImg(p), name: p.name, hp, hpMax, imgStyle };
 }
 
 // Called on turn change — updates the side that corresponds to the active combatant.
@@ -2538,7 +2923,11 @@ export class VNE extends FormApplication {
       editMode,
       combatMode,
       vsRevealed:      d.vsRevealed ?? false,
-      manualReveal:    game.settings.get(ID, "combatManualReveal"),
+      rpgStyle:        _isRpgStyle(),
+      // Classic layout only offers the reveal toggle in manual mode (otherwise
+      // the duel is always on screen and the button would do nothing useful).
+      // Under RPG Classic Style the duel is always opt-in, so it is always there.
+      showVsReveal:    _isRpgStyle() || game.settings.get(ID, "combatManualReveal"),
       isGM:            game.user.isGM,
       backgroundImage:   d.location?.backgroundImage || "",
       backgroundIsVideo: /\.(mp4|webm)$/i.test(d.location?.backgroundImage || ""),
@@ -2858,6 +3247,13 @@ export class VNE extends FormApplication {
 
 // Immediate activation on the GM client — fires synchronously from activateWithCode
 // before the worldLicensed setting round-trips to the server and back.
+// Fired when a setting that changes the whole layout flips (RPG Classic Style).
+// Both arrangements are built at render time, so the open window is rebuilt.
+Hooks.on("vnd-enhanced.rerender", () => {
+  _vsLeft = _vsRight = null;
+  VNE.instance?.render(true);
+});
+
 Hooks.on("vnd-enhanced.activate", () => {
   if (!VNE.instance) {
     document.getElementById("vnd-license-prompt")?.remove();
@@ -3242,9 +3638,53 @@ function openScenesPanel() {
   requestAnimationFrame(() => panel.querySelector("#vne-sp-search")?.focus());
 }
 
+// Battle-plate colour: enemies read red; players read green→amber→red as they drop.
+function _plateHpColor(pct, side) {
+  if (side === "right") return "#c0392b";
+  return pct > 0.5 ? "#4caf50" : pct > 0.25 ? "#f09800" : "#e53935";
+}
+
+// HP + initiative for a side-panel portrait during CLASSIC combat (not RPG style).
+// Returns null outside combat or when no encounter is running.
+function _castPlateData(actorId, side) {
+  const combat = game.combat;
+  if (!combat) return null;
+  const actor = game.actors.get(actorId);
+  const sys   = game.system?.id;
+  const attrs = actor?.system?.attributes ?? {};
+  const hpObj = attrs.hp ?? actor?.system?.hp ?? null;
+  const value = hpObj?.value ?? hpObj?.current ?? null;
+  const max   = hpObj?.max ?? null;
+  const hasHp = Number.isFinite(value) && Number.isFinite(max) && max > 0;
+  const pct   = hasHp ? Math.max(0, Math.min(1, value / max)) : 0;
+  const comb  = combat.turns?.find(c => c.actorId === actorId);
+  const init  = comb?.initiative;
+  const hasInit = init !== null && init !== undefined;
+  // HP privacy: GM sees every number; players read exact HP only for their own side.
+  const showNumbers = game.user.isGM || side === "left";
+
+  // Extra combat stats — Armor Class and movement speed (system-aware).
+  const ac = attrs.ac?.value ?? null;
+  let speed = null;
+  if (sys === "dnd5e") speed = attrs.movement?.walk ?? null;
+  else                 speed = attrs.speed?.total ?? attrs.speed?.value ?? null;
+
+  // Status effects — up to 6 icons, mirrors the carousel's presentation.
+  const effects = (actor?.temporaryEffects ?? [])
+    .filter(e => !e.disabled)
+    .slice(0, 6)
+    .map(e => ({ img: e.img ?? e.icon ?? "", name: e.name ?? "" }))
+    .filter(e => e.img);
+
+  return { hasHp, value, max, pct, hasInit, init, showNumbers, ac, speed, effects };
+}
+
 function _buildCastPortraitEl(p, side, tp, editMode) {
   const div = document.createElement("div");
-  div.className = `vne-cast-portrait${tp.isActive ? " vne-speaking" : ""}${tp.isOwned ? " vne-owned" : ""}${tp.isCombatTarget ? " vne-combat-target" : ""}${tp.isTargeted ? " vne-targeted" : ""}${tp.isYourTurn ? " vne-your-turn" : ""}`;
+  // Classic-combat "battle plate": HP + initiative styled like a JRPG unit bar.
+  const plate = (getDataRO().combatMode && !_isRpgStyle()) ? _castPlateData(p.id, side) : null;
+  const plateDefeated = plate && _isActorDefeated(p.id);
+  div.className = `vne-cast-portrait${plate ? " vne-has-plate" : ""}${plateDefeated ? " vne-defeated" : ""}${tp.isActive ? " vne-speaking" : ""}${tp.isOwned ? " vne-owned" : ""}${tp.isCombatTarget ? " vne-combat-target" : ""}${tp.isTargeted ? " vne-targeted" : ""}${tp.isYourTurn ? " vne-your-turn" : ""}`;
   div.dataset.id   = p.id;
   div.dataset.side = side;
   div.draggable    = true;
@@ -3261,8 +3701,37 @@ function _buildCastPortraitEl(p, side, tp, editMode) {
     ? `<div class="vne-remove-cast-btn" data-id="${p.id}" data-side="${side}" title="${_esc(T("ui.remove"))}"><i class="fas fa-times"></i></div>`
     : "";
   const quickCtrl  = editMode ? _portraitQuickCtrlHtml() : "";
-  const nameTag    = `<div class="vne-cast-name">${_esc(p.name)}</div>`;
-  div.innerHTML = `<img src="${_esc(tp.img || 'icons/svg/mystery-man.svg')}" class="vne-cast-img" style="${tp.imgStyle}"/>${speakRing}${ownedBadge}${removeBtn}${quickCtrl}${nameTag}`;
+  // In plate mode the name rides inside the plate; otherwise it's the usual tag.
+  const nameTag    = plate ? "" : `<div class="vne-cast-name">${_esc(p.name)}</div>`;
+
+  let plateHtml = "";
+  let effectsOverlay = "";
+  if (plate) {
+    const hpPct = Math.round(plate.pct * 100);
+    const hp = plate.hasHp
+      ? `<div class="vne-cp-hp">
+           <div class="vne-cp-hp-fill" style="width:${hpPct}%;background:${_plateHpColor(plate.pct, side)};"></div>
+           ${plate.showNumbers ? `<span class="vne-cp-hp-text">${_esc(plate.value)} / ${_esc(plate.max)}</span>` : ""}
+         </div>`
+      : "";
+    const initBar = plate.hasInit
+      ? `<div class="vne-cp-init"><span class="vne-cp-init-num">${_esc(String(plate.init))}</span></div>`
+      : "";
+    // Compact stats row: AC + movement (only what the actor exposes).
+    const statBits = [];
+    if (plate.ac != null)    statBits.push(`<span class="vne-cp-stat vne-cp-ac" title="AC"><i class="fas fa-shield-halved"></i>${_esc(plate.ac)}</span>`);
+    if (plate.speed != null) statBits.push(`<span class="vne-cp-stat vne-cp-spd" title="Speed"><i class="fas fa-shoe-prints"></i>${_esc(plate.speed)}</span>`);
+    const stats = statBits.length ? `<div class="vne-cp-stats">${statBits.join("")}</div>` : "";
+    plateHtml = `<div class="vne-cast-plate"><div class="vne-cp-name">${_esc(p.name)}</div>${hp}${initBar}${stats}</div>`;
+    // Status-effect icons ride on the portrait corner.
+    if (plate.effects.length) {
+      effectsOverlay = `<div class="vne-cp-effects">` +
+        plate.effects.map(fx => `<img class="vne-cp-fx" src="${_esc(fx.img)}" title="${_esc(fx.name)}" alt=""/>`).join("") +
+        `</div>`;
+    }
+  }
+
+  div.innerHTML = `<img src="${_esc(tp.img || 'icons/svg/mystery-man.svg')}" class="vne-cast-img" style="${tp.imgStyle}"/>${effectsOverlay}${speakRing}${ownedBadge}${removeBtn}${quickCtrl}${nameTag}${plateHtml}`;
   _bindImgFallback(div.querySelector("img"));
   return div;
 }
@@ -3448,7 +3917,16 @@ function _patchSidePanel(side, d, worldOffsetY, editMode) {
 function _patchCast(d) {
   const worldOffsetY = game.settings.get(ID, "worldOffsetY") || 0;
   const editMode = d.editMode && game.user.isGM;
-  if (!d.combatMode) _patchVNStage(d, worldOffsetY);
+  // Three stage arrangements:
+  //   roleplay                    → RP stage, free positioning
+  //   combat + RPG Classic Style  → battlefield, formation positioning
+  //   combat (classic)            → neither; the VS display renders over the
+  //                                 stage exactly as it does in the release
+  if (!d.combatMode)    _patchVNStage(d, worldOffsetY);
+  else if (_isRpgStyle()) _patchBattlefield(d);
+  // Side panels stay patched in every mode. Under RPG Classic Style they are
+  // hidden by CSS, but keeping them in sync means leaving combat mode (or
+  // turning the option off) never shows a stale cast.
   _patchSidePanel("left",  d, worldOffsetY, editMode);
   _patchSidePanel("right", d, worldOffsetY, editMode);
 }
@@ -3472,6 +3950,18 @@ function _livePreviewPortrait(actorId, side, { img, scale, offsetX, offsetY, mir
   const stageStyle  = `transform:translateY(${oy}px) translateX(${ox}px) scale(${scaleVal}) scaleX(${stageScaleX});`;
   const stageImgEl  = document.querySelector(`.vne-rp-slot[data-id="${actorId}"] .vne-rp-img`);
   if (stageImgEl) { stageImgEl.setAttribute("style", stageStyle); if (img) stageImgEl.src = img; }
+
+  // Battlefield unit — its own bfScale plus the mirror, matching _bfUnitData.
+  // The RP offsets are pixel values sized for the RP stage and would throw the
+  // art out of the battlefield cell, so the preview must not replay them here.
+  const bfImgEl = document.querySelector(`.vne-bf-unit[data-id="${actorId}"] .vne-bf-img`);
+  if (bfImgEl) {
+    const d  = getDataRO();
+    const bp = d.leftCast.find(x => x.id === actorId) ?? d.rightCast.find(x => x.id === actorId);
+    bfImgEl.setAttribute("style",
+      `transform: scale(${_bfScale(bp) / 100}) scaleX(${mirrorX ? -1 : 1});`);
+    if (img) bfImgEl.src = img;
+  }
 
   // VS combat display — same translateY/X approach
   const vsScaleX = (side === "left" ? !mirrorX : mirrorX) ? 1 : -1;
@@ -3608,6 +4098,366 @@ function _patchVNStage(d, worldOffsetY) {
 
     if (game.user.isGM) _bindPortraitQuickCtrl(slot, slot.dataset.id);
   });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// COMBAT BATTLEFIELD — formation positioning
+//
+// Combat Mode's counterpart to _patchVNStage. Same portrait data, same transform
+// maths, same "artwork is the protagonist" rule — the difference is who decides
+// where a character stands:
+//
+//   Role Mode   → free / scene positioning (_patchVNStage, flex space-evenly)
+//   Combat Mode → formation positioning    (combat-formation.js, auto rows)
+//
+// The layout maths live in scripts/combat-formation.js as pure functions so they
+// can be verified from Node; everything Foundry-shaped stays here.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// True when the tracker marks this actor's combatant defeated, or it has no HP left.
+function _isActorDefeated(actorId) {
+  const combatant = game.combat?.combatants?.find(c => c.actorId === actorId);
+  if (combatant?.defeated) return true;
+  const hp = _getCarouselActorHP(game.actors.get(actorId));
+  return hp ? hp.value <= 0 : false;
+}
+
+// Battlefield framing lives in its own fields, separate from the RP stage's
+// scale/offsetX/offsetY. Those are pixel values tuned against a ~78vh stage;
+// reusing them here threw the artwork out of its cell, and sharing the slider
+// would mean resizing for combat silently rewrecks the roleplay framing.
+//   bfScale — size on the battlefield, percent, default 100 ("fit the cell")
+//   bfX/bfY — manual position as a fraction of the battlefield box, or absent
+const BF_SCALE_MIN = 30;
+const BF_SCALE_MAX = 260;
+
+function _bfScale(p) {
+  const v = Number(p?.bfScale);
+  return Number.isFinite(v) ? Math.min(BF_SCALE_MAX, Math.max(BF_SCALE_MIN, v)) : 100;
+}
+
+// Build the render model for one battlefield unit from its stored portrait.
+function _bfUnitData(p, side, ctx) {
+  const actor = game.actors.get(p.id);
+  const hp    = _getCarouselActorHP(actor);
+  const scale = _bfScale(p) / 100;
+  const mirror = p.mirrorX ? -1 : 1;
+
+  // Same combat readouts the classic side-panel plates show: AC, movement,
+  // initiative and status effects — so the RPG battlefield carries the full HUD.
+  const sys   = game.system?.id;
+  const attrs = actor?.system?.attributes ?? {};
+  const ac = attrs.ac?.value ?? null;
+  let speed = null;
+  if (sys === "dnd5e") speed = attrs.movement?.walk ?? null;
+  else                 speed = attrs.speed?.total ?? attrs.speed?.value ?? null;
+  const combatant = game.combat?.turns?.find(c => c.actorId === p.id);
+  const init = combatant?.initiative;
+  const effects = (actor?.temporaryEffects ?? [])
+    .filter(e => !e.disabled)
+    .slice(0, 6)
+    .map(e => ({ img: e.img ?? e.icon ?? "", name: e.name ?? "" }))
+    .filter(e => e.img);
+
+  return {
+    id:   p.id,
+    name: p.name || actor?.name || "???",
+    img:  getPortraitImg(p) || actor?.img || FALLBACK_IMG,
+    // scale grows from the feet (transform-origin: bottom center in CSS) so a
+    // resized combatant keeps standing on the same battle line.
+    imgStyle: `transform: scale(${scale}) scaleX(${mirror});`,
+    // Manual placement — absent means "stay in the formation".
+    ...(Number.isFinite(p.bfX) && Number.isFinite(p.bfY) ? { x: p.bfX, y: p.bfY } : {}),
+    canPlace:   game.user.isGM,
+    resetLabel: T("combat.bfResetPos"),
+    hp: hp ? { value: hp.value, max: hp.max } : null,
+    // Bars for everyone, digits for your own side only — the same privacy rule
+    // the VS display already applied.
+    showHpNumbers: game.user.isGM || side === "player",
+    ac,
+    speed,
+    init: (init !== null && init !== undefined) ? init : null,
+    effects,
+    side,
+    isActive:   !!ctx.activeActorId && p.id === ctx.activeActorId,
+    isTargeted: ctx.targetedIds.has(p.id),
+    isDefeated: _isActorDefeated(p.id),
+    // NOT used for colour: the GM controls every actor, so this would paint the
+    // whole field in the accent colour. It is a hook for a subtle marker only.
+    isOwned: !game.user.isGM && canControlActor(p.id)
+  };
+}
+
+function _patchBattlefield(d) {
+  const el = document.getElementById("vne-battlefield");
+  if (!el) return;
+
+  const on = d.combatMode && _isRpgStyle();
+  el.classList.toggle("vne-hidden", !on);
+  if (!on) {
+    if (el.childElementCount) el.innerHTML = "";
+    _patchCombatHud(d);
+    return;
+  }
+
+  const ctx = {
+    activeActorId: game.combat?.combatant?.actorId ?? null,
+    targetedIds: new Set(
+      [...(game.user.targets ?? [])].map(t => _tokenActorId(t)).filter(Boolean)
+    )
+  };
+
+  // leftCast = players/allies (bottom formation), rightCast = enemies (top).
+  // This is the same side split _combatantVNSide() already applies on auto-cast.
+  const players = (d.leftCast  ?? []).map(p => _bfUnitData(p, "player", ctx));
+  const enemies = (d.rightCast ?? []).map(p => _bfUnitData(p, "enemy",  ctx));
+
+  el.innerHTML = buildBattlefieldHtml({
+    enemies,
+    players,
+    maxPerRow:  resolveMaxPerRow(globalThis.innerWidth),
+    vsLabel:    "VS",
+    emptyLabel: T("ui.battlefieldEmpty")
+  });
+
+  _bindImgFallbacks(el, ".vne-bf-img");
+  el.querySelectorAll(".vne-bf-unit").forEach(_bindBattlefieldUnit);
+  _patchCombatHud(d);
+}
+
+// The side panels are hidden in combat, so every action they used to host has to
+// be reachable from the unit itself: click targets, double-click opens the sheet,
+// right-click opens the shared context menu (initiative, status effects, remove
+// from combat…) — or the portrait editor while Edit Mode is on, matching the
+// side-panel convention.
+function _bindBattlefieldUnit(unit) {
+  const actorId = unit.dataset.id;
+
+  // GM tools live on the unit itself: drag to place, +/- to resize, mirror.
+  if (game.user.isGM) {
+    unit.insertAdjacentHTML("beforeend", _portraitQuickCtrlHtml());
+    _bindPortraitQuickCtrl(unit, actorId, "bfScale");
+    _bindBattlefieldDrag(unit, actorId);
+
+    const reset = unit.querySelector(".vne-bf-reset");
+    if (reset) {
+      // Collect every GM control into the one toolbar. Left where the markup
+      // puts it, the reset button would float in a corner of the unit's
+      // oversized layout box, far from the character it belongs to.
+      unit.querySelector(".vne-portrait-quick-ctrl")?.appendChild(reset);
+      reset.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await _quickAdjustPortrait(actorId, { bfX: null, bfY: null });
+      });
+    }
+  }
+
+  unit.addEventListener("click", (e) => {
+    if (e.target.closest(".vne-portrait-quick-ctrl, .vne-bf-reset")) return;
+    e.stopPropagation();
+    if (e.detail === 2) return;   // let dblclick through without double-toggling the target
+    targetActorToken(actorId);
+  });
+
+  unit.addEventListener("dblclick", (e) => {
+    e.stopPropagation();
+    openActorSheet(actorId);
+  });
+
+  unit.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (game.user.isGM && getDataRO().editMode) {
+      openPortraitEditor(actorId, unit.dataset.side === "enemy" ? "right" : "left");
+    } else {
+      _openVNContextMenu(actorId, unit, { mode: "vn", editMode: false });
+    }
+  });
+}
+
+// ── Manual placement (GM) ────────────────────────────────────────────────────
+// Drag a combatant anywhere on the field; the formation keeps arranging whoever
+// is left. Positions are saved as fractions of the battlefield box, so a layout
+// built on a 1080p screen still holds on an ultrawide.
+//
+// A movement threshold separates a drag from a click: below it the gesture is
+// still a plain click and keeps targeting the combatant, so manual placement
+// costs nothing in everyday use and needs no mode to be entered first.
+const BF_DRAG_THRESHOLD_PX = 5;
+
+function _bindBattlefieldDrag(unit, actorId) {
+  const field = () => document.getElementById("vne-battlefield");
+  let moved = false, startX = 0, startY = 0;
+
+  const fraction = (e) => {
+    const box = field()?.getBoundingClientRect();
+    if (!box?.width || !box?.height) return null;
+    return {
+      x: clamp01((e.clientX - box.left) / box.width),
+      y: clamp01((e.clientY - box.top)  / box.height)
+    };
+  };
+
+  // Tracked on window rather than by pointer capture: the unit itself is
+  // pointer-events: none (its layout box is far wider than the artwork), and
+  // the pointer regularly leaves the small hit area mid-drag.
+  const onMove = (e) => {
+    if (!moved && Math.hypot(e.clientX - startX, e.clientY - startY) < BF_DRAG_THRESHOLD_PX) return;
+    const pos = fraction(e);
+    if (!pos) return;
+    if (!moved) {
+      moved = true;
+      // Leaving the flow mid-drag lets the remaining combatants close ranks
+      // straight away, so the GM sees the final formation while placing.
+      unit.classList.add("vne-bf-placed", "vne-bf-dragging");
+    }
+    unit.style.left = `${(pos.x * 100).toFixed(3)}%`;
+    unit.style.top  = `${(pos.y * 100).toFixed(3)}%`;
+  };
+
+  // One shared teardown for all three exits, so a drag that ends normally does
+  // not leave a stray pointercancel listener on window behind every time.
+  const stop = () => {
+    window.removeEventListener("pointermove",   onMove);
+    window.removeEventListener("pointerup",     onUp);
+    window.removeEventListener("pointercancel", onCancel);
+  };
+
+  const onCancel = () => {
+    stop();
+    unit.classList.remove("vne-bf-dragging");
+  };
+
+  async function onUp(e) {
+    stop();
+    if (!moved) return;
+    unit.classList.remove("vne-bf-dragging");
+    const pos = fraction(e);
+    if (pos) await _quickAdjustPortrait(actorId, { bfX: pos.x, bfY: pos.y });
+  }
+
+  unit.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest(".vne-portrait-quick-ctrl, .vne-bf-reset")) return;
+    moved = false;
+    startX = e.clientX; startY = e.clientY;
+    stop();                                   // defensive: never stack two drags
+    window.addEventListener("pointermove",   onMove);
+    window.addEventListener("pointerup",     onUp);
+    window.addEventListener("pointercancel", onCancel);
+  });
+
+  // Capture phase: swallow the click the browser fires after a drag so releasing
+  // the pointer over a combatant does not also (un)target it.
+  unit.addEventListener("click", (e) => {
+    if (!moved) return;
+    moved = false;
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  }, true);
+}
+
+// Repaint only the HP bar of one unit — called from the updateActor hook so a
+// damage roll does not rebuild the whole formation (which would restart the
+// entry animations and drop any FX overlay attached to a unit's art).
+function _patchBattlefieldHP(actorId) {
+  const unit = document.querySelector(`.vne-bf-unit[data-id="${actorId}"]`);
+  if (!unit) return;
+  const hp = _getCarouselActorHP(game.actors.get(actorId));
+  const side = unit.dataset.side === "enemy" ? "enemy" : "player";
+  const bars = hpPresentation(hp, {
+    side,
+    showNumbers: game.user.isGM || side === "player"
+  });
+  if (!bars) return;
+
+  const fill = unit.querySelector(".vne-bf-hp-fill");
+  if (fill) {
+    fill.style.width = `${bars.percent}%`;
+    fill.style.background = bars.color;
+  }
+  const text = unit.querySelector(".vne-bf-hp-text");
+  if (text && bars.text) text.textContent = bars.text;
+  unit.classList.toggle("vne-bf-defeated", _isActorDefeated(actorId));
+}
+
+// Live HP repaint for the CLASSIC-combat side-panel battle plates (no full
+// re-render, so entry animations and FX overlays survive a damage roll).
+function _patchCastPlateHP(actorId) {
+  const el = document.querySelector(`.vne-cast-portrait.vne-has-plate[data-id="${actorId}"]`);
+  if (!el) return;
+  const side  = el.dataset.side === "right" ? "right" : "left";
+  const plate = _castPlateData(actorId, side);
+  if (!plate?.hasHp) return;
+  const fill = el.querySelector(".vne-cp-hp-fill");
+  if (fill) { fill.style.width = `${Math.round(plate.pct * 100)}%`; fill.style.background = _plateHpColor(plate.pct, side); }
+  const text = el.querySelector(".vne-cp-hp-text");
+  if (text && plate.showNumbers) text.textContent = `${plate.value} / ${plate.max}`;
+}
+
+// ── Combat HUD (bottom bar) ──────────────────────────────────────────────────
+// Independent of the formation (§16): the battlefield owns the combatants, this
+// owns combat state — active character, turn controls, current target.
+
+function _hudSlotHtml(actorId, labelKey, side) {
+  const actor = game.actors.get(actorId);
+  if (!actor) return "";
+  const d = getDataRO();
+  const p = (side === "enemy" ? d.rightCast : d.leftCast).find(x => x.id === actorId)
+         ?? d.portraits?.[actorId] ?? null;
+  const img  = (p ? getPortraitImg(p) : null) || actor.img || FALLBACK_IMG;
+  const bars = hpPresentation(_getCarouselActorHP(actor), {
+    side,
+    showNumbers: game.user.isGM || side === "player"
+  });
+
+  const hpHtml = bars
+    ? `<div class="vne-hud-hp"><div class="vne-hud-hp-fill" style="width:${bars.percent}%;background:${bars.color};"></div></div>` +
+      (bars.text ? `<span class="vne-hud-hp-text">${_esc(bars.text)}</span>` : "")
+    : "";
+
+  return `<div class="vne-hud-card" data-id="${_esc(actorId)}">
+    <div class="vne-hud-portrait"><img src="${_esc(img)}" alt=""/></div>
+    <div class="vne-hud-meta">
+      <span class="vne-hud-label">${_esc(T(labelKey))}</span>
+      <span class="vne-hud-name">${_esc(actor.name)}</span>
+      ${hpHtml}
+    </div>
+  </div>`;
+}
+
+function _patchCombatHud(d = getDataRO()) {
+  const hud = document.getElementById("vne-combat-hud");
+  if (!hud) return;
+  hud.classList.toggle("vne-hidden", !d.combatMode);
+  if (!d.combatMode) return;
+
+  const activeEl = document.getElementById("vne-hud-active");
+  const targetEl = document.getElementById("vne-hud-target");
+
+  // Classic layout: the HUD is just the turn/timer controls in their original
+  // place, so the character and target blocks stay empty (CSS hides them too).
+  if (!_isRpgStyle()) {
+    if (activeEl) activeEl.innerHTML = "";
+    if (targetEl) targetEl.innerHTML = "";
+    return;
+  }
+
+  if (activeEl) {
+    const activeId = game.combat?.combatant?.actorId ?? null;
+    const side = activeId && d.rightCast.some(p => p.id === activeId) ? "enemy" : "player";
+    activeEl.innerHTML = activeId ? _hudSlotHtml(activeId, "combat.hudActive", side) : "";
+    _bindImgFallbacks(activeEl);
+  }
+
+  if (targetEl) {
+    const targetId = [...(game.user.targets ?? [])].map(t => _tokenActorId(t)).find(Boolean) ?? null;
+    const side = targetId && d.leftCast.some(p => p.id === targetId) ? "player" : "enemy";
+    targetEl.innerHTML = targetId
+      ? _hudSlotHtml(targetId, "combat.hudTarget", side)
+      : `<div class="vne-hud-empty">${_esc(T("combat.hudNoTarget"))}</div>`;
+    _bindImgFallbacks(targetEl);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -3836,6 +4686,14 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
   const canCtrl   = game.user.isGM || !!actor?.isOwner;
 
   const items = [];
+  // Quick-action HUD — attacks / spells / items usable without the sheet.
+  if (canCtrl) {
+    const qa = _quickActionData(actor);
+    if (qa.attacks.length) items.push({ label: T("qa.attacks"), icon: "fas fa-hand-fist",     action: "qa-attacks", cls: "vne-cm-attack" });
+    if (qa.spells.length)  items.push({ label: T("qa.spells"),  icon: "fas fa-wand-sparkles", action: "qa-spells",  cls: "vne-cm-spell" });
+    if (qa.items.length)   items.push({ label: T("qa.items"),   icon: "fas fa-bag-shopping",  action: "qa-items",   cls: "vne-cm-item" });
+    if (qa.attacks.length || qa.spells.length || qa.items.length) items.push({ separator: true });
+  }
   items.push({ label: T("menu.openSheet"),    icon: "fas fa-id-card",      action: "sheet" });
   items.push({ label: T("menu.selectTarget"), icon: "fas fa-hand-pointer", action: "select" });
 
@@ -3876,7 +4734,7 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
   menu.innerHTML = items.map(item =>
     item.separator
       ? `<div class="vne-carousel-separator"></div>`
-      : `<div class="vne-carousel-menu-item" data-action="${item.action}"><i class="${item.icon}"></i> ${item.label}</div>`
+      : `<div class="vne-carousel-menu-item${item.cls ? " " + item.cls : ""}" data-action="${item.action}"><i class="${item.icon}"></i> ${item.label}</div>`
   ).join("");
 
   menu.addEventListener("click", async (e) => {
@@ -3884,7 +4742,9 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
     if (!action) return;
     _closeVNECarouselMenu();
 
-    if (action === "sheet") {
+    if (action === "qa-attacks" || action === "qa-spells" || action === "qa-items") {
+      _openQuickActionWindow(actorId, action.slice(3), anchorEl);
+    } else if (action === "sheet") {
       actor?.sheet?.render(true);
     } else if (action === "select") {
       targetActorToken(actorId);
@@ -3932,20 +4792,37 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
   setTimeout(() => document.addEventListener("click", _closeVNECarouselMenu, { once: true }), 0);
 }
 
+// Rebuild the formation when the combatant roster itself changes (someone
+// joined, left, or was marked defeated). Deliberately NOT wired to the per-HP
+// path — that one patches bars in place via _patchBattlefieldHP so entry
+// animations and any FX overlay attached to a unit's art survive the hit.
+function _refreshBattlefield() {
+  const d = getDataRO();
+  // _patchBattlefield owns the mode decision — it clears itself out of combat.
+  if (d.showVN) _patchBattlefield(d);
+}
+
 // Carousel combat hooks
-Hooks.on("createCombatant",  renderVNECombatCarousel);
-Hooks.on("deleteCombatant",  renderVNECombatCarousel);
+Hooks.on("createCombatant",  () => { renderVNECombatCarousel(); _refreshBattlefield(); });
+Hooks.on("deleteCombatant",  () => { renderVNECombatCarousel(); _refreshBattlefield(); });
 Hooks.on("updateCombatant",  (combatant, changes) => {
   // Save snapshot before potential deleteCombat wipes turns — only trust active scene's combat
   if (combatant.combat?.turns && combatant.combat === game.combat) {
     _lastCombatTurns = combatant.combat.turns.map(c => ({ actorId: c.actorId, defeated: c.defeated }));
   }
   renderVNECombatCarousel();
-  if (changes.defeated === true) _checkVictoryCondition(_lastCombatTurns);
+  _refreshBattlefield();
+  if (changes.defeated === true) {
+    _checkVictoryCondition(_lastCombatTurns);
+    _placeTombstone(combatant);                       // drop a gravestone where it fell
+  } else if (changes.defeated === false) {
+    _removeTombstones({ combatantId: combatant.id }); // revived — clear its stone
+  }
 });
 Hooks.on("deleteCombat",     () => {
   _stopTurnTimer();
   renderVNECombatCarousel();
+  _refreshBattlefield();                    // drops the active-turn marker
   _checkVictoryCondition(_lastCombatTurns); // use pre-delete snapshot
 
   // Fallback: if VNE was in combat mode and no animation fired (nobody was marked
@@ -3975,12 +4852,13 @@ Hooks.on("deleteCombat",     () => {
   // The encounter is gone — its VFX ghosts go with it. Without this, ending
   // combat from Foundry's tracker (instead of the VNE toggle) stranded locked
   // ghost tokens on the scene that the GM couldn't delete by hand.
-  if (game.user.isGM) _destroyGhostTokens();
+  if (game.user.isGM) { _destroyGhostTokens(); _removeTombstones({ all: true }); }
 });
 Hooks.on("createCombat",     () => {
   _lastCombatTurns = [];
   _victoryTriggered = false;
   renderVNECombatCarousel();
+  _refreshBattlefield();
 });
 
 // Live HP / status effect updates (debounced 80 ms)
@@ -4002,6 +4880,10 @@ Hooks.on("updateActor", (actor, changes) => {
     if (_vsLeft  && d.leftCast.some(p => p.id === actor.id))  { _vsLeft  = { ..._vsLeft,  hp, hpMax }; vsChanged = true; }
     if (_vsRight && d.rightCast.some(p => p.id === actor.id)) { _vsRight = { ..._vsRight, hp, hpMax }; vsChanged = true; }
     if (vsChanged) _renderVSDisplay();
+    // Battlefield bars react to the document update, never to a poll (§14).
+    // Only one layout is live at a time (RPG hides the side panels), so calling
+    // both repaints is safe — the inactive one simply finds no element.
+    if (d.combatMode) { _patchBattlefieldHP(actor.id); _patchCastPlateHP(actor.id); _patchCombatHud(d); }
     clearTimeout(_autoReactionTimers.get(actor.id));
     _autoReactionTimers.set(actor.id, setTimeout(() => {
       _autoReactionTimers.delete(actor.id);
@@ -4070,9 +4952,24 @@ Hooks.on("updateActor", (actor, changes) => {
   }
 });
 Hooks.on("updateToken",       _scheduleCarousel);
-Hooks.on("createActiveEffect",_scheduleCarousel);
-Hooks.on("deleteActiveEffect",_scheduleCarousel);
-Hooks.on("updateActiveEffect",_scheduleCarousel);
+
+// Status-effect changes: refresh the carousel AND the active combat layout so
+// the condition icons + stats update live (battlefield in RPG mode, side-panel
+// plates in classic mode). Debounced to coalesce bursts of effect updates.
+let _bfEffectTimer = null;
+function _onCombatEffectChange() {
+  _scheduleCarousel();
+  clearTimeout(_bfEffectTimer);
+  _bfEffectTimer = setTimeout(() => {
+    const d = getDataRO();
+    if (!d.showVN || !d.combatMode) return;
+    if (_isRpgStyle()) _refreshBattlefield();
+    else               _patchCast(getData());
+  }, 120);
+}
+Hooks.on("createActiveEffect", _onCombatEffectChange);
+Hooks.on("deleteActiveEffect", _onCombatEffectChange);
+Hooks.on("updateActiveEffect", _onCombatEffectChange);
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 
@@ -4210,13 +5107,19 @@ Hooks.once("setup", async () => {
 // undo the pagination. Debounced; only fires when the mode actually flips.
 function _initViewportWatcher() {
   let wasStrip = _isMobileStrip();
+  let wasPerRow = resolveMaxPerRow(globalThis.innerWidth);
   let timer = null;
   const onResize = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
       const isStrip = _isMobileStrip();
-      if (isStrip === wasStrip) return;
-      wasStrip = isStrip;
+      // The formation re-flows when the viewport crosses a column breakpoint —
+      // that is the whole of §11's responsive behaviour, and it is why the row
+      // count is never stored anywhere.
+      const perRow  = resolveMaxPerRow(globalThis.innerWidth);
+      if (isStrip === wasStrip && perRow === wasPerRow) return;
+      wasStrip  = isStrip;
+      wasPerRow = perRow;
       const d = getDataRO();
       if (!d.showVN) return;
       _patchCast(getData());
@@ -4684,6 +5587,11 @@ Hooks.on("targetToken", (user, token, targeted) => {
   document.querySelectorAll(".vne-cast-portrait[data-id]").forEach(el => {
     el.classList.toggle("vne-targeted", targetedIds.has(el.dataset.id));
   });
+  // Same highlight on the battlefield: unit, name and HP bar all react (§12).
+  document.querySelectorAll(".vne-bf-unit[data-id]").forEach(el => {
+    el.classList.toggle("vne-bf-targeted", targetedIds.has(el.dataset.id));
+  });
+  _patchCombatHud(d);
   // Targeted actor goes "al frente" on their own side — persists until next turn or new target
   if (targeted) {
     const actorId = _tokenActorId(token);
@@ -4754,7 +5662,7 @@ Hooks.on("createCombatant", async (combatant) => {
   if (!game.settings.get(ID, "autoCastFromCombat")) return;
   const actor = combatant.actor ?? game.actors.get(combatant.actorId);
   if (!actor) return;
-  if (_addPortraitToCastData(d, actor, _combatantVNSide(combatant, actor))) {
+  if (_addPortraitToCastData(d, actor, _combatantVNSide(combatant, actor), combatant.name)) {
     await saveData(d, { change: "castChange" });
   }
 });
@@ -4769,7 +5677,7 @@ Hooks.on("updateCombatant", async (combatant, changed) => {
   if (!game.settings.get(ID, "autoCastFromCombat")) return;
   const actor = combatant.actor ?? game.actors.get(combatant.actorId);
   if (!actor) return;
-  if (_addPortraitToCastData(d, actor, _combatantVNSide(combatant, actor))) {
+  if (_addPortraitToCastData(d, actor, _combatantVNSide(combatant, actor), combatant.name)) {
     await saveData(d, { change: "castChange" });
   }
 });
@@ -4833,8 +5741,9 @@ Hooks.on("updateCombat", async (combat, changed) => {
     }
   }
 
-  const controls = document.getElementById("vne-combat-controls");
-  if (controls) controls.classList.remove("vne-hidden");
+  // Safety net: the HUD wrapper carries the visibility now that the controls
+  // live inside it.
+  document.getElementById("vne-combat-hud")?.classList.remove("vne-hidden");
 });
 
 

@@ -16,9 +16,13 @@
         "label": "Manage License",
         "hint": "View your subscription tier and free installation slots."
       },
+      "combatRpgStyle": {
+        "name": "RPG Classic Style (combat)",
+        "hint": "Changes how Combat Mode is laid out. OFF (default) is the arrangement you already know: player cast on the left, NPCs on the right, and the VS duel in the centre. ON turns combat into a classic RPG battle screen — combatants stand on the scene in automatic formations, enemies above and party below, each with a small name and HP bar, and the turn controls move to a combat HUD along the bottom. The GM can drag any combatant to reposition it and resize it with the on-screen controls. Nothing is removed either way: Roleplay Mode, Action Bubbles and the VS duel all keep working, so you can switch back and forth at any time."
+      },
       "combatManualReveal": {
         "name": "Manual combat reveal",
-        "hint": "When on, the VS duel display (both fighters shown large, front and center) stays hidden during combat until you toggle it — via the eye button in the top bar or the 'Reveal combat duel' keybinding (Alt+B by default). It shows the current fighter versus their target, and auto-hides when the turn ends, waiting for the next reveal. Turn off to keep the classic behavior where the duel is always visible in combat."
+        "hint": "When on, the VS duel display (both fighters shown large, front and center) stays hidden during combat until you toggle it — via the eye button in the top bar or the 'Reveal combat duel' keybinding (Alt+B by default). It shows the current fighter versus their target, and auto-hides when the turn ends, waiting for the next reveal. Turn off to keep the classic behavior where the duel is always visible in combat. Under RPG Classic Style the duel always waits to be revealed, and this option only controls whether it closes by itself at the end of the turn."
       },
       "visualTheme": {
         "name": "Visual theme",
@@ -33,6 +37,14 @@
       "autoCastFromCombat": {
         "name": "Auto-fill cast from combat",
         "hint": "When the combat stage opens (and when combatants join mid-fight), automatically add them to the VN cast: player-owned and friendly tokens on the left, enemies on the right. Add-only — it never removes members you placed manually. Hidden combatants stay out until revealed."
+      },
+      "deathTombstone": {
+        "name": "Death tombstone",
+        "hint": "When a combatant is marked defeated, drop a gravestone where its token stood. It's removed if the creature is revived, and cleared when the encounter ends."
+      },
+      "selectOnTarget": {
+        "name": "Select token when targeting",
+        "hint": "When you target a combatant from the VN (click a battle plate/battlefield unit or 'Select as target'), also select its token so the system's damage buttons apply to it — fixing the 'Select at least one token' error when clicking Damage. Per-client; turn off if it interferes with your token selection."
       },
       "bgFolderPath": {
         "name": "Background images folder",
@@ -105,6 +117,7 @@
       "addActorRight": "Add actor to right side",
       "dragHint": "Drag actors here<br>or click +",
       "stageEmptyHint": "Drag actors from the side panels",
+      "battlefieldEmpty": "No combatants on the battlefield",
       "prevPage": "Previous",
       "nextPage": "Next",
       "remove": "Remove",
@@ -142,7 +155,11 @@
       "yourTurn": "<strong>{name}</strong>, it's your turn!",
       "badgeNow": "NOW",
       "badgeNext": "NEXT",
-      "badgeNext2": "+2"
+      "badgeNext2": "+2",
+      "hudActive": "Active",
+      "hudTarget": "Target",
+      "hudNoTarget": "No target",
+      "bfResetPos": "Back to formation"
     },
     "menu": {
       "openSheet": "Open character sheet",
@@ -257,7 +274,17 @@
       "toggleFailed": "VNE | Could not toggle status effect.",
       "noActorForCombatant": "VNE | Could not find actor for this combatant."
     },
+    "qa": {
+      "attacks": "Attacks",
+      "spells": "Spells",
+      "items": "Items",
+      "emptyCat": "Nothing here.",
+      "emptyAll": "This actor has no usable attacks, spells or items.",
+      "all": "All"
+    },
     "notify": {
+      "qaCantUse": "Couldn't use that from here — try the character sheet.",
+      "qaFailed": "The action failed. See the console for details.",
       "vnClosed": "The GM hasn't opened the VN stage yet.",
       "hiddenByGM": "The GM has hidden the VN stage from you.",
       "vnInactive": "VN Dialogues Enhanced is not active in this world yet.",

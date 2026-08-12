@@ -94,6 +94,12 @@
     bottom: calc(80px + env(safe-area-inset-bottom, 0px));
     left: calc(8px + env(safe-area-inset-left, 0px));
   }
+  /* RPG Classic Style only — docked low like on desktop, since at 80px it rides
+     over the front rank of the battlefield formation. */
+  body.vne-mobile-ready.vne-rpg-style #vne-toggle-fab {
+    bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    left: calc(6px + env(safe-area-inset-left, 0px));
+  }
 
   /* Stage: 3 columns → 3 rows (players / stage / NPCs) */
   body.vne-mobile-ready .vne-stage {
@@ -365,4 +371,43 @@
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
   }
+
+  /* No hover-lift on the battlefield either */
+  body.vne-mobile-ready .vne-bf-unit:hover { transform: none; }
+}
+
+/* ── COMBAT BATTLEFIELD on small screens ─────────────────────────────────────
+   The stage restacks into rows on phones (see above), but in combat the side
+   panels are gone, so the battlefield must reclaim the whole stage instead of
+   collapsing into the auto-sized first row. Column count is decided in JS by
+   resolveMaxPerRow(); these rules only handle the chrome. */
+@media (max-width: 1024px) {
+  body.vne-mobile-ready.vne-rpg-style #vne-main.vne-combat-mode .vne-stage {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+  }
+  body.vne-mobile-ready .vne-battlefield { padding: 2px 8px 0; }
+  body.vne-mobile-ready .vne-bf-row  { gap: clamp(6px, 3vw, 24px); }
+  body.vne-mobile-ready .vne-bf-name { font-size: 0.66em; letter-spacing: 0.05em; }
+  body.vne-mobile-ready .vne-bf-vs span::before,
+  body.vne-mobile-ready .vne-bf-vs span::after { width: 16vw; }
+
+  /* HUD stacks: active character and target share one row above the controls */
+  body.vne-mobile-ready.vne-rpg-style .vne-combat-hud {
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 8px;
+    /* Left inset keeps the docked VN toggle FAB clear of the HUD cards. */
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px)) 56px;
+  }
+  body.vne-mobile-ready.vne-rpg-style .vne-combat-controls { grid-column: 1 / -1; order: 2; }
+  body.vne-mobile-ready .vne-hud-portrait { width: 34px; height: 34px; }
+  body.vne-mobile-ready .vne-hud-hp { width: 90px; }
+}
+
+/* Phone landscape: height is scarce — drop the HUD's HP bars, keep the names */
+@media (max-height: 500px) {
+  body.vne-mobile-ready .vne-hud-hp,
+  body.vne-mobile-ready .vne-hud-hp-text { display: none; }
+  body.vne-mobile-ready .vne-hud-portrait { width: 28px; height: 28px; }
+  body.vne-mobile-ready .vne-bf-hp-text { display: none; }
 }

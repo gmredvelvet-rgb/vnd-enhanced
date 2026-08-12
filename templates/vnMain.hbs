@@ -37,8 +37,10 @@
             <div id="vne-combat-stage-btn" class="vne-ctrl-btn vne-combat-stage-toggle{{#if combatMode}} vne-active vne-combat-active{{/if}}" title="{{localize 'vnd-enhanced.ui.combatStage'}}">
               <i class="fas fa-crosshairs"></i>
             </div>
-            {{!-- Reveal the VS duel display for the current combatant + target (manual mode only) --}}
-            <div id="vne-vs-reveal-btn" class="vne-ctrl-btn vne-vs-reveal-toggle{{#unless combatMode}} vne-hidden{{/unless}}{{#unless manualReveal}} vne-hidden{{/unless}}{{#if vsRevealed}} vne-active{{/if}}" title="{{localize 'vnd-enhanced.ui.revealVS'}}">
+            {{!-- Reveal the VS duel for the current combatant + target. Shown in
+                  manual-reveal mode, and always under RPG Classic Style, where
+                  the duel overlays the battlefield and is therefore opt-in. --}}
+            <div id="vne-vs-reveal-btn" class="vne-ctrl-btn vne-vs-reveal-toggle{{#unless combatMode}} vne-hidden{{/unless}}{{#unless showVsReveal}} vne-hidden{{/unless}}{{#if vsRevealed}} vne-active{{/if}}" title="{{localize 'vnd-enhanced.ui.revealVS'}}">
               <i class="fas fa-eye"></i>
             </div>
             <div id="vne-editmode-btn" class="vne-ctrl-btn{{#if editMode}} vne-active vne-editmode-active{{/if}}" title="{{#if editMode}}{{localize 'vnd-enhanced.ui.editModeOn'}}{{else}}{{localize 'vnd-enhanced.ui.editModeOff'}}{{/if}}">
@@ -91,8 +93,16 @@
     {{!-- ── CAROUSEL ROW (below header, all combatants sorted by initiative) ── --}}
     <div id="vne-unified-carousel" class="vne-unified-carousel{{#unless combatMode}} vne-hidden{{/unless}}"></div>
 
-    {{!-- ── COMBAT CONTROLS ROW (below carousel) ── --}}
-    <div id="vne-combat-controls" class="vne-combat-controls{{#unless combatMode}} vne-hidden{{/unless}}">
+    {{!-- ── COMBAT HUD (bottom): active character | controls | current target ──
+         The battlefield above owns the combatants; this bar owns combat state.
+         #vne-combat-controls keeps its id so the existing timer / turn-nav /
+         initiative listeners bind unchanged — only its position moved. --}}
+    <div id="vne-combat-hud" class="vne-combat-hud{{#unless combatMode}} vne-hidden{{/unless}}">
+
+      {{!-- ACTIVE CHARACTER — populated by _patchCombatHud --}}
+      <div id="vne-hud-active" class="vne-hud-slot vne-hud-active"></div>
+
+      <div id="vne-combat-controls" class="vne-combat-controls">
       {{#if isGM}}
         <div id="vne-prev-turn-btn" class="vne-turn-nav-btn" title="{{localize 'vnd-enhanced.combat.prevTurn'}}">
           <i class="fas fa-step-backward"></i> {{localize 'vnd-enhanced.combat.prev'}}
@@ -131,7 +141,12 @@
           {{localize 'vnd-enhanced.combat.next'}} <i class="fas fa-step-forward"></i>
         </div>
       {{/if}}
-    </div>
+      </div>{{!-- /combat-controls --}}
+
+      {{!-- CURRENT TARGET — populated by _patchCombatHud --}}
+      <div id="vne-hud-target" class="vne-hud-slot vne-hud-target"></div>
+
+    </div>{{!-- /combat-hud --}}
 
     {{!-- ── STAGE AREA ── --}}
     <div class="vne-stage">
@@ -149,6 +164,11 @@
 
       {{!-- ROLEPLAY STAGE — column 2 in VN/RP mode (hidden in combat) --}}
       <div id="vne-rp-stage" class="vne-rp-stage vne-drop-zone"></div>
+
+      {{!-- BATTLEFIELD — combat mode only. Spans the whole stage (the side
+           panels collapse away) and is populated by _patchBattlefield. Enemy
+           formation on top, player formation below, VS between them. --}}
+      <div id="vne-battlefield" class="vne-battlefield{{#unless combatMode}} vne-hidden{{/unless}}"></div>
 
       {{!-- RIGHT CAST DROP ZONE --}}
       <div class="vne-right-panel vne-side-panel vne-drop-zone" data-side="right">

@@ -16,9 +16,13 @@
         "label": "Gestionar licencia",
         "hint": "Consulta tu nivel de suscripción y libera slots de instalación."
       },
+      "combatRpgStyle": {
+        "name": "Estilo RPG Clásico (combate)",
+        "hint": "Cambia la disposición del Modo Combate. DESACTIVADO (por defecto) es la disposición que ya conoces: elenco de jugadores a la izquierda, PNJs a la derecha y el duelo VS en el centro. ACTIVADO convierte el combate en una pantalla de batalla de RPG clásico: los combatientes aparecen sobre la escena en formaciones automáticas, enemigos arriba y grupo abajo, cada uno con su nombre y barra de vida pequeños, y los controles de turno pasan a un HUD de combate en la parte inferior. El GM puede arrastrar a cualquier combatiente para recolocarlo y redimensionarlo con los controles en pantalla. No se quita nada en ningún caso: el Modo Rol, Action Bubbles y el duelo VS siguen funcionando, así que puedes alternar cuando quieras."
+      },
       "combatManualReveal": {
         "name": "Revelar combate manual",
-        "hint": "Cuando está activo, el display VS del duelo (ambos luchadores en grande, al frente y centrados) permanece oculto durante el combate hasta que lo activas — con el botón del ojo en la barra superior o el atajo 'Revelar duelo de combate' (Alt+B por defecto). Muestra al luchador actual contra su objetivo, y se oculta solo al terminar el turno, esperando la siguiente revelación. Desactívalo para el comportamiento clásico donde el duelo siempre está visible en combate."
+        "hint": "Cuando está activo, el display VS del duelo (ambos luchadores en grande, al frente y centrados) permanece oculto durante el combate hasta que lo activas — con el botón del ojo en la barra superior o el atajo 'Revelar duelo de combate' (Alt+B por defecto). Muestra al luchador actual contra su objetivo, y se oculta solo al terminar el turno, esperando la siguiente revelación. Desactívalo para el comportamiento clásico donde el duelo siempre está visible en combate. Con el Estilo RPG Clásico el duelo siempre espera a que lo reveles, y esta opción solo controla si se cierra solo al acabar el turno."
       },
       "visualTheme": {
         "name": "Tema visual",
@@ -33,6 +37,14 @@
       "autoCastFromCombat": {
         "name": "Auto-rellenar reparto desde el combate",
         "hint": "Al abrir el escenario de combate (y cuando entren combatientes a mitad de pelea), se añaden automáticamente al reparto VN: tokens de jugadores y aliados a la izquierda, enemigos a la derecha. Solo añade — nunca quita miembros que pusiste manualmente. Los combatientes ocultos quedan fuera hasta que los reveles."
+      },
+      "deathTombstone": {
+        "name": "Lápida al morir",
+        "hint": "Cuando un combatiente se marca como derrotado, coloca una lápida donde estaba su token. Se quita si la criatura revive, y se limpia al terminar el encuentro."
+      },
+      "selectOnTarget": {
+        "name": "Seleccionar token al marcar objetivo",
+        "hint": "Al marcar como objetivo desde el VN (click en placa/unidad del battlefield o 'Seleccionar como objetivo'), también selecciona su token para que los botones de daño del sistema se le apliquen — corrige el error 'Select at least one token' al pulsar Damage. Por cliente; desactívalo si interfiere con tu selección de tokens."
       },
       "bgFolderPath": {
         "name": "Carpeta de fondos",
@@ -105,6 +117,7 @@
       "addActorRight": "Añadir actor al lado derecho",
       "dragHint": "Arrastra actores aquí<br>o pulsa +",
       "stageEmptyHint": "Arrastra actores desde los paneles laterales",
+      "battlefieldEmpty": "No hay combatientes en el campo de batalla",
       "prevPage": "Anteriores",
       "nextPage": "Siguientes",
       "remove": "Quitar",
@@ -142,7 +155,11 @@
       "yourTurn": "<strong>{name}</strong>, ¡es tu turno!",
       "badgeNow": "AHORA",
       "badgeNext": "SIG",
-      "badgeNext2": "+2"
+      "badgeNext2": "+2",
+      "hudActive": "Activo",
+      "hudTarget": "Objetivo",
+      "hudNoTarget": "Sin objetivo",
+      "bfResetPos": "Volver a la formación"
     },
     "menu": {
       "openSheet": "Abrir hoja de personaje",
@@ -257,7 +274,17 @@
       "toggleFailed": "VNE | No se pudo alternar el estado.",
       "noActorForCombatant": "VNE | No se encontró el actor de este combatiente."
     },
+    "qa": {
+      "attacks": "Ataques",
+      "spells": "Hechizos",
+      "items": "Objetos",
+      "emptyCat": "Nada por aquí.",
+      "emptyAll": "Este actor no tiene ataques, hechizos ni objetos usables.",
+      "all": "Todos"
+    },
     "notify": {
+      "qaCantUse": "No se pudo usar desde aquí — prueba con la hoja de personaje.",
+      "qaFailed": "La acción falló. Revisa la consola para más detalles.",
       "vnClosed": "El GM todavía no ha abierto el escenario VN.",
       "hiddenByGM": "El GM ha ocultado el escenario VN para ti.",
       "vnInactive": "VN Dialogues Enhanced aún no está activo en este mundo.",
