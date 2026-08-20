@@ -67,6 +67,18 @@
         "hint": "Folder where AI-generated images are saved, relative to Foundry's Data storage."
       }
     },
+      "sfxFolder": {
+        "name": "SFX folder",
+        "hint": "Optional folder for sound effects used by VND (turn start, victory, defeat)."
+      },
+      "enableSfx": {
+        "name": "Enable SFX",
+        "hint": "Play module sound effects for turn start and combat end (per-client)."
+      },
+      "showHpToPlayers": {
+        "name": "Show HP to players",
+        "hint": "When enabled players see exact HP numbers on combat plates and carousel. GM always sees HP."
+      },
     "license": {
       "managerTitle": "VND Enhanced — License",
       "tier": "Tier",
@@ -215,6 +227,13 @@
     "portraitEditor": {
       "title": "Edit: {name}",
       "changeImage": "Change Image",
+      "removeBg": "Remove background",
+      "bgWorking": "Removing background…",
+      "bgDone": "Background removed.",
+      "bgFailed": "Background removal failed (needs internet on first use). See console.",
+      "bgExternalImage": "This image is hosted on an external site that blocks processing (e.g. Pinterest). Download it, upload it to Foundry, and use that local copy.",
+      "bgSaveFailed": "Couldn't save the cut-out image.",
+      "bgNoImage": "Pick an image first.",
       "name": "Name",
       "roleTitle": "Title / Role",
       "scale": "Scale",

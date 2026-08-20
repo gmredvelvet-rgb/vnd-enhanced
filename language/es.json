@@ -66,6 +66,18 @@
         "name": "Carpeta de imágenes IA",
         "hint": "Carpeta donde se guardan las imágenes generadas con IA, relativa al almacenamiento Data de Foundry."
       }
+      ,"sfxFolder": {
+        "name": "Carpeta SFX",
+        "hint": "Carpeta opcional para efectos de sonido usados por VND (turno inicio, victoria, derrota)."
+      },
+      "enableSfx": {
+        "name": "Activar SFX",
+        "hint": "Reproducir efectos de sonido del módulo para inicio de turno y fin de combate (por cliente)."
+      }
+      ,"showHpToPlayers": {
+        "name": "Mostrar PV a jugadores",
+        "hint": "Si está activado, los jugadores ven los números exactos de PV en las placas de combate y la carrousel. El GM siempre ve los PV."
+      }
     },
     "license": {
       "managerTitle": "VND Enhanced — Licencia",
@@ -215,6 +227,13 @@
     "portraitEditor": {
       "title": "Editar: {name}",
       "changeImage": "Cambiar imagen",
+      "removeBg": "Quitar fondo",
+      "bgWorking": "Quitando fondo…",
+      "bgDone": "Fondo eliminado.",
+      "bgFailed": "Falló quitar el fondo (necesita internet la primera vez). Revisa la consola.",
+      "bgExternalImage": "Esta imagen está alojada en un sitio externo que bloquea el procesado (p. ej. Pinterest). Descárgala, súbela a Foundry y usa esa copia local.",
+      "bgSaveFailed": "No se pudo guardar la imagen recortada.",
+      "bgNoImage": "Elige una imagen primero.",
       "name": "Nombre",
       "roleTitle": "Título / Rol",
       "scale": "Escala",

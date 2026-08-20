@@ -1,4 +1,6 @@
 import { VndLicenseMenu } from "./license-client.js";
+import { SfxSettingsApp } from "./sfx-ui.js";
+import { ReactionTemplatesApp } from "./reaction-templates.js";
 
 const ID = "vnd-enhanced";
 
@@ -74,6 +76,26 @@ export function registerSettings() {
     hint:       "vnd-enhanced.settings.licenseMenu.hint",
     icon:       "fas fa-key",
     type:       VndLicenseMenu,
+    restricted: true
+  });
+
+  // SFX manager — browse and preview per-event audio files
+  game.settings.registerMenu(ID, "sfxManager", {
+    name:       "vnd-enhanced.settings.sfxMenu.name",
+    label:      "vnd-enhanced.settings.sfxMenu.label",
+    hint:       "vnd-enhanced.settings.sfxMenu.hint",
+    icon:       "fas fa-volume-up",
+    type:       SfxSettingsApp,
+    restricted: true
+  });
+
+  // Reaction templates manager — save/load reusable reaction sets
+  game.settings.registerMenu(ID, "reactionTemplatesManager", {
+    name:       "vnd-enhanced.settings.reactionMenu.name",
+    label:      "vnd-enhanced.settings.reactionMenu.label",
+    hint:       "vnd-enhanced.settings.reactionMenu.hint",
+    icon:       "fas fa-theater-masks",
+    type:       ReactionTemplatesApp,
     restricted: true
   });
 
@@ -263,6 +285,85 @@ export function registerSettings() {
     default: "vnd-enhanced/ai-generated"
   });
 
+  // Sound effects folder and per-event file names
+  game.settings.register(ID, "sfxFolder", {
+    name: "vnd-enhanced.settings.sfxFolder.name",
+    hint: "vnd-enhanced.settings.sfxFolder.hint",
+    scope: "world",
+    config: true,
+    type: String,
+    default: "vnd-enhanced/sfx",
+    filePicker: "folder"
+  });
+
+  game.settings.register(ID, "enableSfx", {
+    name: "vnd-enhanced.settings.enableSfx.name",
+    hint: "vnd-enhanced.settings.enableSfx.hint",
+    scope: "client",
+    config: true,
+    type: Boolean,
+    default: true
+  });
+
+  game.settings.register(ID, "sfxTurnStart", {
+    scope: "world",
+    config: true,
+    type: String,
+    default: "turn-start.ogg"
+  });
+
+  game.settings.register(ID, "sfxVictory", {
+    scope: "world",
+    config: true,
+    type: String,
+    default: "victory.ogg"
+  });
+
+  game.settings.register(ID, "sfxDefeat", {
+    scope: "world",
+    config: true,
+    type: String,
+    default: "defeat.ogg"
+  });
+
+  // Toggle automatic reactions based on HP thresholds (GM-configurable)
+  game.settings.register(ID, "enableAutoReactions", {
+    name: "vnd-enhanced.settings.enableAutoReactions.name",
+    hint: "vnd-enhanced.settings.enableAutoReactions.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true
+  });
+
+  // Auto-apply reaction templates when thresholds are hit
+  game.settings.register(ID, "enableAutoApplyTemplates", {
+    name: "vnd-enhanced.settings.enableAutoApplyTemplates.name",
+    hint: "vnd-enhanced.settings.enableAutoApplyTemplates.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false
+  });
+
+  game.settings.register(ID, "autoTemplateCritical", {
+    name: "vnd-enhanced.settings.autoTemplateCritical.name",
+    hint: "vnd-enhanced.settings.autoTemplateCritical.hint",
+    scope: "world",
+    config: true,
+    type: String,
+    default: ""
+  });
+
+  game.settings.register(ID, "autoTemplateHurt", {
+    name: "vnd-enhanced.settings.autoTemplateHurt.name",
+    hint: "vnd-enhanced.settings.autoTemplateHurt.hint",
+    scope: "world",
+    config: true,
+    type: String,
+    default: ""
+  });
+
   // Cast Presets — saved cast configurations (leftCast + rightCast + portraits)
   game.settings.register(ID, "castPresets", {
     scope:   "world",
@@ -283,6 +384,16 @@ export function registerSettings() {
     scope:   "client",
     type:    Boolean,
     config:  false,
+    default: false
+  });
+
+  // Whether players should see exact HP numbers (GM-configurable world setting)
+  game.settings.register(ID, "showHpToPlayers", {
+    name: "vnd-enhanced.settings.showHpToPlayers.name",
+    hint: "vnd-enhanced.settings.showHpToPlayers.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
     default: false
   });
 }

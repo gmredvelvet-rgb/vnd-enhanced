@@ -1,0 +1,49 @@
+<form>
+  <div class="form-group">
+    <label>{{vnd-enhanced.settings.sfxMenu.folder}}</label>
+    <div class="form-fields">
+      <input type="text" name="sfxFolder" value="{{sfxFolder}}" />
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>{{vnd-enhanced.settings.sfxMenu.enable}}</label>
+    <div class="form-fields">
+      <input type="checkbox" name="enableSfx" {{#if enableSfx}}checked{{/if}} />
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>{{vnd-enhanced.settings.sfxMenu.turnStart}}</label>
+    <div class="form-fields">
+      <input type="text" name="sfxTurnStart" value="{{sfxTurnStart}}" />
+      <button type="button" class="vne-sfx-browse" data-key="sfxTurnStart">{{vnd-enhanced.ui.browse}}</button>
+      <button type="button" class="vne-sfx-play"   data-key="sfxTurnStart">{{vnd-enhanced.ui.play}}</button>
+      <span class="vne-sfx-status" data-key="sfxTurnStart"></span>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>{{vnd-enhanced.settings.sfxMenu.victory}}</label>
+    <div class="form-fields">
+      <input type="text" name="sfxVictory" value="{{sfxVictory}}" />
+      <button type="button" class="vne-sfx-browse" data-key="sfxVictory">{{vnd-enhanced.ui.browse}}</button>
+      <button type="button" class="vne-sfx-play"   data-key="sfxVictory">{{vnd-enhanced.ui.play}}</button>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>{{vnd-enhanced.settings.sfxMenu.defeat}}</label>
+    <div class="form-fields">
+      <input type="text" name="sfxDefeat" value="{{sfxDefeat}}" />
+      <button type="button" class="vne-sfx-browse" data-key="sfxDefeat">{{vnd-enhanced.ui.browse}}</button>
+      <button type="button" class="vne-sfx-play"   data-key="sfxDefeat">{{vnd-enhanced.ui.play}}</button>
+      <span class="vne-sfx-status" data-key="sfxDefeat"></span>
+    </div>
+  </div>
+
+  <div class="form-buttons">
+    <button type="submit" class="button primary">{{vnd-enhanced.ui.save}}</button>
+    <button type="button" class="button" style="margin-left:8px" id="vne-sfx-validate" class="vne-sfx-validate">{{vnd-enhanced.settings.sfxMenu.validate}}</button>
+  </div>
+</form>

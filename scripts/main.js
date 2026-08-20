@@ -139,6 +139,24 @@ function _startTurnTimer(minutes) {
   }, 250);
 }
 
+// Play a configured SFX safely. `settingKey` is one of the sfx setting names
+// registered in settings.js (eg. "sfxTurnStart", "sfxVictory", "sfxDefeat").
+function _playSfx(settingKey) {
+  try {
+    if (typeof AudioHelper === "undefined") return;
+    if (!game.settings.get(ID, "enableSfx")) return;
+    const fileName = (game.settings.get(ID, settingKey) || "").toString().trim();
+    if (!fileName) return;
+    let folder = (game.settings.get(ID, "sfxFolder") || "").toString().trim();
+    if (folder.endsWith("/")) folder = folder.slice(0, -1);
+    const src = folder ? `${folder}/${fileName}` : fileName;
+    // AudioHelper.play may differ between Foundry versions; wrap in try/catch.
+    try { AudioHelper.play({ src }, true); } catch (err) { AudioHelper.play(src, true); }
+  } catch (e) {
+    console.warn("vnd-enhanced | SFX play failed:", e);
+  }
+}
+
 function _getRoundTier(round) {
   if (round >= 7) return 3;
   if (round >= 5) return 2;
@@ -415,6 +433,43 @@ async function _applyAutoReaction(actorId) {
 
   _applyReaction(d, actorId, finalKey);
   await saveData(d, { change: "castChange" });
+
+  // Optionally apply a saved reaction TEMPLATE when thresholds are crossed.
+  try {
+    if (game.settings.get(ID, "enableAutoApplyTemplates")) {
+      const pct = Math.max(0, hp.value / hp.max);
+      const tplCritical = (game.settings.get(ID, "autoTemplateCritical") || "").toString().trim();
+      const tplHurt     = (game.settings.get(ID, "autoTemplateHurt")     || "").toString().trim();
+      if (pct <= 0.25 && tplCritical) {
+        if (!_recentlyAppliedTemplates.has(`crit:${tplCritical}`)) {
+          _applyReactionTemplateByName(tplCritical);
+          _markTemplateApplied(`crit:${tplCritical}`);
+        }
+      } else if (pct <= 0.50 && tplHurt) {
+        if (!_recentlyAppliedTemplates.has(`hurt:${tplHurt}`)) {
+          _applyReactionTemplateByName(tplHurt);
+          _markTemplateApplied(`hurt:${tplHurt}`);
+        }
+      }
+    }
+  } catch (e) { /* fail silently */ }
+}
+
+// Recent application guard to avoid reapplying the same template repeatedly
+const _recentlyAppliedTemplates = new Set();
+function _markTemplateApplied(key, ttl = 5000) {
+  _recentlyAppliedTemplates.add(key);
+  setTimeout(() => _recentlyAppliedTemplates.delete(key), ttl);
+}
+
+async function _applyReactionTemplateByName(name) {
+  if (!name) return;
+  const templates = game.settings.get(ID, "vnReactionTemplates") || {};
+  const mapping = templates[name];
+  if (!mapping) return;
+  for (const [actorId, reactionName] of Object.entries(mapping)) {
+    try { await setReaction(actorId, reactionName); } catch (e) { /* ignore per-item errors */ }
+  }
 }
 
 async function setReaction(actorId, reactionName) {
@@ -2356,6 +2411,87 @@ function openSceneEditor(existing, callback) {
   }).render(true, { width: 500 });
 }
 
+// ── Background removal — browser-local AI ─────────────────────────────────────
+// Lazy-loads @imgly/background-removal from a CDN on first use (it downloads a
+// model, ~a few MB), runs 100% client-side, and returns a transparent-PNG Blob.
+// No server, no per-image cost, nothing leaves the machine.
+const _IMGLY_VER = "1.5.5";
+let _imglyModulePromise = null;
+function _loadImgly() {
+  if (!_imglyModulePromise) {
+    _imglyModulePromise = import(`https://cdn.jsdelivr.net/npm/@imgly/background-removal@${_IMGLY_VER}/+esm`)
+      .catch((e) => { _imglyModulePromise = null; throw e; });
+  }
+  return _imglyModulePromise;
+}
+
+// Fetch an image as a Blob for background removal. Tries a direct CORS fetch,
+// then falls back to the weserv image proxy (adds CORS, bypasses hotlink blocks
+// like Pinterest's). Throws IMG_UNFETCHABLE only when both routes fail.
+async function _fetchImageBlobForBg(url) {
+  const unfetchable = () => {
+    const err = new Error("source image is not fetchable (external / CORS-blocked)");
+    err.code = "IMG_UNFETCHABLE";
+    return err;
+  };
+  // Direct — works for Data files, data:/blob: URIs and CORS-friendly hosts.
+  try {
+    const r = await fetch(url, { mode: "cors" });
+    if (r.ok) { const b = await r.blob(); if (b.type.startsWith("image/") || b.size) return b; }
+  } catch { /* try the proxy */ }
+  // data:/blob: can't be proxied — if the direct read failed there's nowhere to go.
+  if (/^(data:|blob:)/.test(url)) throw unfetchable();
+  // Public CORS image proxy for remote http(s) hotlinks.
+  try {
+    const proxied = `https://images.weserv.nl/?url=${encodeURIComponent(url.replace(/^https?:\/\//, ""))}`;
+    const r = await fetch(proxied, { mode: "cors" });
+    if (r.ok) { const b = await r.blob(); if (b.type.startsWith("image/")) return b; }
+  } catch { /* fall through */ }
+  throw unfetchable();
+}
+
+async function _removePortraitBackground(imageSrc, onProgress = null) {
+  const mod = await _loadImgly();
+  const removeBackground = mod.removeBackground ?? mod.default?.removeBackground ?? mod.default;
+  if (typeof removeBackground !== "function") throw new Error("imgly: removeBackground unavailable");
+  // Make relative Foundry paths absolute so the library can fetch them.
+  const url = /^(data:|blob:|https?:)/.test(imageSrc) ? imageSrc : new URL(imageSrc, document.baseURI).href;
+  // Read the source ourselves: direct first, then via a CORS image proxy so
+  // external hotlinks that block cross-origin reads (Pinterest, etc.) still work.
+  const inputBlob = await _fetchImageBlobForBg(url);
+  const config = {
+    // The ML model lives in a SEPARATE, large data package. jsDelivr refuses it
+    // (>150 MB), so we point publicPath at @imgly's OWN CDN (staticimgly.com),
+    // which is built to serve these model chunks. Version matches the code pkg.
+    publicPath: `https://staticimgly.com/@imgly/background-removal-data/${_IMGLY_VER}/dist/`,
+    output: { format: "image/png" },
+    progress: (...args) => {
+      let cur, tot;
+      if (args.length >= 3) { cur = args[1]; tot = args[2]; }
+      else if (args[0] && typeof args[0] === "object") { cur = args[0].current; tot = args[0].total; }
+      if (onProgress && tot) onProgress(Math.min(100, Math.round((cur / tot) * 100)));
+    }
+  };
+  return removeBackground(url, config);
+}
+
+// Save a Blob to a Data-relative folder (outside modules/, which is wiped on
+// update) and return its path. Uses the portrait folder setting when configured.
+async function _savePortraitBlob(blob, baseName = "portrait") {
+  const base = (game.settings.get(ID, "portraitFolderPath") || "vnd-enhanced-portraits")
+    .replace(/^\/+|\/+$/g, "");
+  let current = "";
+  for (const part of base.split("/").filter(Boolean)) {
+    current = current ? `${current}/${part}` : part;
+    try { await FilePicker.createDirectory("data", current); } catch { /* exists */ }
+  }
+  const safe = String(baseName || "portrait").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "portrait";
+  const file = new File([blob], `${safe}-nobg-${Date.now()}.png`, { type: "image/png" });
+  const result = await FilePicker.upload("data", base, file, {}, { notify: false });
+  return result?.path ?? null;
+}
+
 function openPortraitEditor(portraitId, side = null) {
   const d = getData();
   // Search the specified side first, then all casts
@@ -2377,6 +2513,7 @@ function openPortraitEditor(portraitId, side = null) {
       <div class="vne-pe-preview">
         <img id="pe-img" src="${_esc(p.img || 'icons/svg/mystery-man.svg')}" style="max-height:180px;border-radius:8px;"/>
         <button type="button" id="pe-pick-img" class="vne-pe-pick-btn"><i class="fas fa-image"></i> ${_esc(T("portraitEditor.changeImage"))}</button>
+        <button type="button" id="pe-removebg" class="vne-pe-pick-btn vne-pe-removebg-btn"><i class="fas fa-wand-magic-sparkles"></i> ${_esc(T("portraitEditor.removeBg"))}</button>
       </div>
       <div class="vne-pe-fields">
         <label>${_esc(T("portraitEditor.name"))}</label>
@@ -2460,6 +2597,35 @@ function openPortraitEditor(portraitId, side = null) {
             livePreview();
           }
         }).render(true);
+      });
+      // Remove background — AI runs locally in the browser (first use downloads
+      // a model, so it can take a few seconds). Saves a transparent PNG and
+      // points the portrait at it.
+      html.find("#pe-removebg").on("click", async function () {
+        const btn   = $(this);
+        const imgEl = html.find("#pe-img")[0];
+        const src   = imgEl?.getAttribute("data-picked") || imgEl?.getAttribute("src");
+        if (!src || src.includes("mystery-man")) { ui.notifications?.warn(T("portraitEditor.bgNoImage")); return; }
+        const original = btn.html();
+        btn.prop("disabled", true);
+        const setLabel = (txt) => btn.html(`<i class="fas fa-spinner fa-spin"></i> ${_esc(txt)}`);
+        setLabel(T("portraitEditor.bgWorking"));
+        try {
+          const blob = await _removePortraitBackground(src, (pct) => {
+            setLabel(`${T("portraitEditor.bgWorking")} ${pct}%`);
+          });
+          const path = await _savePortraitBlob(blob, p.name);
+          if (!path) { ui.notifications?.error(T("portraitEditor.bgSaveFailed")); return; }
+          imgEl.setAttribute("src", path);
+          imgEl.setAttribute("data-picked", path);
+          livePreview();
+          ui.notifications?.info(T("portraitEditor.bgDone"));
+        } catch (e) {
+          console.warn("VNE | background removal failed:", e);
+          ui.notifications?.error(T(e?.code === "IMG_UNFETCHABLE" ? "portraitEditor.bgExternalImage" : "portraitEditor.bgFailed"));
+        } finally {
+          btn.prop("disabled", false).html(original);
+        }
       });
       html.find("#pe-reactions-btn").on("click", () => openReactionManager(portraitId));
     }
@@ -3660,8 +3826,10 @@ function _castPlateData(actorId, side) {
   const comb  = combat.turns?.find(c => c.actorId === actorId);
   const init  = comb?.initiative;
   const hasInit = init !== null && init !== undefined;
-  // HP privacy: GM sees every number; players read exact HP only for their own side.
-  const showNumbers = game.user.isGM || side === "left";
+  // HP privacy: GM sees every number; players see numbers if the world setting
+  // `showHpToPlayers` is enabled, or if they own the actor. Otherwise numbers
+  // stay hidden from non-GM clients.
+  const showNumbers = game.user.isGM || game.settings.get(ID, "showHpToPlayers") || !!actor?.testUserPermission?.(game.user, "OWNER");
 
   // Extra combat stats — Armor Class and movement speed (system-aware).
   const ac = attrs.ac?.value ?? null;
@@ -4498,7 +4666,8 @@ function _getCarouselActorHP(actor) {
 }
 
 function _carouselHpBarHtml(actor) {
-  if (!game.user.isGM) return "";
+  // Show HP to GM always, and to players only when the world setting enables it
+  if (!game.user.isGM && !game.settings.get(ID, "showHpToPlayers")) return "";
   const hp = _getCarouselActorHP(actor);
   if (!hp) return "";
   const pct   = Math.round(hp.pct * 100);
@@ -4840,9 +5009,11 @@ Hooks.on("deleteCombat",     () => {
       if (anyPCDown) {
         game.socket.emit(`module.${ID}`, { type: "vnDefeat", senderId: game.user.id });
         _showDefeatOverlay();
+        try { _playSfx("sfxDefeat"); } catch(e) { /* ignore */ }
       } else {
         game.socket.emit(`module.${ID}`, { type: "vnVictory", senderId: game.user.id });
         _showVictoryOverlay();
+        try { _playSfx("sfxVictory"); } catch(e) { /* ignore */ }
       }
     }
   }
@@ -4884,11 +5055,18 @@ Hooks.on("updateActor", (actor, changes) => {
     // Only one layout is live at a time (RPG hides the side panels), so calling
     // both repaints is safe — the inactive one simply finds no element.
     if (d.combatMode) { _patchBattlefieldHP(actor.id); _patchCastPlateHP(actor.id); _patchCombatHud(d); }
-    clearTimeout(_autoReactionTimers.get(actor.id));
-    _autoReactionTimers.set(actor.id, setTimeout(() => {
-      _autoReactionTimers.delete(actor.id);
-      _applyAutoReaction(actor.id);
-    }, 400));
+    // Only run auto-reaction logic when enabled in world settings (GM only).
+    try {
+      if (game.settings.get(ID, "enableAutoReactions")) {
+        clearTimeout(_autoReactionTimers.get(actor.id));
+        _autoReactionTimers.set(actor.id, setTimeout(() => {
+          _autoReactionTimers.delete(actor.id);
+          _applyAutoReaction(actor.id);
+        }, 400));
+      }
+    } catch (e) {
+      // Settings may not be registered yet early in boot — fail silently.
+    }
   }
 
   // ── Damage Floaters + Hit Shake ─────────────────────────────────────────────
@@ -5719,6 +5897,8 @@ Hooks.on("updateCombat", async (combat, changed) => {
     _patchCast(d);
     // Persona-style turn card — shown on ALL clients (no socket needed, all have combat state)
     _showTurnCard(combat.combatant);
+    // Play turn-start SFX (non-blocking)
+    try { _playSfx("sfxTurnStart"); } catch(e) { /* ignore */ }
   }
 
   // Spotlight whisper — notify player it's their turn
