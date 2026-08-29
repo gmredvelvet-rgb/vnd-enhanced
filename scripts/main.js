@@ -313,6 +313,13 @@ function _isRpgStyle() {
   catch { return false; }        // called before settings register (early hooks)
 }
 
+// HUD-only mode: the VN is reduced to a combat overlay on top of the live map.
+// World-scoped, so the GM's choice is what the whole table sees.
+function _isHudOnly() {
+  try { return game.settings.get(ID, "hudOnlyMode") === true; }
+  catch { return false; }        // called before settings register (early hooks)
+}
+
 function canControlActor(actorId) {
   if (game.user.isGM) return true;
   const actor = game.actors.get(actorId);
@@ -582,9 +589,23 @@ function targetActorToken(actorId) {
   try {
     const selectOn = game.settings.get(ID, "selectOnTarget");
     if (selectOn && !alreadyTargeted && token.isOwner && typeof token.control === "function") {
-      token.control({ releaseOthers: true });
+      // Token#_canControl starts with `if (!this.layer.active) return false`, and
+      // control() reports that by RETURNING FALSE — it never throws. So whenever
+      // the GM was on tiles/walls/lighting/notes (or on the module's own toolbar
+      // group) the token was targeted but silently never selected, leaving the
+      // system's Damage button with nothing to apply to. Put the Tokens layer in
+      // front first, then check the result instead of assuming it worked.
+      if (canvas.tokens && canvas.tokens.active === false) canvas.tokens.activate();
+      if (token.control({ releaseOthers: true }) !== true) {
+        console.warn(`${ID} | targeted "${token.name}" but could not select its token`,
+          { layerActive: canvas.tokens?.active, tool: game.activeTool });
+        ui.notifications?.warn(T("notify.targetNotSelected"));
+      }
     }
-  } catch { /* selection is a convenience, never fatal */ }
+  } catch (e) {
+    // Selection is a convenience, never fatal — but stay diagnosable.
+    console.warn(`${ID} | select-on-target failed:`, e);
+  }
 }
 
 function getVNECastTokens(d = getDataRO()) {
@@ -607,6 +628,11 @@ function getVNECastTokens(d = getDataRO()) {
 
 async function _createGhostToken(actorId, ghostType = "combat") {
   if (!game.user.isGM) return null;
+  // HUD-only runs on top of the real map with real tokens, so the whole reason
+  // ghosts exist — giving Sequencer/AA something to attach to when portraits are
+  // the only thing on screen — is gone. Guarding the single creation point covers
+  // every caller (combat sync, late cast joins, the AA sheet hook) at once.
+  if (_isHudOnly()) return null;
   if (_ghostTokens.has(actorId)) return _ghostTokens.get(actorId);
 
   const actor = game.actors.get(actorId);
@@ -1050,6 +1076,10 @@ async function toggleCombatStage() {
       ui.notifications?.warn(T("notify.combatStageFailed"));
       return;
     }
+    // In HUD-only the overlay is hidden whenever combat is off, so Alt+C is the
+    // one gesture that brings it up — and it has to raise the master switch too,
+    // or the GM presses it and nothing appears.
+    if (_isHudOnly()) d.showVN = true;
     // Auto-cast BEFORE ghost sync so ghosts cover the freshly added members too
     _autoPopulateCastFromCombat(d, combat);
     await _syncGhostTokens(d);
@@ -1413,14 +1443,24 @@ async function openStatusEffectPicker(actorId) {
 
 const _QA_IMG_FALLBACK = "icons/svg/item-bag.svg";
 
+// Localized singular name of an item type ("Consumable", "Objeto de consumo").
+// Falls back to the raw type id so a module-added type still reads sensibly.
+function _qaTypeLabel(type) {
+  const key   = CONFIG.Item?.typeLabels?.[type];
+  const label = key ? game.i18n.localize(key) : "";
+  return (label && label !== key) ? label
+       : String(type ?? "").replace(/^\w/, c => c.toUpperCase());
+}
+
 // Collect an actor's usable actions, grouped into attacks / spells / items.
 // Strikes carry the index into actor.system.actions (pf2e needs it to roll);
 // everything else carries an itemId.
 function _quickActionData(actor) {
-  const out = { attacks: [], spells: [], items: [] };
+  const out = { attacks: [], spells: [], feats: [], items: [] };
   if (!actor) return out;
   const sys = game.system?.id;
   const img = (i) => i?.img || _QA_IMG_FALLBACK;
+  const cap = (s) => String(s ?? "").replace(/^\w/, c => c.toUpperCase());
 
   // PF2e and Starfinder 2e both run the PF2e engine (strikes in system.actions,
   // Multiple Attack Penalty variants). Detect either by id or by the strike array.
@@ -1428,17 +1468,41 @@ function _quickActionData(actor) {
                 || Array.isArray(actor.system?.actions);
 
   if (sys === "dnd5e") {
+    // dnd5e 4.x+ hangs usage off "activities", so what counts as an attack is not
+    // the item type but whether it owns an attack activity: monster actions and
+    // class features live in `feat` items and would otherwise never reach the
+    // Actions tab. actionType is the pre-activities (3.x) fallback.
+    const LEGACY_ATTACK = ["mwak", "rwak", "msak", "rsak"];
+    const isAttack = (i) => i.hasAttack
+      ?? (!!i.system?.activities?.getByType?.("attack")?.length
+          || LEGACY_ATTACK.includes(i.system?.actionType));
+    // "Channel Divinity", "Class Feature", "Monster Feature"… localized by 5e.
+    const featGroup = (i) => {
+      const cfg = CONFIG.DND5E?.featureTypes?.[i.system?.type?.value];
+      return cfg?.subtypes?.[i.system?.type?.subtype] ?? cfg?.label ?? _qaTypeLabel(i.type);
+    };
+    // Types that describe the character rather than sit in the backpack.
+    const FEATURE_TYPES = ["feat", "class", "subclass", "background", "race"];
+
     for (const item of actor.items ?? []) {
-      const t = item.type;
+      const t    = item.type;
       const base = { itemId: item.id, name: item.name, img: img(item) };
-      if (t === "weapon")      out.attacks.push({ ...base, kind: "item", sub: "weapon", group: "Weapon" });
-      else if (t === "spell")  {
-        const lvl = item.system?.level ?? 0;
-        const group = lvl === 0 ? "Cantrip" : `Lvl ${lvl}`;
+      if (t === "spell") {
+        const lvl   = item.system?.level ?? 0;
+        const group = lvl === 0 ? T("qa.cantrip") : TF("qa.spellLevel", { n: lvl });
         out.spells.push({ ...base, kind: "spell", sub: group, group });
+      } else if (t === "weapon" || isAttack(item)) {
+        const group = t === "feat" ? featGroup(item) : _qaTypeLabel(t);
+        out.attacks.push({ ...base, kind: "item", sub: group, group });
+      } else if (FEATURE_TYPES.includes(t)) {
+        const group = t === "feat" ? featGroup(item) : _qaTypeLabel(t);
+        out.feats.push({ ...base, kind: "item", sub: group, group });
+      } else {
+        // Everything left is gear — consumables, tools, loot, containers, and any
+        // type a module added. Nothing is dropped on the floor.
+        const group = _qaTypeLabel(t);
+        out.items.push({ ...base, kind: "item", sub: group, group });
       }
-      else if (["consumable", "equipment", "tool", "feat"].includes(t))
-                               out.items.push({ ...base, kind: "item", sub: t, group: t });
     }
     return out;
   }
@@ -1449,22 +1513,32 @@ function _quickActionData(actor) {
       // MAP variants: [full, -5, -10]. Keep each label so the player can pick.
       const variants = (a.variants ?? []).map((v, i) =>
         v?.label ?? ["", "-5", "-10"][i] ?? `MAP ${i}`);
-      out.attacks.push({ kind: "strike", strikeIdx: idx,
+      out.attacks.push({ kind: "strike", strikeIdx: idx, group: "Strike",
         name: a.label ?? a.item?.name ?? "Strike",
         img: a.item?.img ?? a.imageUrl ?? "icons/svg/sword.svg",
         sub: a.item?.name && a.item.name !== a.label ? a.item.name : "",
         variants });
     });
     for (const item of actor.items ?? []) {
-      if (item.type === "spell") {
+      const t = item.type;
+      if (t === "spell") {
         const isCantrip = item.isCantrip ?? item.system?.traits?.value?.includes?.("cantrip") ?? false;
         const rank = item.rank ?? item.system?.level?.value;
-        const group = isCantrip ? "Cantrip" : (rank != null ? `Rank ${rank}` : "Spell");
+        const group = isCantrip ? T("qa.cantrip")
+                    : (rank != null ? TF("qa.spellRank", { n: rank }) : T("qa.spells"));
         out.spells.push({ kind: "spell", itemId: item.id, name: item.name, img: img(item),
           sub: group, group });
-      } else if (["consumable", "equipment", "weapon", "armor"].includes(item.type)) {
+      } else if (t === "action") {
+        // PF2e actions/abilities live in the Actions tab alongside strikes, just
+        // like the official sheet. Used via the item's chat card.
+        out.attacks.push({ kind: "item", itemId: item.id, name: item.name, img: img(item), sub: "Action", group: "Action" });
+      } else if (t === "feat") {
+        // Feats grouped by category (class / skill / general / ancestry…).
+        const g = cap(item.system?.category || "feat");
+        out.feats.push({ kind: "item", itemId: item.id, name: item.name, img: img(item), sub: g, group: g });
+      } else if (["consumable", "equipment", "weapon", "armor"].includes(t)) {
         out.items.push({ kind: "item", itemId: item.id, name: item.name, img: img(item),
-          sub: item.type, group: item.type });
+          sub: cap(t), group: cap(t) });
       }
     }
     return out;
@@ -1472,7 +1546,8 @@ function _quickActionData(actor) {
 
   // Generic fallback for any other system.
   for (const item of actor.items ?? [])
-    out.items.push({ kind: "item", itemId: item.id, name: item.name, img: img(item), sub: item.type ?? "" });
+    out.items.push({ kind: "item", itemId: item.id, name: item.name, img: img(item),
+      sub: _qaTypeLabel(item.type), group: _qaTypeLabel(item.type) });
   return out;
 }
 
@@ -1493,7 +1568,9 @@ async function _useQuickAction(actor, entry, ev, variantIdx = 0) {
     const item = actor.items.get(entry.itemId);
     if (!item) { ui.notifications?.warn(T("notify.qaCantUse")); return; }
 
-    if (sys === "dnd5e" && item.use)  return void await item.use({}, { event: ev });
+    // 5e reads config.event to decide whether to skip the activity-choice dialog
+    // (shift = fast-forward); passing it as the dialog config never reached it.
+    if (sys === "dnd5e" && item.use)  return void await item.use({ event: ev?.originalEvent ?? ev });
 
     if (entry.kind === "spell") {
       // PF2e: cast through the owning spellcasting entry when possible.
@@ -1527,9 +1604,10 @@ function _openQuickActionWindow(actorId, category, anchorEl) {
   const data = _quickActionData(actor);
 
   const cats = [
-    { key: "attacks", icon: "fa-hand-fist",      label: T("qa.attacks"), list: data.attacks },
-    { key: "spells",  icon: "fa-wand-sparkles",  label: T("qa.spells"),  list: data.spells },
-    { key: "items",   icon: "fa-bag-shopping",   label: T("qa.items"),   list: data.items }
+    { key: "attacks", icon: "fa-gavel",          label: T("qa.attacks"), list: data.attacks },
+    { key: "spells",  icon: "fa-hat-wizard",     label: T("qa.spells"),  list: data.spells },
+    { key: "feats",   icon: "fa-scroll",         label: T("qa.feats"),   list: data.feats },
+    { key: "items",   icon: "fa-briefcase",      label: T("qa.items"),   list: data.items }
   ].filter(c => c.list.length);
 
   if (!cats.length) { ui.notifications?.info(T("qa.emptyAll")); return; }
@@ -1574,8 +1652,10 @@ function _openQuickActionWindow(actorId, category, anchorEl) {
         : "";
       return `<div class="vne-qa-entry${mapRow ? " vne-qa-has-map" : ""}" data-cat="${cat}" data-idx="${i}"${e.itemId ? ` data-item-id="${_esc(e.itemId)}" draggable="true"` : ""} role="button" tabindex="0" title="${_esc(e.name)}${e.sub ? " — " + _esc(e.sub) : ""}">
          <img src="${_esc(e.img)}" alt=""/>
-         <div class="vne-qa-entry-name">${_esc(e.name)}</div>
-         ${e.sub ? `<div class="vne-qa-entry-sub">${_esc(e.sub)}</div>` : ""}
+         <div class="vne-qa-entry-text">
+           <div class="vne-qa-entry-name">${_esc(e.name)}</div>
+           ${e.sub ? `<div class="vne-qa-entry-sub">${_esc(e.sub)}</div>` : ""}
+         </div>
          ${mapRow}
        </div>`;
     }).join("");
@@ -1678,15 +1758,16 @@ function showPortraitActionMenu(trigger, actorId, side) {
 
   // Quick-action HUD entries — only for categories this actor actually has.
   const qa = _quickActionData(actor);
-  const qaAttackBtn = qa.attacks.length ? `<button type="button" class="vne-pam-attack" data-action="qa-attacks"><i class="fas fa-hand-fist"></i><span>${_esc(T("qa.attacks"))}</span></button>` : "";
-  const qaSpellBtn  = qa.spells.length  ? `<button type="button" class="vne-pam-spell" data-action="qa-spells"><i class="fas fa-wand-sparkles"></i><span>${_esc(T("qa.spells"))}</span></button>` : "";
-  const qaItemBtn   = qa.items.length   ? `<button type="button" class="vne-pam-item" data-action="qa-items"><i class="fas fa-bag-shopping"></i><span>${_esc(T("qa.items"))}</span></button>` : "";
+  const qaAttackBtn = qa.attacks.length ? `<button type="button" class="vne-pam-attack" data-action="qa-attacks"><i class="fas fa-gavel"></i><span>${_esc(T("qa.attacks"))}</span></button>` : "";
+  const qaSpellBtn  = qa.spells.length  ? `<button type="button" class="vne-pam-spell" data-action="qa-spells"><i class="fas fa-hat-wizard"></i><span>${_esc(T("qa.spells"))}</span></button>` : "";
+  const qaFeatBtn   = qa.feats.length   ? `<button type="button" class="vne-pam-feat" data-action="qa-feats"><i class="fas fa-scroll"></i><span>${_esc(T("qa.feats"))}</span></button>` : "";
+  const qaItemBtn   = qa.items.length   ? `<button type="button" class="vne-pam-item" data-action="qa-items"><i class="fas fa-briefcase"></i><span>${_esc(T("qa.items"))}</span></button>` : "";
 
   const menu = document.createElement("div");
   menu.id = "vne-portrait-action-menu";
   menu.className = "vne-portrait-action-menu";
   menu.innerHTML = `
-    ${qaAttackBtn}${qaSpellBtn}${qaItemBtn}
+    ${qaAttackBtn}${qaSpellBtn}${qaFeatBtn}${qaItemBtn}
     <button type="button" data-action="target"><i class="fas fa-crosshairs"></i><span>${_esc(T("menu.selectTarget"))}</span></button>
     <button type="button" data-action="sheet"><i class="fas fa-id-card"></i><span>${_esc(T("menu.openSheet"))}</span></button>
     ${inCombat ? initiativeBtn : ""}
@@ -1700,7 +1781,7 @@ function showPortraitActionMenu(trigger, actorId, side) {
     if (!action) return;
     event.stopPropagation();
 
-    if (action === "qa-attacks" || action === "qa-spells" || action === "qa-items") {
+    if (action === "qa-attacks" || action === "qa-spells" || action === "qa-feats" || action === "qa-items") {
       const cat = action.slice(3);
       closePortraitActionMenu();
       _openQuickActionWindow(actorId, cat, trigger);
@@ -1904,7 +1985,8 @@ function _renderVSDisplay() {
   const d = getDataRO();
   const stage = document.querySelector(".vne-stage");
   if (!stage) return;
-  if (!d.showVN || !d.combatMode || _vsRevealHidden(d)) {
+  // HUD-only deliberately has no duel: it would cover the map underneath.
+  if (!d.showVN || !d.combatMode || _isHudOnly() || _vsRevealHidden(d)) {
     document.getElementById("vne-combat-vs")?.remove();
     return;
   }
@@ -2492,6 +2574,276 @@ async function _savePortraitBlob(blob, baseName = "portrait") {
   return result?.path ?? null;
 }
 
+// ── Animated background removal — GIF / MP4 → transparent GIF or WebM ──────────
+// Decomposes an animated source into frames, runs the same browser-local AI on
+// each frame, and re-assembles them WITH an alpha channel. WebM (VP8 alpha, via
+// MediaRecorder) keeps soft edges — best for animated tokens/tiles. GIF (via
+// gifenc) has 1-bit hard edges but renders in an <img> as an animated portrait.
+// Everything stays on the machine; nothing is uploaded to any service.
+const _ANIM_TARGET_FPS = 12;   // sampling rate for video sources
+const _ANIM_MAX_FRAMES = 90;   // hard cap so a long clip can't run for an hour
+const _ANIM_MAX_DIM    = 640;  // frames are scaled down to this for speed/size
+
+function _isAnimatedSrc(src) {
+  return /\.(gif|mp4|webm|m4v|mov|apng)(\?|#|$)/i.test(src) || /^data:(image\/gif|video\/)/i.test(src);
+}
+
+// Even, downscaled dimensions (encoders prefer even sizes).
+function _fitDims(w, h, maxDim) {
+  w = w || maxDim; h = h || maxDim;
+  const s = Math.min(1, maxDim / Math.max(w, h));
+  let W = Math.round(w * s), H = Math.round(h * s);
+  if (W % 2) W++; if (H % 2) H++;
+  return [Math.max(2, W), Math.max(2, H)];
+}
+
+// Evenly-spaced frame indices when a source has more frames than the cap.
+function _sampleIndices(n, max) {
+  if (n <= max) return Array.from({ length: n }, (_, i) => i);
+  const out = [];
+  for (let i = 0; i < max; i++) out.push(Math.round((i * (n - 1)) / (max - 1)));
+  return [...new Set(out)];
+}
+
+// Fetch animated media as a Blob. Direct CORS first; for GIFs, fall back to the
+// weserv proxy with animation preserved (n=-1). Video can't be proxied.
+async function _fetchAnimatedBlob(url, kind) {
+  const unfetchable = () => { const e = new Error("media not fetchable"); e.code = "IMG_UNFETCHABLE"; return e; };
+  try { const r = await fetch(url, { mode: "cors" }); if (r.ok) { const b = await r.blob(); if (b.size) return b; } } catch { /* try proxy */ }
+  if (/^(data:|blob:)/.test(url)) throw unfetchable();
+  if (kind === "gif") {
+    try {
+      const p = `https://images.weserv.nl/?url=${encodeURIComponent(url.replace(/^https?:\/\//, ""))}&n=-1&output=gif`;
+      const r = await fetch(p, { mode: "cors" }); if (r.ok) { const b = await r.blob(); if (b.size) return b; }
+    } catch { /* fall through */ }
+  }
+  throw unfetchable();
+}
+
+// Decompose a media Blob into scaled ImageBitmap frames with per-frame delays.
+async function _extractFramesFromBlob(blob, kind) {
+  if (kind === "gif") {
+    if (!("ImageDecoder" in window)) { const e = new Error("no ImageDecoder"); e.code = "NO_DECODER"; throw e; }
+    const type = blob.type && blob.type.includes("gif") ? blob.type : "image/gif";
+    const dec = new ImageDecoder({ data: await blob.arrayBuffer(), type });
+    await dec.tracks.ready;
+    const track = dec.tracks.selectedTrack || dec.tracks[0];
+    const count = track?.frameCount || 1;
+    const raws = [];
+    for (let i = 0; i < count; i++) {
+      const { image } = await dec.decode({ frameIndex: i });
+      raws.push({ image, delayMs: (image.duration || 100000) / 1000 });
+    }
+    const [W, H] = _fitDims(raws[0].image.displayWidth, raws[0].image.displayHeight, _ANIM_MAX_DIM);
+    const idxs = _sampleIndices(raws.length, _ANIM_MAX_FRAMES);
+    const frames = [];
+    for (const gi of idxs) {
+      const bmp = await createImageBitmap(raws[gi].image, { resizeWidth: W, resizeHeight: H, resizeQuality: "high" });
+      frames.push({ bitmap: bmp, delayMs: raws[gi].delayMs });
+    }
+    if (idxs.length < raws.length) {           // preserve total duration after down-sampling
+      const total = raws.reduce((s, r) => s + r.delayMs, 0);
+      const per = total / frames.length;
+      frames.forEach(f => (f.delayMs = per));
+    }
+    raws.forEach(r => r.image.close());
+    dec.close?.();
+    return { frames, width: W, height: H };
+  }
+  // video (mp4/webm/…): seek frame-by-frame and paint onto a canvas
+  const url = URL.createObjectURL(blob);
+  try {
+    const video = document.createElement("video");
+    video.muted = true; video.playsInline = true; video.preload = "auto"; video.src = url;
+    await new Promise((res, rej) => { video.onloadedmetadata = () => res(); video.onerror = () => rej(new Error("video load")); });
+    const dur = isFinite(video.duration) && video.duration > 0 ? video.duration : 1;
+    const [W, H] = _fitDims(video.videoWidth, video.videoHeight, _ANIM_MAX_DIM);
+    const total = Math.min(_ANIM_MAX_FRAMES, Math.max(1, Math.round(dur * _ANIM_TARGET_FPS)));
+    const step = dur / total;
+    const delayMs = step * 1000;
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const ctx = c.getContext("2d");
+    const frames = [];
+    for (let i = 0; i < total; i++) {
+      const t = Math.min(Math.max(0, dur - 1e-3), i * step + step / 2);
+      await new Promise((res, rej) => { video.onseeked = () => res(); video.onerror = () => rej(new Error("seek")); video.currentTime = t; });
+      ctx.clearRect(0, 0, W, H); ctx.drawImage(video, 0, 0, W, H);
+      frames.push({ bitmap: await createImageBitmap(c), delayMs });
+    }
+    return { frames, width: W, height: H };
+  } finally { URL.revokeObjectURL(url); }
+}
+
+// Cut the background out of a single frame via imgly; returns a transparent bitmap.
+async function _removeBgFrame(bitmap, w, h, removeBackground, config) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  c.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+  const inBlob = await new Promise(r => c.toBlob(r, "image/png"));
+  const outBlob = await removeBackground(inBlob, config);
+  return createImageBitmap(outBlob);
+}
+
+// Encode transparent frames to a WebM WITH an alpha channel using WebCodecs
+// (VideoEncoder alpha:"keep") muxed by webm-muxer (lazy CDN import). MediaRecorder
+// is deliberately NOT used — Chromium drops canvas alpha there, giving a black bg.
+async function _encodeFramesWebM(frames, w, h, onProgress) {
+  if (typeof VideoEncoder === "undefined" || typeof VideoFrame === "undefined") {
+    const e = new Error("no WebCodecs VideoEncoder"); e.code = "NO_DECODER"; throw e;
+  }
+  const { Muxer, ArrayBufferTarget } = await import("https://cdn.jsdelivr.net/npm/webm-muxer@5.0.3/+esm");
+  const muxer = new Muxer({
+    target: new ArrayBufferTarget(),
+    video: { codec: "V_VP9", width: w, height: h, alpha: true },
+    firstTimestampBehavior: "offset",
+  });
+  const encoder = new VideoEncoder({
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error: (e) => console.warn("VNE | VideoEncoder error:", e),
+  });
+  encoder.configure({ codec: "vp09.00.10.08", width: w, height: h, alpha: "keep" });
+  const canvas = document.createElement("canvas"); canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d", { alpha: true });
+  let tUs = 0;
+  for (let i = 0; i < frames.length; i++) {
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(frames[i].bitmap, 0, 0, w, h);
+    const durUs = Math.max(20, frames[i].delayMs) * 1000;
+    const vf = new VideoFrame(canvas, { timestamp: tUs, duration: durUs, alpha: "keep" });
+    encoder.encode(vf, { keyFrame: i % 30 === 0 });
+    vf.close();
+    tUs += durUs;
+    onProgress?.(Math.round(((i + 1) / frames.length) * 100));
+  }
+  await encoder.flush();
+  muxer.finalize();
+  encoder.close();
+  return new Blob([muxer.target.buffer], { type: "video/webm" });
+}
+
+// Encode transparent frames to an animated GIF (1-bit alpha) via gifenc (lazy CDN
+// import, same delivery path as the imgly model code).
+async function _encodeFramesGIF(frames, w, h, onProgress) {
+  const g = await import("https://cdn.jsdelivr.net/npm/gifenc@1.0.3/+esm");
+  const { GIFEncoder, quantize, applyPalette } = g;
+  const enc = GIFEncoder();
+  const canvas = document.createElement("canvas"); canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d", { alpha: true });
+  for (let i = 0; i < frames.length; i++) {
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(frames[i].bitmap, 0, 0, w, h);
+    const { data } = ctx.getImageData(0, 0, w, h);
+    const palette = quantize(data, 256, { format: "rgba4444", oneBitAlpha: true });
+    const index = applyPalette(data, palette, "rgba4444");
+    const ti = palette.findIndex(c => c.length >= 4 && c[3] === 0);
+    enc.writeFrame(index, w, h, {
+      palette, delay: Math.max(20, frames[i].delayMs),
+      transparent: ti >= 0, transparentIndex: ti >= 0 ? ti : 0, dispose: 2,
+    });
+    onProgress?.(Math.round(((i + 1) / frames.length) * 100));
+  }
+  enc.finish();
+  return new Blob([enc.bytesView()], { type: "image/gif" });
+}
+
+// Full pipeline: fetch → extract frames → per-frame cutout → re-encode with alpha.
+// onProgress(phase, cur, tot): phase ∈ "extract" | "frames" | "encode".
+async function _removeAnimatedBackground(src, { format = "webm", onProgress = null } = {}) {
+  const url = /^(data:|blob:|https?:)/.test(src) ? src : new URL(src, document.baseURI).href;
+  const kind = (/\.(mp4|webm|m4v|mov)(\?|#|$)/i.test(src) || /^data:video\//i.test(src)) ? "video" : "gif";
+  const blob = await _fetchAnimatedBlob(url, kind);
+  onProgress?.("extract");
+  const { frames, width, height } = await _extractFramesFromBlob(blob, kind);
+  if (!frames.length) throw new Error("no frames extracted");
+  const mod = await _loadImgly();
+  const removeBackground = mod.removeBackground ?? mod.default?.removeBackground ?? mod.default;
+  if (typeof removeBackground !== "function") throw new Error("imgly: removeBackground unavailable");
+  const config = {
+    publicPath: `https://staticimgly.com/@imgly/background-removal-data/${_IMGLY_VER}/dist/`,
+    output: { format: "image/png" },
+  };
+  const cut = [];
+  for (let i = 0; i < frames.length; i++) {
+    const bmp = await _removeBgFrame(frames[i].bitmap, width, height, removeBackground, config);
+    cut.push({ bitmap: bmp, delayMs: frames[i].delayMs });
+    frames[i].bitmap.close?.();
+    onProgress?.("frames", i + 1, frames.length);
+  }
+  onProgress?.("encode");
+  let outBlob, ext;
+  if (format === "gif") { outBlob = await _encodeFramesGIF(cut, width, height); ext = "gif"; }
+  else { outBlob = await _encodeFramesWebM(cut, width, height); ext = "webm"; }
+  cut.forEach(f => f.bitmap.close?.());
+  console.info(`VNE | animated bg: ${cut.length} frames → ${ext.toUpperCase()} ${outBlob?.size ?? 0} bytes (${width}×${height})`);
+  if (!outBlob || !outBlob.size) { const e = new Error("encoder produced an empty file"); e.code = "EMPTY_OUTPUT"; throw e; }
+  return { blob: outBlob, ext };
+}
+
+// Save an animated result into a dedicated Animations/ folder next to portraits
+// (outside modules/, so it survives module updates). Returns its Data path.
+async function _saveAnimationBlob(blob, baseName, ext) {
+  const portraitBase = (game.settings.get(ID, "portraitFolderPath") || "vnd-enhanced-portraits")
+    .replace(/^\/+|\/+$/g, "");
+  const base = `${portraitBase}/Animations`;
+  let current = "";
+  for (const part of base.split("/").filter(Boolean)) {
+    current = current ? `${current}/${part}` : part;
+    try { await FilePicker.createDirectory("data", current); } catch { /* exists */ }
+  }
+  const safe = String(baseName || "animation").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "animation";
+  const mime = ext === "gif" ? "image/gif" : "video/webm";
+  const file = new File([blob], `${safe}-nobg-${Date.now()}.${ext}`, { type: mime });
+  const result = await FilePicker.upload("data", base, file, {}, { notify: false });
+  return result?.path ?? null;
+}
+
+// Small modal to choose the animated output format. Resolves "webm" | "gif" | null.
+function _pickAnimFormat() {
+  return new Promise((resolve) => {
+    let picked = null;
+    new Dialog({
+      title: T("portraitEditor.bgAnimFormatTitle"),
+      content: `<p style="margin:2px 0 8px;line-height:1.4;">${_esc(T("portraitEditor.bgAnimFormatHint"))}</p>`,
+      buttons: {
+        webm: { icon: '<i class="fas fa-film"></i>', label: "WebM (alpha)", callback: () => (picked = "webm") },
+        gif:  { icon: '<i class="fas fa-image"></i>', label: "GIF", callback: () => (picked = "gif") },
+      },
+      default: "webm",
+      close: () => resolve(picked),
+    }).render(true);
+  });
+}
+
+// Confirmation preview after an animation is saved: shows it on a checkerboard
+// (so transparent vs black is obvious), the exact path, and an Open-folder button.
+function _showAnimResultDialog(path, ext) {
+  const folder = path.slice(0, path.lastIndexOf("/"));
+  const checker = "background-image:linear-gradient(45deg,#666 25%,transparent 25%),linear-gradient(-45deg,#666 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#666 75%),linear-gradient(-45deg,transparent 75%,#666 75%);background-size:18px 18px;background-position:0 0,0 9px,9px -9px,-9px 0;background-color:#999;";
+  const media = ext === "gif"
+    ? `<img src="${_esc(path)}" style="max-width:100%;max-height:220px;display:block;margin:auto;"/>`
+    : `<video src="${_esc(path)}" autoplay loop muted playsinline style="max-width:100%;max-height:220px;display:block;margin:auto;"></video>`;
+  const note = ext === "gif" ? T("portraitEditor.bgAnimGifNote") : T("portraitEditor.bgAnimWebmNote");
+  new Dialog({
+    title: T("portraitEditor.bgAnimResultTitle"),
+    content: `<div style="text-align:center;">
+      <div style="${checker}border-radius:8px;padding:8px;margin-bottom:8px;">${media}</div>
+      <div style="font-size:0.8em;opacity:0.75;margin-bottom:6px;">${_esc(T("portraitEditor.bgAnimTransparencyHint"))}</div>
+      <div style="font-size:0.85em;line-height:1.4;margin-bottom:8px;">${_esc(note)}</div>
+      <div style="font-size:0.78em;opacity:0.7;">${_esc(T("portraitEditor.bgAnimResultPath"))}</div>
+      <code style="user-select:all;font-size:0.8em;word-break:break-all;">${_esc(path)}</code>
+    </div>`,
+    buttons: {
+      folder: {
+        icon: '<i class="fas fa-folder-open"></i>',
+        label: T("portraitEditor.bgAnimOpenFolder"),
+        callback: () => new FilePicker({ type: ext === "gif" ? "image" : "video", current: folder }).render(true),
+      },
+      ok: { icon: '<i class="fas fa-check"></i>', label: T("ui.close") ?? "OK" },
+    },
+    default: "ok",
+  }).render(true);
+}
+
 function openPortraitEditor(portraitId, side = null) {
   const d = getData();
   // Search the specified side first, then all casts
@@ -2514,6 +2866,7 @@ function openPortraitEditor(portraitId, side = null) {
         <img id="pe-img" src="${_esc(p.img || 'icons/svg/mystery-man.svg')}" style="max-height:180px;border-radius:8px;"/>
         <button type="button" id="pe-pick-img" class="vne-pe-pick-btn"><i class="fas fa-image"></i> ${_esc(T("portraitEditor.changeImage"))}</button>
         <button type="button" id="pe-removebg" class="vne-pe-pick-btn vne-pe-removebg-btn"><i class="fas fa-wand-magic-sparkles"></i> ${_esc(T("portraitEditor.removeBg"))}</button>
+        <button type="button" id="pe-removebg-anim" class="vne-pe-pick-btn vne-pe-removebg-btn vne-pe-removebg-anim-btn"><i class="fas fa-film"></i> ${_esc(T("portraitEditor.removeBgAnim"))}</button>
       </div>
       <div class="vne-pe-fields">
         <label>${_esc(T("portraitEditor.name"))}</label>
@@ -2623,6 +2976,49 @@ function openPortraitEditor(portraitId, side = null) {
         } catch (e) {
           console.warn("VNE | background removal failed:", e);
           ui.notifications?.error(T(e?.code === "IMG_UNFETCHABLE" ? "portraitEditor.bgExternalImage" : "portraitEditor.bgFailed"));
+        } finally {
+          btn.prop("disabled", false).html(original);
+        }
+      });
+      // Remove background from an ANIMATED source (GIF / MP4). Splits into frames,
+      // cuts each with the same local AI, re-encodes with alpha, and saves the
+      // result to the Animations/ folder. GIF output also updates the portrait.
+      html.find("#pe-removebg-anim").on("click", async function () {
+        const btn   = $(this);
+        const imgEl = html.find("#pe-img")[0];
+        const src   = imgEl?.getAttribute("data-picked") || imgEl?.getAttribute("src");
+        if (!src || src.includes("mystery-man")) { ui.notifications?.warn(T("portraitEditor.bgNoImage")); return; }
+        if (!_isAnimatedSrc(src)) { ui.notifications?.warn(T("portraitEditor.bgAnimNotAnimated")); return; }
+        const format = await _pickAnimFormat();
+        if (!format) return;
+        const original = btn.html();
+        btn.prop("disabled", true);
+        const setLabel = (txt) => btn.html(`<i class="fas fa-spinner fa-spin"></i> ${_esc(txt)}`);
+        try {
+          const { blob, ext } = await _removeAnimatedBackground(src, {
+            format,
+            onProgress: (phase, cur, tot) => {
+              if (phase === "extract") setLabel(T("portraitEditor.bgAnimExtracting"));
+              else if (phase === "frames") setLabel(TF("portraitEditor.bgAnimFrame", { cur, tot }));
+              else if (phase === "encode") setLabel(T("portraitEditor.bgAnimEncoding"));
+            },
+          });
+          const path = await _saveAnimationBlob(blob, p.name, ext);
+          if (!path) { ui.notifications?.error(T("portraitEditor.bgSaveFailed")); return; }
+          console.info("VNE | animation saved to:", path);
+          if (ext === "gif") {   // renders in <img>; set it as the portrait too
+            imgEl.setAttribute("src", path);
+            imgEl.setAttribute("data-picked", path);
+            livePreview();
+          }
+          ui.notifications?.info(TF("portraitEditor.bgAnimSaved", { path }));
+          _showAnimResultDialog(path, ext);
+        } catch (e) {
+          console.warn("VNE | animated background removal failed:", e);
+          const key = e?.code === "IMG_UNFETCHABLE" ? "portraitEditor.bgExternalImage"
+                    : e?.code === "NO_DECODER"      ? "portraitEditor.bgAnimNoDecoder"
+                    : "portraitEditor.bgAnimFailed";
+          ui.notifications?.error(T(key));
         } finally {
           btn.prop("disabled", false).html(original);
         }
@@ -3037,6 +3433,11 @@ export class VNE extends FormApplication {
 
   static async toggle(showForIds = undefined) {
     const d = getData();
+    // In HUD-only, showVN alone can never make the overlay visible — without an
+    // encounter it stays hidden by design. Say so, or the toggle just looks dead.
+    if (_isHudOnly() && !d.combatMode && !d.showVN && game.user.isGM) {
+      ui.notifications?.info(T("notify.hudOnlyNeedsCombat"));
+    }
     d.showVN = !d.showVN;
     // Preserve per-player visibility across open/close — only overwrite when the
     // caller explicitly passes a value (null = "show to everyone").
@@ -3061,11 +3462,16 @@ export class VNE extends FormApplication {
     // players) are dropped — a fully-stale list also collapses to "everyone".
     const validIds = (d.showForIds ?? []).filter(id => game.users.has(id));
     const showForIds = validIds.length > 0 ? validIds : null;
+    const combatMode = d.combatMode ?? false;
+    const hudOnly    = _isHudOnly();
+
     const visible = d.showVN &&
       (game.user.isGM || !showForIds || showForIds.includes(game.user.id)) &&
-      (game.user.isGM || !_playerLocalHidden);
-
-    const combatMode = d.combatMode ?? false;
+      (game.user.isGM || !_playerLocalHidden) &&
+      // HUD-only has nothing to show outside combat — no stage, no background,
+      // just chrome — so it stays off screen entirely until an encounter runs.
+      // The GM still reaches Combat Stage from the Alt+C keybinding.
+      (!hudOnly || combatMode);
 
     const players = game.users.contents.filter(u => u.active).map(u => ({
       id: u.id,
@@ -3088,12 +3494,14 @@ export class VNE extends FormApplication {
       hideBack:        d.hideBack,
       editMode,
       combatMode,
+      hudOnly,
       vsRevealed:      d.vsRevealed ?? false,
       rpgStyle:        _isRpgStyle(),
       // Classic layout only offers the reveal toggle in manual mode (otherwise
       // the duel is always on screen and the button would do nothing useful).
       // Under RPG Classic Style the duel is always opt-in, so it is always there.
-      showVsReveal:    _isRpgStyle() || game.settings.get(ID, "combatManualReveal"),
+      // HUD-only never shows the duel — it would cover the map it exists to expose.
+      showVsReveal:    !hudOnly && (_isRpgStyle() || game.settings.get(ID, "combatManualReveal")),
       isGM:            game.user.isGM,
       backgroundImage:   d.location?.backgroundImage || "",
       backgroundIsVideo: /\.(mp4|webm)$/i.test(d.location?.backgroundImage || ""),
@@ -3417,6 +3825,15 @@ export class VNE extends FormApplication {
 // Both arrangements are built at render time, so the open window is rebuilt.
 Hooks.on("vnd-enhanced.rerender", () => {
   _vsLeft = _vsRight = null;
+  // Switching HUD-only on mid-encounter has to clean up after the mode it is
+  // replacing: _createGhostToken now refuses to make new ghosts, but the ones
+  // already parked on the map would otherwise sit there until combat ends.
+  if (game.user.isGM && _isHudOnly()) {
+    if (_ghostTokens.size) _destroyGhostTokens();
+    // Switching the mode on with a fight already running should show the overlay
+    // straight away rather than wait for the next encounter.
+    if (game.combat) _hudOnlyFollowCombat(true);
+  }
   VNE.instance?.render(true);
 });
 
@@ -3595,7 +4012,13 @@ function openScenesPanel() {
 
   function cardHtml(loc) {
     const isActive = loc.id === d.location?.id;
-    const bgStyle  = loc.backgroundImage ? `background-image:url("${esc(loc.backgroundImage)}")` : "";
+    // The CSS string quotes have to go in as entities: written as raw `"` they
+    // close the style="" attribute itself, so the browser saw `url(`, threw the
+    // declaration away, and every card rendered as an empty box even though the
+    // path was stored fine. Entities are decoded before the CSS parser runs, and
+    // esc() has already turned any `"` in the path into &quot;.
+    const bgStyle  = loc.backgroundImage
+      ? `background-image:url(&quot;${esc(loc.backgroundImage)}&quot;)` : "";
     const tag      = loc.parent ? `<span class="vne-sp-card-tag">${esc(loc.parent)}</span>` : "";
     const actions  = game.user.isGM ? `
       <div class="vne-sp-card-actions">
@@ -3850,7 +4273,11 @@ function _castPlateData(actorId, side) {
 function _buildCastPortraitEl(p, side, tp, editMode) {
   const div = document.createElement("div");
   // Classic-combat "battle plate": HP + initiative styled like a JRPG unit bar.
-  const plate = (getDataRO().combatMode && !_isRpgStyle()) ? _castPlateData(p.id, side) : null;
+  // RPG Classic Style normally hides the side panels, so plates would be wasted
+  // markup — but HUD-only brings the panels back as its whole point, so the
+  // plates come back with them regardless of which layout is selected.
+  const _plateOn = getDataRO().combatMode && (!_isRpgStyle() || _isHudOnly());
+  const plate = _plateOn ? _castPlateData(p.id, side) : null;
   const plateDefeated = plate && _isActorDefeated(p.id);
   div.className = `vne-cast-portrait${plate ? " vne-has-plate" : ""}${plateDefeated ? " vne-defeated" : ""}${tp.isActive ? " vne-speaking" : ""}${tp.isOwned ? " vne-owned" : ""}${tp.isCombatTarget ? " vne-combat-target" : ""}${tp.isTargeted ? " vne-targeted" : ""}${tp.isYourTurn ? " vne-your-turn" : ""}`;
   div.dataset.id   = p.id;
@@ -4360,7 +4787,9 @@ function _patchBattlefield(d) {
   const el = document.getElementById("vne-battlefield");
   if (!el) return;
 
-  const on = d.combatMode && _isRpgStyle();
+  // HUD-only wins over RPG Classic Style: the battlefield fills the centre of the
+  // screen, which is exactly the part of the map this mode exists to keep visible.
+  const on = d.combatMode && _isRpgStyle() && !_isHudOnly();
   el.classList.toggle("vne-hidden", !on);
   if (!on) {
     if (el.childElementCount) el.innerHTML = "";
@@ -4858,10 +5287,11 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
   // Quick-action HUD — attacks / spells / items usable without the sheet.
   if (canCtrl) {
     const qa = _quickActionData(actor);
-    if (qa.attacks.length) items.push({ label: T("qa.attacks"), icon: "fas fa-hand-fist",     action: "qa-attacks", cls: "vne-cm-attack" });
-    if (qa.spells.length)  items.push({ label: T("qa.spells"),  icon: "fas fa-wand-sparkles", action: "qa-spells",  cls: "vne-cm-spell" });
-    if (qa.items.length)   items.push({ label: T("qa.items"),   icon: "fas fa-bag-shopping",  action: "qa-items",   cls: "vne-cm-item" });
-    if (qa.attacks.length || qa.spells.length || qa.items.length) items.push({ separator: true });
+    if (qa.attacks.length) items.push({ label: T("qa.attacks"), icon: "fas fa-gavel",       action: "qa-attacks", cls: "vne-cm-attack" });
+    if (qa.spells.length)  items.push({ label: T("qa.spells"),  icon: "fas fa-hat-wizard",  action: "qa-spells",  cls: "vne-cm-spell" });
+    if (qa.feats.length)   items.push({ label: T("qa.feats"),   icon: "fas fa-scroll",      action: "qa-feats",   cls: "vne-cm-feat" });
+    if (qa.items.length)   items.push({ label: T("qa.items"),   icon: "fas fa-briefcase",   action: "qa-items",   cls: "vne-cm-item" });
+    if (qa.attacks.length || qa.spells.length || qa.feats.length || qa.items.length) items.push({ separator: true });
   }
   items.push({ label: T("menu.openSheet"),    icon: "fas fa-id-card",      action: "sheet" });
   items.push({ label: T("menu.selectTarget"), icon: "fas fa-hand-pointer", action: "select" });
@@ -4911,7 +5341,7 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
     if (!action) return;
     _closeVNECarouselMenu();
 
-    if (action === "qa-attacks" || action === "qa-spells" || action === "qa-items") {
+    if (action === "qa-attacks" || action === "qa-spells" || action === "qa-feats" || action === "qa-items") {
       _openQuickActionWindow(actorId, action.slice(3), anchorEl);
     } else if (action === "sheet") {
       actor?.sheet?.render(true);
@@ -4956,8 +5386,12 @@ function _openVNContextMenu(actorId, anchorEl, { mode = "vn", combatantId = null
 
   document.body.appendChild(menu);
   const rect = anchorEl.getBoundingClientRect();
-  menu.style.left = `${Math.min(rect.left, window.innerWidth  - 230)}px`;
-  menu.style.top  = `${Math.min(rect.bottom + 4, window.innerHeight - 260)}px`;
+  // Clamp against the menu's ACTUAL height (CSS caps it at viewport height and
+  // scrolls internally past that), so a tall menu opened low still fits on screen.
+  const mh = menu.offsetHeight;
+  const mw = menu.offsetWidth;
+  menu.style.left = `${Math.max(4, Math.min(rect.left, window.innerWidth  - mw - 8))}px`;
+  menu.style.top  = `${Math.max(4, Math.min(rect.bottom + 4, window.innerHeight - mh - 8))}px`;
   setTimeout(() => document.addEventListener("click", _closeVNECarouselMenu, { once: true }), 0);
 }
 
@@ -5031,6 +5465,34 @@ Hooks.on("createCombat",     () => {
   renderVNECombatCarousel();
   _refreshBattlefield();
 });
+
+// ── HUD-only: follow the encounter ───────────────────────────────────────────
+// The full VN is a scene the GM opens deliberately, so arming Combat Stage by
+// hand belongs there. HUD-only is not a scene — it is an overlay with no reason
+// to exist outside a fight, and its own Combat Stage button lives *inside* the
+// panel that stays hidden until one starts. That left Alt+C as the only way in
+// and made every other entry point (Alt+V, the FAB, the toolbar) look broken,
+// because showVN alone can never make this mode visible. So here the module
+// follows game.combat instead of waiting to be told.
+// Deliberately does NOT go through toggleCombatStage(): that would call
+// ensureActiveEncounterForVNE(), which can create a Combat and re-enter this
+// very hook. Nothing here creates anything.
+async function _hudOnlyFollowCombat(on) {
+  if (!game.user.isGM || !_isHudOnly()) return;
+  const d = getData();
+  if (!!d.combatMode === on) return;
+  d.combatMode = on;
+  if (on) {
+    d.showVN = true;   // the overlay has no separate "open" state to respect
+    if (game.combat) _autoPopulateCastFromCombat(d, game.combat);
+  } else {
+    d.vsRevealed = false;
+  }
+  await saveData(d, { change: "combatMode" });
+}
+
+Hooks.on("createCombat", () => { _hudOnlyFollowCombat(true); });
+Hooks.on("deleteCombat", () => { _hudOnlyFollowCombat(false); });
 
 // Live HP / status effect updates (debounced 80 ms)
 let _vneCarouselTimer = null;
@@ -5499,6 +5961,11 @@ function _initSequencerHook() {
     try {
       const d = getDataRO();
       if (!d.showVN) return;
+
+      // HUD-only keeps the canvas as the stage, so the effect is already playing
+      // on the real token underneath. Mirroring a screen-space copy onto the
+      // side-panel portrait would show every effect twice.
+      if (_isHudOnly()) return;
 
       // Skip screen-space effects that VNE itself generated — prevents double-play
       if (effect?.data?.screenSpaceAboveUI) return;

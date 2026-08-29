@@ -62,10 +62,23 @@ export function applyRpgStyle() {
   document.body.classList.toggle("vne-rpg-style", on);
 }
 
+/**
+ * HUD-only mode — strips the VN down to a combat overlay laid over the live map:
+ * side panels with HP, turn cards, initiative carousel and the bottom bar, with
+ * no background, no stage and no ghost tokens. Same <body> tagging as the styles
+ * above, so everything it changes is gated on one class and turning it off
+ * restores the full VN exactly.
+ */
+export function applyHudOnly() {
+  const on = game.settings.get(ID, "hudOnlyMode") === true;
+  document.body.classList.toggle("vne-hud-only", on);
+}
+
 Hooks.once("ready", () => {
   applyVisualTheme();
   applyMobileMode();
   applyRpgStyle();
+  applyHudOnly();
 });
 
 export function registerSettings() {
@@ -204,6 +217,26 @@ export function registerSettings() {
       applyRpgStyle();
       // Both layouts are built at render time, so the open window has to be
       // rebuilt for the switch to take effect without a reload.
+      Hooks.callAll("vnd-enhanced.rerender");
+    }
+  });
+
+  // HUD-only mode — world scope, like RPG Classic Style: the GM decides how the
+  // table sees combat and everyone gets the same presentation. It also keeps the
+  // ghost-token trade-off honest — ghosts are GM-created, so a per-client switch
+  // would have let the GM silently strip portrait VFX from players still on the
+  // full VN. Off by default so nothing changes for an existing world.
+  game.settings.register(ID, "hudOnlyMode", {
+    name: "vnd-enhanced.settings.hudOnlyMode.name",
+    hint: "vnd-enhanced.settings.hudOnlyMode.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: () => {
+      applyHudOnly();
+      // Visibility and the background are decided at render time, so the open
+      // window has to be rebuilt for the switch to take effect without a reload.
       Hooks.callAll("vnd-enhanced.rerender");
     }
   });

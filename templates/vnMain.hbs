@@ -11,7 +11,11 @@
 <div id="vne-main" class="vne-main{{#unless visible}} vne-hidden{{/unless}}{{#if combatMode}} vne-combat-mode{{/if}}"
   style="z-index: {{zIndex}}; display:{{#if visible}}grid{{else}}none{{/if}};">
 
-  {{!-- BACKGROUND — img for stills/GIF/WebP, video for MP4/WebM --}}
+  {{!-- BACKGROUND — img for stills/GIF/WebP, video for MP4/WebM.
+        Skipped entirely in HUD-only mode: the map underneath IS the background,
+        and leaving the markup in would keep a full-screen video decoding behind
+        a display:none rule for nothing. --}}
+  {{#unless hudOnly}}
   <div id="vne-bg-wrap" class="vne-background{{#if hideBack}} vne-hidden{{/if}}">
     <img   id="vne-background-img" class="vne-bg-img"
            src="{{#unless backgroundIsVideo}}{{backgroundImage}}{{/unless}}" alt=""
@@ -23,6 +27,7 @@
     </video>
   </div>
   <div class="vne-background-overlay"></div>
+  {{/unless}}
 
   {{!-- UI LAYER (hides with hideUI) --}}
   <div id="vne-ui-layer" class="vne-ui-layer{{#if hideUI}} vne-ui-collapsed{{/if}}">

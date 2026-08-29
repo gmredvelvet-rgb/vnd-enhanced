@@ -2097,6 +2097,13 @@ body.vne-rpg-style .vne-combat-hud > .vne-hud-slot { display: flex; }
   color: #8ec5ff;
 }
 .vne-pe-removebg-btn:hover { background: rgba(142,197,255,0.22); }
+/* Animated remove-bg — violet accent to separate it from the still-image one */
+.vne-pe-removebg-anim-btn {
+  border-color: rgba(183,155,216,0.45);
+  background: rgba(183,155,216,0.12);
+  color: #b79bd8;
+}
+.vne-pe-removebg-anim-btn:hover { background: rgba(183,155,216,0.22); }
 .vne-pe-fields {
   display: flex;
   flex-direction: column;
@@ -2926,7 +2933,19 @@ body.vne-rpg-style #vne-toggle-fab {
   padding: 5px;
   box-shadow: 0 8px 28px rgba(0,0,0,0.72);
   pointer-events: all;
+  /* Stay inside the viewport; scroll internally when the list is taller
+     than the space available (e.g. opened low on the VN stage). */
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
+#vne-carousel-menu::-webkit-scrollbar { width: 8px; }
+#vne-carousel-menu::-webkit-scrollbar-track { background: transparent; }
+#vne-carousel-menu::-webkit-scrollbar-thumb {
+  background: rgba(200,155,60,0.35);
+  border-radius: 4px;
+}
+#vne-carousel-menu::-webkit-scrollbar-thumb:hover { background: rgba(200,155,60,0.55); }
 
 .vne-carousel-menu-item {
   display: flex;
@@ -4212,104 +4231,158 @@ body:not(.vne-rpg-style) #vne-main.vne-combat-mode .vne-stage:not(.vne-left-coll
 #vne-main.vne-combat-mode .vne-has-plate.vne-defeated .vne-cast-plate { opacity: 0.55; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   QUICK-ACTION HUD — RPG popup listing an actor's attacks / spells / items
+   QUICK-ACTION HUD — a somber, AAA "spellbook / inventory" panel (attacks,
+   spells, feats, items). Muted bronze on dark iron, quiet hovers, no neon glow.
    ═══════════════════════════════════════════════════════════════════════════ */
 #vne-qa-window {
   position: fixed;
   z-index: 100000;
-  width: 320px;
-  max-height: 70vh;
+  width: 344px;
+  max-height: 72vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, rgba(24,20,15,0.98) 0%, rgba(10,8,6,0.99) 100%);
-  border: 1px solid #04060a;
-  border-radius: 10px;
-  box-shadow: inset 0 0 0 1px rgba(200,155,60,0.35), 0 16px 48px rgba(0,0,0,0.85);
-  color: var(--vne-text);
+  --qa-bronze:   #b08a3e;
+  --qa-bronze-hi:#d8b566;
+  --qa-ink:      #ded2b6;
+  --qa-ink-dim:  #8f846b;
+  color: #ded2b6;
+  background:
+    linear-gradient(180deg, rgba(23,20,15,0.985) 0%, rgba(11,9,7,0.99) 100%);
+  border: 1px solid #000;
+  border-radius: 8px;
+  box-shadow:
+    inset 0 1px 0 rgba(216,181,102,0.10),
+    inset 0 0 0 1px rgba(176,138,62,0.22),
+    0 20px 54px rgba(0,0,0,0.8);
   pointer-events: all;
   overflow: hidden;
   animation: vne-qa-in 0.16s ease;
 }
-@keyframes vne-qa-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes vne-qa-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 .vne-qa-header {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px;
-  background: linear-gradient(180deg, rgba(40,30,18,0.9) 0%, rgba(16,12,8,0.9) 100%);
-  border-bottom: 1px solid rgba(200,155,60,0.28);
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: linear-gradient(180deg, rgba(30,25,17,0.96) 0%, rgba(15,12,8,0.96) 100%);
+  border-bottom: 1px solid rgba(176,138,62,0.30);
 }
 .vne-qa-portrait {
-  width: 34px; height: 34px; flex: 0 0 34px;
+  width: 38px; height: 38px; flex: 0 0 38px;
   object-fit: cover; object-position: top center;
-  border-radius: 5px; border: 1px solid rgba(200,155,60,0.5);
+  border-radius: 4px;
+  border: 1px solid #000;
+  box-shadow: inset 0 0 0 1px rgba(176,138,62,0.45);
 }
 .vne-qa-title {
   flex: 1; min-width: 0;
-  font-weight: 700; font-size: 0.95em; letter-spacing: 0.02em;
-  color: var(--vne-accent);
+  font-weight: 700; font-size: 0.98em; letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--qa-bronze-hi);
+  text-shadow: 0 1px 2px #000;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .vne-qa-close {
-  width: 26px; height: 26px; flex: 0 0 26px;
-  background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px;
-  color: var(--vne-text-dim); cursor: pointer;
+  width: 28px; height: 28px; flex: 0 0 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 4px;
+  color: #9a8f76; cursor: pointer; transition: color 0.15s, border-color 0.15s;
 }
-.vne-qa-close:hover { color: #fff; border-color: rgba(200,80,80,0.6); }
+.vne-qa-close:hover { color: #f2d9d0; border-color: rgba(180,60,60,0.6); }
 
-.vne-qa-tabs { display: flex; gap: 2px; padding: 6px 6px 0; }
+/* Tabs — segmented metal control with a bronze underline on the active one */
+.vne-qa-tabs {
+  display: flex; gap: 0;
+  padding: 8px 8px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.6);
+}
 .vne-qa-tab {
   flex: 1;
   display: flex; align-items: center; justify-content: center; gap: 5px;
-  padding: 6px 4px;
-  background: rgba(0,0,0,0.35); border: 1px solid transparent; border-radius: 6px 6px 0 0;
-  color: var(--vne-text-dim); font-size: 0.8em; font-weight: 600; cursor: pointer;
+  padding: 8px 4px;
+  background: none; border: none;
+  border-bottom: 2px solid transparent;
+  color: #8f836a; font-size: 0.76em; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
 }
-.vne-qa-tab:hover { color: var(--vne-text); }
+.vne-qa-tab i { font-size: 1.05em; opacity: 0.85; }
+.vne-qa-tab:hover { color: var(--qa-ink); }
 .vne-qa-tab-active {
-  background: linear-gradient(180deg, rgba(200,155,60,0.22) 0%, rgba(200,155,60,0.06) 100%);
-  color: var(--vne-accent); border-color: rgba(200,155,60,0.4); border-bottom-color: transparent;
+  color: var(--qa-bronze-hi);
+  border-bottom-color: var(--qa-bronze);
 }
 .vne-qa-count {
-  font-size: 0.85em; opacity: 0.8; background: rgba(0,0,0,0.4);
-  padding: 0 5px; border-radius: 8px;
+  font-size: 0.82em; font-weight: 700; opacity: 0.75;
+  background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.06);
+  padding: 0 5px; border-radius: 7px; min-width: 16px; text-align: center;
 }
 
+/* Entries — a vertical list of framed rows, like a grimoire / satchel */
 .vne-qa-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;
+  display: flex; flex-direction: column; gap: 3px;
   padding: 8px; overflow-y: auto; min-height: 0;
+  scrollbar-width: thin;
 }
 .vne-qa-entry {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  padding: 7px 5px;
-  background: linear-gradient(180deg, rgba(40,40,58,0.6) 0%, rgba(14,14,22,0.7) 100%);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 7px; cursor: pointer;
-  transition: transform 0.12s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+  display: grid;
+  grid-template-columns: 46px 1fr auto;
+  align-items: center;
+  column-gap: 11px;
+  padding: 6px 10px 6px 6px;
+  background: rgba(255,255,255,0.018);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-left: 3px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.13s ease, border-color 0.13s ease;
 }
-.vne-qa-entry:hover {
-  transform: translateY(-2px);
-  border-color: rgba(200,155,60,0.6);
-  box-shadow: 0 0 12px rgba(200,155,60,0.25);
-}
-.vne-qa-entry:active { transform: scale(0.96); }
-.vne-qa-entry img {
-  width: 38px; height: 38px; object-fit: contain;
-  border-radius: 5px; background: rgba(0,0,0,0.35);
-  border: 1px solid rgba(0,0,0,0.5);
+.vne-qa-entry::before {   /* quiet inset bevel, no glow */
+  content: ""; position: absolute; inset: 0; border-radius: 5px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
   pointer-events: none;
 }
-.vne-qa-entry-name {
-  font-size: 0.72em; font-weight: 600; line-height: 1.1;
-  text-align: center; color: var(--vne-text);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+.vne-qa-entry:hover {
+  background: rgba(216,181,102,0.09);
+  border-color: rgba(176,138,62,0.30);
+  border-left-color: var(--qa-bronze);
 }
-.vne-qa-entry-sub { font-size: 0.62em; color: var(--vne-text-dim); }
-.vne-qa-empty { grid-column: 1 / -1; text-align: center; padding: 24px 8px; color: var(--vne-text-dim); font-size: 0.85em; }
+.vne-qa-entry:active { background: rgba(216,181,102,0.14); }
+.vne-qa-entry img {
+  width: 42px; height: 42px; grid-row: 1 / -1;
+  object-fit: contain;
+  border-radius: 4px;
+  background: radial-gradient(circle at 50% 35%, rgba(60,50,32,0.5) 0%, rgba(0,0,0,0.6) 100%);
+  border: 1px solid #000;
+  box-shadow: inset 0 0 0 1px rgba(176,138,62,0.30);
+  pointer-events: none;
+}
+.vne-qa-entry-text { min-width: 0; }
+.vne-qa-entry-name {
+  font-size: 0.82em; font-weight: 600; line-height: 1.2;
+  color: var(--qa-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.vne-qa-entry-sub {
+  font-size: 0.66em; font-weight: 600; letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #8a7f66; margin-top: 1px;
+}
+.vne-qa-empty { text-align: center; padding: 26px 8px; color: #8a7f66; font-size: 0.85em; }
 
-/* Coloured quick-action buttons in the portrait menu */
-.vne-portrait-action-menu .vne-pam-attack i { color: #e07a5a; }
-.vne-portrait-action-menu .vne-pam-spell  i { color: #8ec5ff; }
-.vne-portrait-action-menu .vne-pam-item   i { color: #c9a94e; }
+/* Themed scrollbar inside the list */
+.vne-qa-grid::-webkit-scrollbar { width: 8px; }
+.vne-qa-grid::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); }
+.vne-qa-grid::-webkit-scrollbar-thumb {
+  background: rgba(176,138,62,0.35); border-radius: 4px; border: 2px solid rgba(0,0,0,0.4);
+}
+.vne-qa-grid::-webkit-scrollbar-thumb:hover { background: rgba(216,181,102,0.55); }
+
+/* Muted category tints on the portrait-menu quick-action entries */
+.vne-portrait-action-menu .vne-pam-attack i { color: #cf7d5f; }
+.vne-portrait-action-menu .vne-pam-spell  i { color: #7fb0d8; }
+.vne-portrait-action-menu .vne-pam-feat   i { color: #b79bd8; }
+.vne-portrait-action-menu .vne-pam-item   i { color: #c2a758; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    COMBAT SIDE PANELS — make the container box invisible, keep the plates and
@@ -4405,9 +4478,9 @@ body:not(.vne-rpg-style) #vne-main.vne-combat-mode .vne-stage:not(.vne-left-coll
 }
 
 /* Coloured quick-action icons in the carousel context menu */
-#vne-carousel-menu .vne-cm-attack i { color: #e07a5a; }
-#vne-carousel-menu .vne-cm-spell  i { color: #8ec5ff; }
-#vne-carousel-menu .vne-cm-item   i { color: #c9a94e; }
+#vne-carousel-menu .vne-cm-attack i { color: #cf7d5f; }
+#vne-carousel-menu .vne-cm-spell  i { color: #7fb0d8; }
+#vne-carousel-menu .vne-cm-item   i { color: #c2a758; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    VS DUEL — editable straight from the front while GM edit mode is on.
@@ -4436,48 +4509,82 @@ body:not(.vne-rpg-style) #vne-main.vne-combat-mode .vne-stage:not(.vne-left-coll
   pointer-events: all;
 }
 
-/* PF2e Multiple Attack Penalty buttons on strike entries */
-.vne-qa-entry.vne-qa-has-map { padding-bottom: 5px; }
+/* PF2e Multiple Attack Penalty buttons — compact chips on the right of the row */
 .vne-qa-map {
-  display: flex; gap: 3px; margin-top: 4px; width: 100%;
+  grid-column: 3; grid-row: 1 / -1;
+  display: flex; gap: 3px; align-items: center;
 }
 .vne-qa-map-btn {
-  flex: 1;
-  padding: 3px 2px;
-  font-size: 0.68em; font-weight: 800;
-  background: linear-gradient(180deg, rgba(60,30,24,0.9) 0%, rgba(30,12,10,0.95) 100%);
-  border: 1px solid rgba(224,122,90,0.4);
-  border-radius: 4px;
-  color: #f0b49c;
+  min-width: 26px;
+  padding: 4px 5px;
+  font-size: 0.64em; font-weight: 800;
+  background: rgba(0,0,0,0.4);
+  border: 1px solid rgba(180,90,70,0.35);
+  border-radius: 3px;
+  color: #c99283;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
-  transition: background 0.12s, border-color 0.12s, transform 0.1s;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 .vne-qa-map-btn:hover {
-  background: linear-gradient(180deg, rgba(90,40,30,1) 0%, rgba(50,18,14,1) 100%);
-  border-color: rgba(224,122,90,0.9);
-  color: #fff;
+  background: rgba(80,32,26,0.85);
+  border-color: rgba(200,100,80,0.7);
+  color: #f2d0c6;
 }
-.vne-qa-map-btn:active { transform: scale(0.94); }
+.vne-qa-map-btn:active { background: rgba(110,44,34,0.95); }
 
-/* Quick-action filter chips (spell rank / cantrip, item type) */
+/* Filter chips — quiet segmented pills under the tabs */
 .vne-qa-filters {
   display: flex; flex-wrap: wrap; gap: 4px;
-  padding: 6px 8px 0;
+  padding: 8px 8px 2px;
 }
 .vne-qa-filter {
-  padding: 3px 9px;
-  font-size: 0.72em; font-weight: 600;
+  padding: 3px 10px;
+  font-size: 0.68em; font-weight: 700; letter-spacing: 0.03em;
+  text-transform: uppercase;
   background: rgba(0,0,0,0.35);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
-  color: var(--vne-text-dim, #b2a27e);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 3px;
+  color: #8a7f66;
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
-.vne-qa-filter:hover { color: var(--vne-text, #e8dcc8); border-color: rgba(200,155,60,0.4); }
+.vne-qa-filter:hover { color: #ded2b6; border-color: rgba(176,138,62,0.35); }
 .vne-qa-filter-active {
-  background: linear-gradient(180deg, rgba(200,155,60,0.28) 0%, rgba(200,155,60,0.08) 100%);
-  border-color: rgba(200,155,60,0.6);
-  color: var(--vne-accent, #c89b3c);
+  background: rgba(176,138,62,0.20);
+  border-color: rgba(176,138,62,0.55);
+  color: #d8b566;
+}
+
+/* Feat tint in the carousel context menu */
+#vne-carousel-menu .vne-cm-feat i { color: #b79bd8; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   HUD-ONLY MODE  (world setting "hudOnlyMode" → body.vne-hud-only)
+   The VN stops being a scene and becomes a combat overlay on the live map:
+   side panels with HP, initiative carousel, bottom bar and turn cards stay;
+   everything that would paint over the canvas goes. #vne-main and
+   .vne-ui-layer are already pointer-events:none, and .vne-stage never
+   re-enables them, so the centre column is click-through by construction —
+   nothing here needs to fight for that.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Pure VN chrome: there is no scene to name and no scene to switch to. */
+body.vne-hud-only .vne-location-info,
+body.vne-hud-only .vne-bottom-bar,
+/* The background toggle would be a dead button — HUD-only never builds one. */
+body.vne-hud-only #vne-hideback-btn { display: none !important; }
+
+/* The roleplay stage and the battlefield both fill the centre of the screen,
+   which is the part of the map this mode exists to expose. The battlefield is
+   already hidden from JS; this covers a stale render mid-toggle. */
+body.vne-hud-only #vne-rp-stage,
+body.vne-hud-only #vne-battlefield { display: none !important; }
+
+/* RPG Classic Style hides the side panels because its battlefield replaces
+   them (see .vne-rpg-style rule above). HUD-only has no battlefield, so the
+   panels are all that is left — they come back, whichever layout is picked.
+   Two body classes + the id outrank that rule, and this block is later. */
+body.vne-hud-only.vne-rpg-style #vne-main.vne-combat-mode .vne-side-panel {
+  display: flex !important;
 }

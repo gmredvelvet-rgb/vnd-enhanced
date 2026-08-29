@@ -20,6 +20,10 @@
         "name": "Estilo RPG Clásico (combate)",
         "hint": "Cambia la disposición del Modo Combate. DESACTIVADO (por defecto) es la disposición que ya conoces: elenco de jugadores a la izquierda, PNJs a la derecha y el duelo VS en el centro. ACTIVADO convierte el combate en una pantalla de batalla de RPG clásico: los combatientes aparecen sobre la escena en formaciones automáticas, enemigos arriba y grupo abajo, cada uno con su nombre y barra de vida pequeños, y los controles de turno pasan a un HUD de combate en la parte inferior. El GM puede arrastrar a cualquier combatiente para recolocarlo y redimensionarlo con los controles en pantalla. No se quita nada en ningún caso: el Modo Rol, Action Bubbles y el duelo VS siguen funcionando, así que puedes alternar cuando quieras."
       },
+      "hudOnlyMode": {
+        "name": "Solo HUD de combate",
+        "hint": "Convierte el VN en una capa de combate sobre el mapa en vivo, en lugar de una escena propia. Conservas los paneles laterales de aliados y enemigos con sus placas de vida, el carrusel de iniciativa, la barra de combate inferior y los carteles de turno — pero no hay fondo, ni escenario, ni duelo VS, así que puedes seguir moviendo tokens en el lienzo por detrás. Tampoco se crean ghost tokens: los efectos de Sequencer y Automated Animations salen sobre los tokens reales del lienzo, igual que siempre. Solo pierde VFX un actor que no tenga token en el mapa actual, porque el ghost que antes los recogía ya no existe. Fuera de combate la capa se oculta del todo, y vuelve sola en cuanto empieza un encuentro. Lo elige el GM para toda la mesa."
+      },
       "combatManualReveal": {
         "name": "Revelar combate manual",
         "hint": "Cuando está activo, el display VS del duelo (ambos luchadores en grande, al frente y centrados) permanece oculto durante el combate hasta que lo activas — con el botón del ojo en la barra superior o el atajo 'Revelar duelo de combate' (Alt+B por defecto). Muestra al luchador actual contra su objetivo, y se oculta solo al terminar el turno, esperando la siguiente revelación. Desactívalo para el comportamiento clásico donde el duelo siempre está visible en combate. Con el Estilo RPG Clásico el duelo siempre espera a que lo reveles, y esta opción solo controla si se cierra solo al acabar el turno."
@@ -234,6 +238,22 @@
       "bgExternalImage": "Esta imagen está alojada en un sitio externo que bloquea el procesado (p. ej. Pinterest). Descárgala, súbela a Foundry y usa esa copia local.",
       "bgSaveFailed": "No se pudo guardar la imagen recortada.",
       "bgNoImage": "Elige una imagen primero.",
+      "removeBgAnim": "Quitar fondo (animado)",
+      "bgAnimNotAnimated": "Elige un GIF o MP4 animado primero.",
+      "bgAnimFormatTitle": "Formato de salida",
+      "bgAnimFormatHint": "WebM conserva bordes transparentes suaves — ideal para tokens y tiles animados. GIF tiene bordes duros pero también sirve como retrato animado. Ambos se guardan en la carpeta Animations.",
+      "bgAnimExtracting": "Extrayendo fotogramas…",
+      "bgAnimFrame": "Fotograma {cur}/{tot}…",
+      "bgAnimEncoding": "Codificando…",
+      "bgAnimSaved": "Animación guardada: {path}",
+      "bgAnimFailed": "Falló la remoción de fondo animada. Revisa la consola.",
+      "bgAnimNoDecoder": "Este cliente no puede decodificar los fotogramas (WebCodecs no disponible).",
+      "bgAnimResultTitle": "Animación lista",
+      "bgAnimResultPath": "Guardada en:",
+      "bgAnimTransparencyHint": "El damero se ve a través de las zonas transparentes — si ves negro en su lugar, la transparencia falló.",
+      "bgAnimWebmNote": "El WebM conserva la transparencia completa (ideal para tokens y tiles animados). No se puede mostrar como retrato fijo <img>, por eso el retrato no cambió.",
+      "bgAnimGifNote": "GIF asignado como retrato animado.",
+      "bgAnimOpenFolder": "Abrir carpeta",
       "name": "Nombre",
       "roleTitle": "Título / Rol",
       "scale": "Escala",
@@ -294,9 +314,13 @@
       "noActorForCombatant": "VNE | No se encontró el actor de este combatiente."
     },
     "qa": {
-      "attacks": "Ataques",
+      "attacks": "Acciones",
       "spells": "Hechizos",
       "items": "Objetos",
+      "feats": "Dotes",
+      "cantrip": "Truco",
+      "spellLevel": "Nv {n}",
+      "spellRank": "Rango {n}",
       "emptyCat": "Nada por aquí.",
       "emptyAll": "Este actor no tiene ataques, hechizos ni objetos usables.",
       "all": "Todos"
@@ -309,7 +333,9 @@
       "vnInactive": "VN Dialogues Enhanced aún no está activo en este mundo.",
       "actorNotFound": "Actor no encontrado.",
       "stageFull": "VNE: El escenario está lleno (máx. 5 por fila).",
+      "hudOnlyNeedsCombat": "VNE: \"Solo HUD de combate\" está activo, así que la capa aparece al empezar un encuentro. Inicia un combate, o desactiva el ajuste en la configuración del módulo.",
       "noTokenForActor": "VNE: No hay token de ese actor en esta escena.",
+      "targetNotSelected": "VNE: Objetivo marcado, pero no se pudo seleccionar su token — cambia el lienzo a la capa de Fichas e inténtalo otra vez, o el botón de Daño del sistema no tendrá a quién aplicárselo.",
       "encounterFailed": "VNE: No se pudo crear el encuentro de combate.",
       "combatStageFailed": "VNE: No se pudo activar el Escenario de combate — falló la creación del encuentro.",
       "noCastTokens": "El Escenario de combate está activo, pero no se encontraron tokens del elenco VN en esta escena.",

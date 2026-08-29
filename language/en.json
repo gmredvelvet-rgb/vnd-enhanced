@@ -20,6 +20,10 @@
         "name": "RPG Classic Style (combat)",
         "hint": "Changes how Combat Mode is laid out. OFF (default) is the arrangement you already know: player cast on the left, NPCs on the right, and the VS duel in the centre. ON turns combat into a classic RPG battle screen — combatants stand on the scene in automatic formations, enemies above and party below, each with a small name and HP bar, and the turn controls move to a combat HUD along the bottom. The GM can drag any combatant to reposition it and resize it with the on-screen controls. Nothing is removed either way: Roleplay Mode, Action Bubbles and the VS duel all keep working, so you can switch back and forth at any time."
       },
+      "hudOnlyMode": {
+        "name": "Combat HUD only",
+        "hint": "Turns the VN into a bare combat overlay on top of the live map instead of a scene of its own. You keep the ally/enemy side panels with their HP plates, the initiative carousel, the bottom combat bar and the turn cards — but there is no background, no stage and no VS duel, so you can keep moving tokens on the canvas underneath. No ghost tokens are created either: Sequencer and Automated Animations effects play on the real canvas tokens exactly as they normally would. Only an actor with no token on the current map loses its VFX, since the ghost that used to catch those is gone. Outside combat the overlay hides completely, and comes back on its own as soon as an encounter starts. Set by the GM for the whole table."
+      },
       "combatManualReveal": {
         "name": "Manual combat reveal",
         "hint": "When on, the VS duel display (both fighters shown large, front and center) stays hidden during combat until you toggle it — via the eye button in the top bar or the 'Reveal combat duel' keybinding (Alt+B by default). It shows the current fighter versus their target, and auto-hides when the turn ends, waiting for the next reveal. Turn off to keep the classic behavior where the duel is always visible in combat. Under RPG Classic Style the duel always waits to be revealed, and this option only controls whether it closes by itself at the end of the turn."
@@ -234,6 +238,22 @@
       "bgExternalImage": "This image is hosted on an external site that blocks processing (e.g. Pinterest). Download it, upload it to Foundry, and use that local copy.",
       "bgSaveFailed": "Couldn't save the cut-out image.",
       "bgNoImage": "Pick an image first.",
+      "removeBgAnim": "Remove BG (animated)",
+      "bgAnimNotAnimated": "Pick an animated GIF or MP4 first.",
+      "bgAnimFormatTitle": "Output format",
+      "bgAnimFormatHint": "WebM keeps smooth transparent edges — best for animated tokens & tiles. GIF has hard edges but also works as an animated portrait. Both are saved to the Animations folder.",
+      "bgAnimExtracting": "Extracting frames…",
+      "bgAnimFrame": "Frame {cur}/{tot}…",
+      "bgAnimEncoding": "Encoding…",
+      "bgAnimSaved": "Animation saved: {path}",
+      "bgAnimFailed": "Animated background removal failed. See console.",
+      "bgAnimNoDecoder": "This client can't decode animation frames (WebCodecs unavailable).",
+      "bgAnimResultTitle": "Animation ready",
+      "bgAnimResultPath": "Saved to:",
+      "bgAnimTransparencyHint": "The checkerboard shows through transparent areas — if you see black instead, transparency failed.",
+      "bgAnimWebmNote": "WebM keeps full transparency (ideal for animated tokens & tiles). It can't be shown as a still <img> portrait, so the portrait wasn't changed.",
+      "bgAnimGifNote": "GIF set as the animated portrait.",
+      "bgAnimOpenFolder": "Open folder",
       "name": "Name",
       "roleTitle": "Title / Role",
       "scale": "Scale",
@@ -294,9 +314,13 @@
       "noActorForCombatant": "VNE | Could not find actor for this combatant."
     },
     "qa": {
-      "attacks": "Attacks",
+      "attacks": "Actions",
       "spells": "Spells",
       "items": "Items",
+      "feats": "Feats",
+      "cantrip": "Cantrip",
+      "spellLevel": "Lvl {n}",
+      "spellRank": "Rank {n}",
       "emptyCat": "Nothing here.",
       "emptyAll": "This actor has no usable attacks, spells or items.",
       "all": "All"
@@ -309,7 +333,9 @@
       "vnInactive": "VN Dialogues Enhanced is not active in this world yet.",
       "actorNotFound": "Actor not found.",
       "stageFull": "VNE: Stage is full (max 5 per row).",
+      "hudOnlyNeedsCombat": "VNE: Combat HUD only is on, so the overlay appears when an encounter starts. Start a combat, or turn the setting off in module settings.",
       "noTokenForActor": "VNE: No token found on this scene for that actor.",
+      "targetNotSelected": "VNE: Targeted, but the token could not be selected — switch the canvas to the Tokens layer and try again, or the system's Damage button will have nothing to apply to.",
       "encounterFailed": "VNE: Could not create combat encounter.",
       "combatStageFailed": "VNE: Could not activate Combat Stage — encounter creation failed.",
       "noCastTokens": "Combat Stage is active, but no VN cast tokens were found on this scene.",
