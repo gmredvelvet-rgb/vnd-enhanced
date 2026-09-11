@@ -2,7 +2,7 @@
   "id": "vnd-enhanced",
   "title": "VN Dialogues Enhanced",
   "description": "Visual Novel style dialogue display for FoundryVTT. The active speaker always appears centered and large. Cinematic combat stage with turn cards, damage floaters, and crit animations. Scene management, portrait reactions, AI image generation, and more. Requires a Patreon subscription.",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "compatibility": {
     "minimum": "11",
     "verified": "14",
@@ -22,15 +22,40 @@
     "scripts/ai-generator.js",
     "scripts/main.js"
   ],
-  "styles": ["styles/module.css", "styles/theme-dd.css", "styles/mobile.css", "styles/ai-generator.css"],
+  "styles": [
+    "styles/module.css",
+    "styles/theme-dd.css",
+    "styles/mobile.css",
+    "styles/ai-generator.css"
+  ],
   "languages": [
-    { "lang": "en", "name": "English", "path": "language/en.json" },
-    { "lang": "es", "name": "Español", "path": "language/es.json" }
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "language/en.json"
+    },
+    {
+      "lang": "es",
+      "name": "Español",
+      "path": "language/es.json"
+    }
   ],
   "url": "https://github.com/gmredvelvet-rgb/vnd-enhanced",
   "readme": "https://github.com/gmredvelvet-rgb/vnd-enhanced#readme",
   "bugs": "https://github.com/gmredvelvet-rgb/vnd-enhanced/issues",
   "license": "SEE LICENSE IN LICENSE",
   "manifest": "https://github.com/gmredvelvet-rgb/vnd-enhanced/releases/latest/download/module.json",
-  "download": "https://github.com/gmredvelvet-rgb/vnd-enhanced/releases/latest/download/module.zip"
+  "download": "https://github.com/gmredvelvet-rgb/vnd-enhanced/releases/latest/download/module.zip",
+  "relationships": {
+    "requires": [
+      {
+        "id": "velvet-license-hub",
+        "type": "module",
+        "manifest": "https://github.com/gmredvelvet-rgb/velvet-license-hub/releases/latest/download/module.json",
+        "compatibility": {
+          "minimum": "2.0.0"
+        }
+      }
+    ]
+  }
 }
