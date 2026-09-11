@@ -4,6 +4,8 @@
  *   Character Studio: reference image → pose/expression → variations
  */
 
+import { licenseHub } from './license-hub.js';
+
 const MODULE_ID      = 'vnd-enhanced';
 const API_BASE       = 'https://vnd-license.gmredvelvet.workers.dev';
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
@@ -198,7 +200,21 @@ async function _verifyResponseSig(payload, jwt) {
   } catch { return false; }
 }
 
+/**
+ * With a verdict from Velvet License Hub, AI Studio calls go out with the hub's
+ * token — it carries the tier, which is what /ai/* meters. Before the hub has
+ * spoken, our own token still works, so nobody who paid loses AI Studio by
+ * updating before connecting the hub.
+ * @returns {object|null} The hub's API when it should carry the request.
+ */
+function _hubForRequests() {
+  const hub = licenseHub(2);
+  return hub?.hasVerdict() ? hub : null;
+}
+
 async function _apiGetSigned(path) {
+  const hub = _hubForRequests();
+  if (hub) return hub.request('GET', path);
   const token = _getToken();
   if (!token) throw new Error('No autenticado. Conecta tu cuenta Patreon primero.');
 
@@ -219,6 +235,8 @@ async function _apiGetSigned(path) {
 }
 
 async function _apiPost(path, body) {
+  const hub = _hubForRequests();
+  if (hub) return hub.request('POST', path, body);
   const token = _getToken();
   if (!token) throw new Error('No autenticado. Conecta tu cuenta Patreon primero.');
 

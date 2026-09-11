@@ -1,4 +1,5 @@
 import { VndLicenseMenu } from "./license-client.js";
+import { hubActive } from "./license-hub.js";
 import { SfxSettingsApp } from "./sfx-ui.js";
 import { ReactionTemplatesApp } from "./reaction-templates.js";
 
@@ -83,7 +84,8 @@ Hooks.once("ready", () => {
 
 export function registerSettings() {
   // License manager — tier, installation slots, self-service slot release
-  game.settings.registerMenu(ID, "licenseManager", {
+  // With Velvet License Hub active, its menu is the one place to manage the licence.
+  if (!hubActive()) game.settings.registerMenu(ID, "licenseManager", {
     name:       "vnd-enhanced.settings.licenseMenu.name",
     label:      "vnd-enhanced.settings.licenseMenu.label",
     hint:       "vnd-enhanced.settings.licenseMenu.hint",

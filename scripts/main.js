@@ -11,6 +11,7 @@
 
 import { registerSettings } from "./settings.js";
 import { VndLicenseClient, VndLicenseUI, isWorldLicensed } from "./license-client.js";
+import { licenseHub } from "./license-hub.js";
 import { VNDAIGenerator } from "./ai-generator.js";
 import { buildBattlefieldHtml, hpPresentation, resolveMaxPerRow, clamp01 } from "./combat-formation.js";
 
@@ -3411,7 +3412,8 @@ export class VNE extends FormApplication {
     fab.addEventListener("click", () => {
       // If VNE is not active (unlicensed), show the license prompt for the GM
       if (!VNE.instance) {
-        if (game.user?.isGM) VndLicenseUI.show();
+        const hub = licenseHub();
+        if (game.user?.isGM) hub ? hub.openLicenseCard() : VndLicenseUI.show();
         else ui.notifications?.warn(T("notify.vnInactive"));
         return;
       }
@@ -3851,8 +3853,8 @@ Hooks.on("updateSetting", (setting, _value, options) => {
       document.getElementById("vnd-license-prompt")?.remove();
       VndLicenseUI.stopReminder?.();
       if (!VNE.instance) VNE.activate();   // safety net; soft gate already activates
-    } else if (game.user?.isGM) {
-      // Licence lapsed → resume the periodic reminder
+    } else if (game.user?.isGM && !licenseHub(2)) {
+      // Licence lapsed → resume the periodic reminder (the hub's own, if active)
       VndLicenseUI.startReminder?.();
     }
     return;
@@ -5727,7 +5729,11 @@ Hooks.once("setup", async () => {
   // ── License: SOFT gate ──────────────────────────────────────────────────────
   // The module is NEVER blocked: every world gets every feature. Licensing only
   // decides whether a periodic reminder appears (see VndLicenseUI.startReminder).
-  if (game.user?.isGM) {
+  // With Velvet License Hub active the licence is the hub's: register and leave
+  // our own client alone. AI Studio goes through the hub too (ai-generator.js).
+  const hub = licenseHub(2);
+  if (hub) hub.register(ID);
+  else if (game.user?.isGM) {
     const licensed = await VndLicenseClient.instance.initialize();
     if (licensed) {
       // Confirmed active — write true so players read the same verdict
@@ -5785,7 +5791,8 @@ Hooks.on("ready", () => {
 
   // Unlicensed GM → one reminder shortly after load, then every 10 min (all
   // auto-hiding). Nothing is blocked; this is the only nudge to support the module.
-  if (game.user?.isGM && !isWorldLicensed()) {
+  // With the hub active, its card is the one reminder.
+  if (game.user?.isGM && !licenseHub(2) && !isWorldLicensed()) {
     setTimeout(() => { if (!isWorldLicensed()) VndLicenseUI.show({ autoHide: true }); }, 8000);
     VndLicenseUI.startReminder();
   }
