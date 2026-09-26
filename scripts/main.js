@@ -2048,7 +2048,8 @@ function _renderVSDisplay() {
     </div>${showNums ? `<div class="vne-vs-hp-text">${p.hp}/${p.hpMax}</div>` : ""}`;
   };
   // GM edit mode → the big VS portraits become editable straight from the front:
-  // quick scale/mirror controls, and right-click opens the full portrait editor.
+  // quick scale/mirror controls, and right-click opens the context menu (quick
+  // actions, sheet… and Edit portrait for the full editor).
   const editMode = game.user.isGM && d.editMode;
   const mkSide = (p, side) => p
     ? `<div class="vne-vs-img-wrap"><img class="vne-vs-img" src="${_esc(p.img || FALLBACK_IMG)}" style="${p.imgStyle || ''}" /></div>` +
@@ -2067,11 +2068,10 @@ function _renderVSDisplay() {
   if (editMode) {
     vsEl.querySelectorAll(".vne-vs-side[data-id]").forEach(sideEl => {
       const actorId = sideEl.dataset.id;
-      const side    = sideEl.dataset.side;
       _bindPortraitQuickCtrl(sideEl, actorId);
       sideEl.addEventListener("contextmenu", (e) => {
         e.preventDefault(); e.stopPropagation();
-        openPortraitEditor(actorId, side);
+        _openVNContextMenu(actorId, sideEl, { mode: "vn", editMode: true });
       });
     });
   }
@@ -4411,15 +4411,11 @@ function _bindCastPortrait(div, p, side, editMode) {
     _openVNContextMenu(p.id, div, { mode: "vn", editMode: game.user.isGM && getData().editMode });
   });
 
+  // Right-click: full context menu, Edit Mode included (Edit portrait is an entry)
   div.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    const isEditMode = game.user.isGM && getData().editMode;
-    if (isEditMode) {
-      openPortraitEditor(p.id, side);
-    } else {
-      _openVNContextMenu(p.id, div, { mode: "vn", editMode: false });
-    }
+    _openVNContextMenu(p.id, div, { mode: "vn", editMode: game.user.isGM && getData().editMode });
   });
 
   if (editMode) {
@@ -4916,9 +4912,9 @@ function _patchBattlefield(d) {
 
 // The side panels are hidden in combat, so every action they used to host has to
 // be reachable from the unit itself: click targets, double-click opens the sheet,
-// right-click opens the shared context menu (initiative, status effects, remove
-// from combat…) — or the portrait editor while Edit Mode is on, matching the
-// side-panel convention.
+// right-click opens the shared context menu (quick actions, initiative, status
+// effects, remove from combat…). Edit Mode doesn't replace it: the portrait
+// editor is one of its entries.
 function _bindBattlefieldUnit(unit) {
   const actorId = unit.dataset.id;
 
@@ -4956,11 +4952,7 @@ function _bindBattlefieldUnit(unit) {
   unit.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (game.user.isGM && getDataRO().editMode) {
-      openPortraitEditor(actorId, unit.dataset.side === "enemy" ? "right" : "left");
-    } else {
-      _openVNContextMenu(actorId, unit, { mode: "vn", editMode: false });
-    }
+    _openVNContextMenu(actorId, unit, { mode: "vn", editMode: game.user.isGM && getDataRO().editMode });
   });
 }
 
