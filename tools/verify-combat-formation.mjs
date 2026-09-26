@@ -338,10 +338,12 @@ console.log('\nintegration wiring');
   ok('option re-flows the ui layer so the stage is the flexible row',
      /body\.vne-rpg-style \.vne-ui-layer\s*\{[^}]*grid-template-rows:\s*auto auto 1fr auto auto/.test(css));
 
+  // HUD-only is the one exception: it has no battlefield, so it keeps the panels
+  // and the three-column stage — hence the optional :not(.vne-hud-only).
   ok('side panels hidden in combat ONLY under the option (§2)',
-     /body\.vne-rpg-style #vne-main\.vne-combat-mode \.vne-side-panel\s*\{[^}]*display:\s*none/.test(css));
+     /body\.vne-rpg-style(:not\(\.vne-hud-only\))? #vne-main\.vne-combat-mode \.vne-side-panel\s*\{[^}]*display:\s*none/.test(css));
   ok('stage collapses to one column ONLY under the option',
-     /body\.vne-rpg-style #vne-main\.vne-combat-mode \.vne-stage[\s\S]{0,320}grid-template-columns:\s*1fr/.test(css));
+     /body\.vne-rpg-style(:not\(\.vne-hud-only\))? #vne-main\.vne-combat-mode \.vne-stage[\s\S]{0,320}grid-template-columns:\s*1fr/.test(css));
   ok('battlefield cannot show without the option',
      /body:not\(\.vne-rpg-style\) \.vne-battlefield\s*\{[^}]*display:\s*none/.test(css));
   ok('HUD character/target blocks are hidden in the classic layout',
@@ -362,8 +364,9 @@ console.log('\nintegration wiring');
      /return game\.settings\.get\(ID, "combatManualReveal"\) && !d\.vsRevealed;/.test(main));
   ok('reveal button visibility is driven by the computed flag',
      /vne-vs-reveal-toggle[\s\S]{0,260}unless showVsReveal/.test(tpl));
+  // HUD-only never shows the duel, so it masks the flag off entirely.
   ok('reveal flag is on under the option, or in manual mode',
-     /showVsReveal:\s*_isRpgStyle\(\) \|\| game\.settings\.get\(ID, "combatManualReveal"\)/.test(main));
+     /showVsReveal:\s*(!hudOnly && \()?_isRpgStyle\(\) \|\| game\.settings\.get\(ID, "combatManualReveal"\)/.test(main));
 }
 
 // ── 8. The option itself ─────────────────────────────────────────────────────

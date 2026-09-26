@@ -1,16 +1,44 @@
 {
   "vnd-enhanced": {
+    "voice": {
+      "insecureContext": "VN Dialogues: the microphone needs a secure connection (https:// or localhost) and this world is served over plain http://, so the browser hides it entirely. The push-to-talk key still works — hold it to speak.",
+      "micDenied": "VN Dialogues: no access to the microphone. Grant permission in the browser, or just use the push-to-talk key, which works either way."
+    },
     "title": "VN Dialogues Enhanced",
     "keybindings": {
       "toggleVN": "Toggle VN window",
       "toggleCombatStage": "Toggle combat stage",
-      "toggleCombatReveal": "Reveal / hide combat duel (VS)"
+      "toggleCombatReveal": "Reveal / hide combat duel (VS)",
+      "voicePushToTalk": "Voice: push-to-talk (hold)"
     },
     "toolbar": {
       "toggle": "Toggle VN (Alt+V)",
       "fab": "Open / Close VN (Alt+V)"
     },
     "settings": {
+      "voiceActivityEnabled": {
+        "name": "Voice activity portraits",
+        "hint": "Animate the portrait of whoever is speaking. Each player's microphone is analysed locally on their own machine — no audio is ever sent anywhere — so this works alongside Discord or any other voice chat."
+      },
+      "voiceAutoSpotlight": {
+        "name": "Auto-focus the speaker",
+        "hint": "Move Spotlight Mode onto whoever is talking. Never overrides a spotlight you placed by hand."
+      },
+      "voiceInputMode": {
+        "name": "My voice input",
+        "hint": "How this client detects that YOU are speaking. The microphone needs a secure connection (https:// or localhost): on a plain http:// address the browser hides the microphone entirely and push-to-talk is the only option.",
+        "off": "Off",
+        "mic": "Microphone (automatic)",
+        "ptt": "Push-to-talk key only"
+      },
+      "voiceActorId": {
+        "name": "Voice a specific character (optional)",
+        "hint": "Whose portrait your voice animates. Leave it empty to use your assigned character, or — if you have none, as a GM usually does — whichever token you currently have selected. To pin one character instead, right-click it in the Actors sidebar, choose Copy Document UUID and paste it here."
+      },
+      "voiceThreshold": {
+        "name": "Microphone sensitivity (dB)",
+        "hint": "Loudness above which you count as speaking. Lower is more sensitive; raise it if background noise keeps your portrait moving."
+      },
       "licenseMenu": {
         "name": "License",
         "label": "Manage License",
@@ -23,6 +51,13 @@
       "hudOnlyMode": {
         "name": "Combat HUD only",
         "hint": "Turns the VN into a bare combat overlay on top of the live map instead of a scene of its own. You keep the ally/enemy side panels with their HP plates, the initiative carousel, the bottom combat bar and the turn cards — but there is no background, no stage and no VS duel, so you can keep moving tokens on the canvas underneath. No ghost tokens are created either: Sequencer and Automated Animations effects play on the real canvas tokens exactly as they normally would. Only an actor with no token on the current map loses its VFX, since the ghost that used to catch those is gone. Outside combat the overlay hides completely, and comes back on its own as soon as an encounter starts. Set by the GM for the whole table."
+      },
+      "symbioteLayout": {
+        "name": "TaleSpire Symbiote layout",
+        "hint": "Rearranges the VN for the tall, narrow side panel of a TaleSpire Symbiote. In combat, Players and NPCs sit in two columns with full names (up to two lines), HP, initiative, AC and speed, and the VS duel plays underneath at full width. In roleplay, the cast becomes two horizontal strips along the top and the stage gets the whole panel width. Plates per page follow the panel height, the mouse wheel scrolls the initiative row, and quick actions open as a bottom sheet. Automatic turns it on only inside TaleSpire, so desktop browsers are unchanged. Stored per client: each user picks their own.",
+        "auto": "Automatic (inside TaleSpire only)",
+        "on": "Always on",
+        "off": "Off"
       },
       "combatManualReveal": {
         "name": "Manual combat reveal",
@@ -321,6 +356,10 @@
       "cantrip": "Cantrip",
       "spellLevel": "Lvl {n}",
       "spellRank": "Rank {n}",
+      "impulse": "Impulse",
+      "actionCost": "{n} actions",
+      "reaction": "Reaction",
+      "freeAction": "Free action",
       "emptyCat": "Nothing here.",
       "emptyAll": "This actor has no usable attacks, spells or items.",
       "all": "All"
@@ -333,7 +372,6 @@
       "vnInactive": "VN Dialogues Enhanced is not active in this world yet.",
       "actorNotFound": "Actor not found.",
       "stageFull": "VNE: Stage is full (max 5 per row).",
-      "hudOnlyNeedsCombat": "VNE: Combat HUD only is on, so the overlay appears when an encounter starts. Start a combat, or turn the setting off in module settings.",
       "noTokenForActor": "VNE: No token found on this scene for that actor.",
       "targetNotSelected": "VNE: Targeted, but the token could not be selected — switch the canvas to the Tokens layer and try again, or the system's Damage button will have nothing to apply to.",
       "encounterFailed": "VNE: Could not create combat encounter.",

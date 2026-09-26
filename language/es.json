@@ -1,16 +1,44 @@
 {
   "vnd-enhanced": {
+    "voice": {
+      "insecureContext": "VN Dialogues: el micrófono necesita conexión segura (https:// o localhost) y este mundo se sirve por http:// plano, así que el navegador lo oculta por completo. La tecla de hablar sigue funcionando — mantenla pulsada para hablar.",
+      "micDenied": "VN Dialogues: sin acceso al micrófono. Concede el permiso en el navegador, o simplemente usa la tecla de hablar, que funciona igualmente."
+    },
     "title": "VN Dialogues Enhanced",
     "keybindings": {
       "toggleVN": "Mostrar/ocultar ventana VN",
       "toggleCombatStage": "Activar/desactivar escenario de combate",
-      "toggleCombatReveal": "Revelar / ocultar duelo de combate (VS)"
+      "toggleCombatReveal": "Revelar / ocultar duelo de combate (VS)",
+      "voicePushToTalk": "Voz: pulsar para hablar (mantener)"
     },
     "toolbar": {
       "toggle": "Mostrar/ocultar VN (Alt+V)",
       "fab": "Abrir / cerrar VN (Alt+V)"
     },
     "settings": {
+      "voiceActivityEnabled": {
+        "name": "Retratos con actividad de voz",
+        "hint": "Anima el retrato de quien está hablando. El micrófono de cada jugador se analiza en su propia máquina — no se envía audio a ningún sitio — así que funciona junto a Discord o cualquier otro chat de voz."
+      },
+      "voiceAutoSpotlight": {
+        "name": "Enfocar automáticamente a quien habla",
+        "hint": "Mueve el modo Spotlight a quien esté hablando. Nunca pisa un spotlight que hayas puesto a mano."
+      },
+      "voiceInputMode": {
+        "name": "Mi entrada de voz",
+        "hint": "Cómo detecta este cliente que estás hablando TÚ. El micrófono necesita conexión segura (https:// o localhost): en una dirección http:// plana el navegador oculta el micrófono por completo y la única vía es pulsar para hablar.",
+        "off": "Desactivado",
+        "mic": "Micrófono (automático)",
+        "ptt": "Solo tecla de hablar"
+      },
+      "voiceActorId": {
+        "name": "Dar voz a un personaje concreto (opcional)",
+        "hint": "De quién se anima el retrato cuando hablas. Déjalo vacío para usar tu personaje asignado o, si no tienes ninguno (el caso habitual del DJ), el token que tengas seleccionado. Para fijar un personaje, haz clic derecho sobre él en la pestaña de Actores, elige Copiar UUID del documento y pégalo aquí."
+      },
+      "voiceThreshold": {
+        "name": "Sensibilidad del micrófono (dB)",
+        "hint": "Volumen a partir del cual cuentas como hablando. Más bajo es más sensible; súbelo si el ruido de fondo mantiene tu retrato en movimiento."
+      },
       "licenseMenu": {
         "name": "Licencia",
         "label": "Gestionar licencia",
@@ -23,6 +51,13 @@
       "hudOnlyMode": {
         "name": "Solo HUD de combate",
         "hint": "Convierte el VN en una capa de combate sobre el mapa en vivo, en lugar de una escena propia. Conservas los paneles laterales de aliados y enemigos con sus placas de vida, el carrusel de iniciativa, la barra de combate inferior y los carteles de turno — pero no hay fondo, ni escenario, ni duelo VS, así que puedes seguir moviendo tokens en el lienzo por detrás. Tampoco se crean ghost tokens: los efectos de Sequencer y Automated Animations salen sobre los tokens reales del lienzo, igual que siempre. Solo pierde VFX un actor que no tenga token en el mapa actual, porque el ghost que antes los recogía ya no existe. Fuera de combate la capa se oculta del todo, y vuelve sola en cuanto empieza un encuentro. Lo elige el GM para toda la mesa."
+      },
+      "symbioteLayout": {
+        "name": "Diseño para Symbiote de TaleSpire",
+        "hint": "Reorganiza el VN para el panel lateral alto y estrecho de un Symbiote de TaleSpire. En combate, Jugadores y PNJs quedan en dos columnas con los nombres completos (hasta dos líneas), vida, iniciativa, CA y velocidad, y el duelo VS se muestra debajo, a todo el ancho. En modo rol, el elenco pasa a dos tiras horizontales arriba y el escenario usa todo el ancho del panel. Las placas por página se ajustan al alto del panel, la rueda del ratón desplaza el carrusel de iniciativa y las acciones rápidas se abren como una hoja inferior. Automático lo activa solo dentro de TaleSpire, así que los navegadores de escritorio no cambian. Se guarda por cliente: cada usuario elige el suyo.",
+        "auto": "Automático (solo dentro de TaleSpire)",
+        "on": "Siempre activado",
+        "off": "Desactivado"
       },
       "combatManualReveal": {
         "name": "Revelar combate manual",
@@ -321,6 +356,10 @@
       "cantrip": "Truco",
       "spellLevel": "Nv {n}",
       "spellRank": "Rango {n}",
+      "impulse": "Impulso",
+      "actionCost": "{n} acciones",
+      "reaction": "Reacción",
+      "freeAction": "Acción libre",
       "emptyCat": "Nada por aquí.",
       "emptyAll": "Este actor no tiene ataques, hechizos ni objetos usables.",
       "all": "Todos"
@@ -333,7 +372,6 @@
       "vnInactive": "VN Dialogues Enhanced aún no está activo en este mundo.",
       "actorNotFound": "Actor no encontrado.",
       "stageFull": "VNE: El escenario está lleno (máx. 5 por fila).",
-      "hudOnlyNeedsCombat": "VNE: \"Solo HUD de combate\" está activo, así que la capa aparece al empezar un encuentro. Inicia un combate, o desactiva el ajuste en la configuración del módulo.",
       "noTokenForActor": "VNE: No hay token de ese actor en esta escena.",
       "targetNotSelected": "VNE: Objetivo marcado, pero no se pudo seleccionar su token — cambia el lienzo a la capa de Fichas e inténtalo otra vez, o el botón de Daño del sistema no tendrá a quién aplicárselo.",
       "encounterFailed": "VNE: No se pudo crear el encuentro de combate.",

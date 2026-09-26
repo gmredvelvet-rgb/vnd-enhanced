@@ -14,6 +14,7 @@ import { VndLicenseClient, VndLicenseUI, isWorldLicensed } from "./license-clien
 import { licenseHub } from "./license-hub.js";
 import { VNDAIGenerator } from "./ai-generator.js";
 import { buildBattlefieldHtml, hpPresentation, resolveMaxPerRow, clamp01 } from "./combat-formation.js";
+import { initVoiceActivity, handleVoiceSocket, reapplyVoiceState, setPushToTalk } from "./voice-activity.js";
 
 const ID = "vnd-enhanced";
 
@@ -319,6 +320,12 @@ function _isRpgStyle() {
 function _isHudOnly() {
   try { return game.settings.get(ID, "hudOnlyMode") === true; }
   catch { return false; }        // called before settings register (early hooks)
+}
+
+// TaleSpire Symbiote layout (client setting, see settings.js). The body class is
+// the single source of truth — "auto" resolves to it only inside a Symbiote.
+function _isSymbioteLayout() {
+  return document.body.classList.contains("vne-symbiote");
 }
 
 function canControlActor(actorId) {
@@ -1039,8 +1046,10 @@ function _mountSidebar() {
   sidebar.style.setProperty("top",      "0",         "important");
   sidebar.style.setProperty("height",   "100%",      "important");
   sidebar.style.setProperty("z-index",  `${zIndex}`, "important");
-  // Expand content so the panel is visible right away
-  ui.sidebar?.expand?.();
+  // Expand content so the panel is visible right away — except in the Symbiote,
+  // where the expanded sidebar covers half the panel on every render. There the
+  // chat stays where the user left it and opens from the ☰ button.
+  if (!_isSymbioteLayout()) ui.sidebar?.expand?.();
 }
 
 function _unmountSidebar() {
@@ -1077,9 +1086,9 @@ async function toggleCombatStage() {
       ui.notifications?.warn(T("notify.combatStageFailed"));
       return;
     }
-    // In HUD-only the overlay is hidden whenever combat is off, so Alt+C is the
-    // one gesture that brings it up — and it has to raise the master switch too,
-    // or the GM presses it and nothing appears.
+    // Alt+C means "put the combat HUD up". In HUD-only that is often pressed
+    // while the overlay is closed, so raise the master switch too rather than
+    // arming combat mode behind a hidden overlay.
     if (_isHudOnly()) d.showVN = true;
     // Auto-cast BEFORE ghost sync so ghosts cover the freshly added members too
     _autoPopulateCastFromCombat(d, combat);
@@ -1534,6 +1543,21 @@ function _quickActionData(actor) {
         // like the official sheet. Used via the item's chat card.
         out.attacks.push({ kind: "item", itemId: item.id, name: item.name, img: img(item), sub: "Action", group: "Action" });
       } else if (t === "feat") {
+        const traits = item.system?.traits?.value ?? [];
+        const actionType = item.system?.actionType?.value;
+        const isActiveImpulse = traits.includes("impulse")
+          && ["action", "reaction", "free"].includes(actionType);
+        if (isActiveImpulse) {
+          const actionCount = Number(item.system?.actions?.value);
+          const actionLabel = actionType === "reaction" ? T("qa.reaction")
+            : actionType === "free" ? T("qa.freeAction")
+            : Number.isFinite(actionCount)
+              ? `${TF("qa.actionCost", { n: actionCount })} · ${T("qa.impulse")}`
+              : T("qa.impulse");
+          out.attacks.push({ kind: "item", itemId: item.id, name: item.name, img: img(item),
+            sub: actionLabel, group: T("qa.impulse") });
+          continue;
+        }
         // Feats grouped by category (class / skill / general / ancestry…).
         const g = cap(item.system?.category || "feat");
         out.feats.push({ kind: "item", itemId: item.id, name: item.name, img: img(item), sub: g, group: g });
@@ -1593,7 +1617,9 @@ async function _useQuickAction(actor, entry, ev, variantIdx = 0) {
 }
 
 function closeQuickActionWindow() {
-  document.getElementById("vne-qa-window")?.remove();
+  const win = document.getElementById("vne-qa-window");
+  win?._vneAbortController?.abort();
+  win?.remove();
 }
 
 // The RPG popup. `category` picks the initial tab; the header carries the
@@ -1701,7 +1727,7 @@ function _openQuickActionWindow(actorId, category, anchorEl) {
     grid.innerHTML = gridHtml(active);
   });
 
-  grid.addEventListener("click", (e) => {
+  grid.addEventListener("click", async (e) => {
     const cell = e.target.closest(".vne-qa-entry");
     if (!cell) return;
     const list = cats.find(c => c.key === cell.dataset.cat)?.list ?? [];
@@ -1709,7 +1735,11 @@ function _openQuickActionWindow(actorId, category, anchorEl) {
     if (!entry) return;
     // A MAP button rolls its specific variant; anywhere else uses variant 0.
     const mapBtn = e.target.closest(".vne-qa-map-btn");
-    _useQuickAction(actor, entry, e, mapBtn ? Number(mapBtn.dataset.v) : 0);
+    const variantIdx = mapBtn ? Number(mapBtn.dataset.v) : 0;
+    // Close before the system opens its native roll/configuration dialog. This
+    // prevents the VNE panel from remaining above PF2e's application window.
+    closeQuickActionWindow();
+    await _useQuickAction(actor, entry, e, variantIdx);
   });
 
   // Drag any real item to the macro hotbar, exactly like dragging from a sheet.
@@ -1735,6 +1765,7 @@ function _openQuickActionWindow(actorId, category, anchorEl) {
   win.style.top  = `${top}px`;
 
   const ac = new AbortController();
+  win._vneAbortController = ac;
   setTimeout(() => document.addEventListener("mousedown", (ev) => {
     if (!win.contains(ev.target)) { closeQuickActionWindow(); ac.abort(); }
   }, { signal: ac.signal }), 50);
@@ -1982,12 +2013,18 @@ function _vsRevealHidden(d = getDataRO()) {
   return game.settings.get(ID, "combatManualReveal") && !d.vsRevealed;
 }
 
+// Whether the VS duel is on screen for this client. Shared by the duel renderer
+// and the Symbiote layout, which gives the plates less height while it shows.
+// HUD-only deliberately has no duel: it would cover the map underneath.
+function _vsDuelShown(d = getDataRO()) {
+  return !!d.showVN && !!d.combatMode && !_isHudOnly() && !_vsRevealHidden(d);
+}
+
 function _renderVSDisplay() {
   const d = getDataRO();
   const stage = document.querySelector(".vne-stage");
   if (!stage) return;
-  // HUD-only deliberately has no duel: it would cover the map underneath.
-  if (!d.showVN || !d.combatMode || _isHudOnly() || _vsRevealHidden(d)) {
+  if (!_vsDuelShown(d)) {
     document.getElementById("vne-combat-vs")?.remove();
     return;
   }
@@ -3435,11 +3472,6 @@ export class VNE extends FormApplication {
 
   static async toggle(showForIds = undefined) {
     const d = getData();
-    // In HUD-only, showVN alone can never make the overlay visible — without an
-    // encounter it stays hidden by design. Say so, or the toggle just looks dead.
-    if (_isHudOnly() && !d.combatMode && !d.showVN && game.user.isGM) {
-      ui.notifications?.info(T("notify.hudOnlyNeedsCombat"));
-    }
     d.showVN = !d.showVN;
     // Preserve per-player visibility across open/close — only overwrite when the
     // caller explicitly passes a value (null = "show to everyone").
@@ -3467,13 +3499,14 @@ export class VNE extends FormApplication {
     const combatMode = d.combatMode ?? false;
     const hudOnly    = _isHudOnly();
 
+    // HUD-only used to add `&& combatMode` here, on the reasoning that there is
+    // nothing to show between encounters. There is: the side panels are the HUD,
+    // and a party HP readout over the live map is the point of the mode. Gating
+    // it made Alt+V, the FAB and the toolbar button all look broken, so the mode
+    // now opens and closes like every other one.
     const visible = d.showVN &&
       (game.user.isGM || !showForIds || showForIds.includes(game.user.id)) &&
-      (game.user.isGM || !_playerLocalHidden) &&
-      // HUD-only has nothing to show outside combat — no stage, no background,
-      // just chrome — so it stays off screen entirely until an encounter runs.
-      // The GM still reaches Combat Stage from the Alt+C keybinding.
-      (!hudOnly || combatMode);
+      (game.user.isGM || !_playerLocalHidden);
 
     const players = game.users.contents.filter(u => u.active).map(u => ({
       id: u.id,
@@ -3701,6 +3734,18 @@ export class VNE extends FormApplication {
       await saveData(d, { change: "visibility" });
     });
 
+    // Symbiote: TaleSpire is played with a mouse, and a wheel only scrolls
+    // vertically — turn it sideways over the initiative row and the cast strips,
+    // which are the two horizontal scrollers in that layout.
+    root.addEventListener("wheel", (e) => {
+      if (!_isSymbioteLayout() || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      const row = e.target.closest?.("#vne-unified-carousel, .vne-portraits-list");
+      if (!row || row.scrollWidth <= row.clientWidth) return;
+      if (getComputedStyle(row).overflowX === "hidden") return;   // paged combat column
+      e.preventDefault();
+      row.scrollLeft += e.deltaY;
+    }, { passive: false });
+
     // Render carousel + VS display after the template is in the DOM
     renderVNECombatCarousel();
     _updateVSFromCombat();
@@ -3839,6 +3884,12 @@ Hooks.on("vnd-enhanced.rerender", () => {
   VNE.instance?.render(true);
 });
 
+// Fired when a client-side layout flips (TaleSpire Symbiote). Unlike the hook
+// above it carries no world-level side effects — only this window is rebuilt.
+Hooks.on("vnd-enhanced.relayout", () => {
+  VNE.instance?.render(true);
+});
+
 Hooks.on("vnd-enhanced.activate", () => {
   if (!VNE.instance) {
     document.getElementById("vnd-license-prompt")?.remove();
@@ -3932,6 +3983,10 @@ Hooks.on("updateSetting", (setting, _value, options) => {
     _renderVSDisplay();
     document.querySelectorAll(".vne-vs-reveal-toggle").forEach(btn =>
       btn.classList.toggle("vne-active", !!d.vsRevealed));
+    // Symbiote: the duel and the plates share the stage height, so the page
+    // size changes with it. (Under RPG Classic Style the plates are hidden or,
+    // in HUD-only, never share the stage with a duel.)
+    if (_isSymbioteLayout() && !_isRpgStyle()) _patchCast(d);
   }
 
   if (change === "hideBack") {
@@ -3952,9 +4007,8 @@ Hooks.on("updateSetting", (setting, _value, options) => {
     // Clamp existing scroll offsets to new cast sizes so we never land on an invalid index
     const leftLen  = (d.leftCast  ?? []).length;
     const rightLen = (d.rightCast ?? []).length;
-    const PAGE = 5;
-    _sideScrollOffset.left  = Math.max(0, Math.min(_sideScrollOffset.left,  Math.max(0, leftLen  - PAGE)));
-    _sideScrollOffset.right = Math.max(0, Math.min(_sideScrollOffset.right, Math.max(0, rightLen - PAGE)));
+    _sideScrollOffset.left  = Math.max(0, Math.min(_sideScrollOffset.left,  Math.max(0, leftLen  - _sidePanelPageSize(d, leftLen))));
+    _sideScrollOffset.right = Math.max(0, Math.min(_sideScrollOffset.right, Math.max(0, rightLen - _sidePanelPageSize(d, rightLen))));
     _patchCast(d);
     renderVNECombatCarousel();
     _vsLeft = _vsRight = null;
@@ -4418,6 +4472,33 @@ function _isMobileStrip() {
          globalThis.matchMedia?.("(max-width: 640px)").matches === true;
 }
 
+// Same strip rendering in the Symbiote outside combat: the roleplay stage needs
+// the panel's full width, so the cast rides above it — see styles/symbiote.css.
+function _isCastStrip(d) {
+  return _isMobileStrip() || (_isSymbioteLayout() && !d.combatMode);
+}
+
+// Plates per page in a combat side column. Five on desktop, where the landscape
+// stage fixes the column height. The Symbiote stage is a tall portrait panel:
+// the plates get what the VS duel leaves them (a little over half the stage
+// while it shows — the duel is bottom-anchored — and all of it otherwise), and
+// every plate that fits is shown. The pixel figures mirror styles/symbiote.css:
+// plate height + list gap, the side label, and two chevrons + page indicator.
+const _SYM_PLATE_SLOT  = 70;
+const _SYM_PANEL_LABEL = 34;
+const _SYM_PAGER       = 78;
+const _SYM_DUEL_SHARE  = 0.55;
+function _sidePanelPageSize(d, total) {
+  const PAGE = 5;
+  if (!_isSymbioteLayout() || !d.combatMode) return PAGE;
+  const stageH = document.querySelector("#vne-main .vne-stage")?.clientHeight ?? 0;
+  if (stageH <= 0) return PAGE;           // window hidden / not laid out yet
+  const avail  = stageH * (_vsDuelShown(d) ? _SYM_DUEL_SHARE : 1) - _SYM_PANEL_LABEL;
+  const fitAll = Math.floor(avail / _SYM_PLATE_SLOT);
+  if (total <= fitAll) return Math.max(1, fitAll);
+  return Math.max(3, Math.floor((avail - _SYM_PAGER) / _SYM_PLATE_SLOT));
+}
+
 function _patchSidePanel(side, d, worldOffsetY, editMode) {
   const panel = document.getElementById(`vne-${side}-portraits`);
   if (!panel) return;
@@ -4431,9 +4512,9 @@ function _patchSidePanel(side, d, worldOffsetY, editMode) {
 
   const combatModeEarly = d.combatMode ?? false;
 
-  // Mobile strip: the whole cast is reachable by swiping, so paging controls
+  // Cast strip: the whole cast is reachable by swiping, so paging controls
   // (and their up/down chevrons, meaningless on a horizontal strip) are dropped.
-  if (_isMobileStrip()) {
+  if (_isCastStrip(d)) {
     const stageIds = combatModeEarly
       ? new Set([game.combat?.combatant?.actorId].filter(Boolean))
       : new Set([...(d.stagePlayers || []), ...(d.stageNPCs || [])]);
@@ -4443,15 +4524,20 @@ function _patchSidePanel(side, d, worldOffsetY, editMode) {
       _bindCastPortrait(div, p, side, editMode);
       panel.appendChild(div);
     }
-    // Keep the active portrait in view as turns advance
-    panel.querySelector(".vne-speaking")?.scrollIntoView({
-      behavior: "smooth", block: "nearest", inline: "center"
-    });
+    // Keep the active portrait in view as turns advance. Only the strip scrolls:
+    // scrollIntoView would also scroll every overflow:hidden ancestor, which in
+    // a narrow panel nudges the whole VN sideways.
+    const active = panel.querySelector(".vne-speaking");
+    if (active) {
+      const a = active.getBoundingClientRect(), s = panel.getBoundingClientRect();
+      panel.scrollBy({ left: (a.left + a.width / 2) - (s.left + s.width / 2), behavior: "smooth" });
+    }
+    reapplyVoiceState();   // the strip was rebuilt from scratch above
     return;
   }
 
-  const PAGE = 5;
   const total = cast.length;
+  const PAGE = _sidePanelPageSize(d, total);
   // Clamp offset so we never go out of range
   _sideScrollOffset[side] = Math.max(0, Math.min(_sideScrollOffset[side], Math.max(0, total - PAGE)));
   const offset = _sideScrollOffset[side];
@@ -4509,6 +4595,8 @@ function _patchSidePanel(side, d, worldOffsetY, editMode) {
     indicator.textContent = `${offset + 1}–${Math.min(offset + PAGE, total)} / ${total}`;
     panel.appendChild(indicator);
   }
+
+  reapplyVoiceState();   // the panel was rebuilt from scratch above
 }
 
 function _patchCast(d) {
@@ -4651,6 +4739,7 @@ function _patchVNStage(d, worldOffsetY) {
 
   stage.innerHTML = html;
   _bindImgFallbacks(stage, ".vne-rp-img");
+  reapplyVoiceState();   // innerHTML just wiped the voice-activity classes
   // The spotlight overlay is wiped by innerHTML — re-inject only if actor is still on stage
   if (_spotlightActorId && stage.querySelector(`.vne-rp-slot[data-id="${_spotlightActorId}"]`))
     _enterSpotlight(_spotlightActorId);
@@ -4821,6 +4910,7 @@ function _patchBattlefield(d) {
 
   _bindImgFallbacks(el, ".vne-bf-img");
   el.querySelectorAll(".vne-bf-unit").forEach(_bindBattlefieldUnit);
+  reapplyVoiceState();   // the battlefield was rebuilt from scratch above
   _patchCombatHud(d);
 }
 
@@ -5470,12 +5560,11 @@ Hooks.on("createCombat",     () => {
 
 // ── HUD-only: follow the encounter ───────────────────────────────────────────
 // The full VN is a scene the GM opens deliberately, so arming Combat Stage by
-// hand belongs there. HUD-only is not a scene — it is an overlay with no reason
-// to exist outside a fight, and its own Combat Stage button lives *inside* the
-// panel that stays hidden until one starts. That left Alt+C as the only way in
-// and made every other entry point (Alt+V, the FAB, the toolbar) look broken,
-// because showVN alone can never make this mode visible. So here the module
-// follows game.combat instead of waiting to be told.
+// hand belongs there. HUD-only is not a scene — it is an overlay on the live
+// map, and a fight starting is unambiguously the moment it wants to be in
+// combat layout. So it follows game.combat instead of waiting to be told, and
+// opens itself if it was closed: convenience, not the only way in — every other
+// entry point (Alt+V, the FAB, the toolbar) opens it outside combat too.
 // Deliberately does NOT go through toggleCombatStage(): that would call
 // ensureActiveEncounterForVNE(), which can create a Combat and re-enter this
 // very hook. Nothing here creates anything.
@@ -5485,7 +5574,7 @@ async function _hudOnlyFollowCombat(on) {
   if (!!d.combatMode === on) return;
   d.combatMode = on;
   if (on) {
-    d.showVN = true;   // the overlay has no separate "open" state to respect
+    d.showVN = true;   // a fight starting is always worth putting the HUD up
     if (game.combat) _autoPopulateCastFromCombat(d, game.combat);
   } else {
     d.vsRevealed = false;
@@ -5645,6 +5734,16 @@ Hooks.once("init", () => {
       editable: [{ key: "KeyB", modifiers: ["Alt"] }],
       onUp: () => { if (game.user.isGM) toggleCombatReveal(); }
     });
+
+    // Voice push-to-talk — hold to mark your character as speaking. Bind it to
+    // the same key as your Discord PTT and the two move together. Deliberately
+    // does not consume the event, so it can share a key with anything else.
+    game.keybindings.register(ID, "voicePushToTalk", {
+      name: "vnd-enhanced.keybindings.voicePushToTalk",
+      editable: [{ key: "KeyG", modifiers: ["Alt"] }],
+      onDown: () => { setPushToTalk(true); },
+      onUp:   () => { setPushToTalk(false); }
+    });
   } catch(e) {
     console.warn("vnd-enhanced | keybinding registration failed:", e);
   }
@@ -5674,6 +5773,14 @@ Hooks.once("setup", async () => {
     if (msg.type === "vnDefeat") {
       if (!getDataRO().showVN) return;
       _showDefeatOverlay();
+      return;
+    }
+
+    // vnSpeaking — voice activity highlight, broadcast to all clients.
+    // Purely cosmetic and ephemeral: it never reaches saveData, so it can run
+    // at speech cadence without touching world data.
+    if (msg.type === "vnSpeaking") {
+      handleVoiceSocket(msg);
       return;
     }
 
@@ -5754,6 +5861,7 @@ Hooks.once("setup", async () => {
 function _initViewportWatcher() {
   let wasStrip = _isMobileStrip();
   let wasPerRow = resolveMaxPerRow(globalThis.innerWidth);
+  let wasHeight = globalThis.innerHeight;
   let timer = null;
   const onResize = () => {
     clearTimeout(timer);
@@ -5763,7 +5871,12 @@ function _initViewportWatcher() {
       // that is the whole of §11's responsive behaviour, and it is why the row
       // count is never stored anywhere.
       const perRow  = resolveMaxPerRow(globalThis.innerWidth);
-      if (isStrip === wasStrip && perRow === wasPerRow) return;
+      // Symbiote: the plates per page follow the panel height, so dragging
+      // TaleSpire's panel taller or shorter re-pages the side columns.
+      const height  = globalThis.innerHeight;
+      const heightChanged = _isSymbioteLayout() && height !== wasHeight;
+      wasHeight = height;
+      if (isStrip === wasStrip && perRow === wasPerRow && !heightChanged) return;
       wasStrip  = isStrip;
       wasPerRow = perRow;
       const d = getDataRO();
@@ -5784,6 +5897,15 @@ Hooks.on("ready", () => {
   _initAAHook();
   // Seed HP baselines so the first damage event in a session shows floaters correctly
   _seedCastHP();
+
+  // Voice activity — microphone / push-to-talk capture plus the speaking
+  // highlight. Spotlight control is injected rather than imported so the
+  // satellite module never has to reach back into main.js.
+  initVoiceActivity({
+    enterSpotlight:      (actorId) => _enterSpotlight(actorId),
+    exitSpotlight:       ()        => _exitSpotlight(),
+    getSpotlightActorId: ()        => _spotlightActorId
+  });
 
   // Safety net: activate VNE for any client that missed the setup-hook activation.
   // Soft gate — activation is unconditional.

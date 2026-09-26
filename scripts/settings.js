@@ -2,6 +2,7 @@ import { VndLicenseMenu } from "./license-client.js";
 import { hubActive } from "./license-hub.js";
 import { SfxSettingsApp } from "./sfx-ui.js";
 import { ReactionTemplatesApp } from "./reaction-templates.js";
+import { applyVoiceMode } from "./voice-activity.js";
 
 const ID = "vnd-enhanced";
 
@@ -38,14 +39,49 @@ export function applyVisualTheme() {
 }
 
 /**
+ * True inside a TaleSpire Symbiote. Any one of three signals is enough:
+ * the Symbiote API global (`TS`), the flag the TaleSpire compatibility layer
+ * sets only inside that WebView, and the dice-return bridge the Symbiote
+ * injects. None of them exists in a normal browser.
+ */
+export function isTaleSpireSymbiote() {
+  return typeof globalThis.TS === "object"
+      || globalThis.TALESPIRE_COMPAT === true
+      || typeof globalThis.FRB_TALESPIRE_BRIDGE === "object";
+}
+
+/**
  * Mobile mode — when the companion module "Velvet Mobile" is active in this
  * world, tag <body> so styles/mobile.css activates its responsive layer.
  * Desktop clients are unaffected: every rule in that sheet also requires a
  * small-viewport or coarse-pointer media query to match.
  */
 export function applyMobileMode() {
-  const on = game.modules.get("velvet-mobile")?.active ?? false;
+  // A TaleSpire Symbiote is a narrow desktop side panel, not a phone. Its
+  // Chromium viewport can be under 640px wide, which otherwise triggers the
+  // phone layout and stacks both cast panels vertically over the scene.
+  // The Symbiote gets its own layout instead (applySymbioteLayout), and the two
+  // never stack: forcing the Symbiote layout on a phone switches this one off.
+  const on = (game.modules.get("velvet-mobile")?.active ?? false)
+          && !isTaleSpireSymbiote()
+          && !document.body.classList.contains("vne-symbiote");
   document.body.classList.toggle("vne-mobile-ready", on);
+}
+
+/**
+ * Symbiote layout — a portrait arrangement for the tall, narrow panel TaleSpire
+ * gives a Symbiote (about 600 × 1200 CSS px). Tags <body> for styles/symbiote.css,
+ * which also drives the JS paths that change structure rather than style: cast
+ * strips in roleplay and a page size sized to the panel in combat.
+ *
+ * Client scope: the layout follows the screen, so the GM on a desktop and a
+ * player inside TaleSpire each get the one that fits their own display.
+ */
+export function applySymbioteLayout() {
+  const mode = game.settings.get(ID, "symbioteLayout") ?? "auto";
+  const on = mode === "on" || (mode === "auto" && isTaleSpireSymbiote());
+  document.body.classList.toggle("vne-symbiote", on);
+  return on;
 }
 
 /**
@@ -77,9 +113,20 @@ export function applyHudOnly() {
 
 Hooks.once("ready", () => {
   applyVisualTheme();
+  applySymbioteLayout();   // before mobile mode, which defers to it
   applyMobileMode();
   applyRpgStyle();
   applyHudOnly();
+});
+
+// The Symbiote API can finish initialising after Foundry's "ready". When it does,
+// re-run the detection so "auto" still lands on the Symbiote layout.
+globalThis.addEventListener?.("frb:talespire-ready", () => {
+  if (!game.ready) return;
+  const was = document.body.classList.contains("vne-symbiote");
+  const now = applySymbioteLayout();
+  applyMobileMode();
+  if (now !== was) Hooks.callAll("vnd-enhanced.relayout");
 });
 
 export function registerSettings() {
@@ -206,6 +253,68 @@ export function registerSettings() {
     default: true
   });
 
+  // ── Voice activity ──────────────────────────────────────────────────────────
+  // Animates the portrait of whoever is talking. Platform-agnostic: it reads the
+  // local microphone (or a held key), never Discord, so it works alongside any
+  // voice chat. Off by default — the microphone path needs deliberate consent.
+
+  game.settings.register(ID, "voiceActivityEnabled", {
+    name: "vnd-enhanced.settings.voiceActivityEnabled.name",
+    hint: "vnd-enhanced.settings.voiceActivityEnabled.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: applyVoiceMode
+  });
+
+  game.settings.register(ID, "voiceAutoSpotlight", {
+    name: "vnd-enhanced.settings.voiceAutoSpotlight.name",
+    hint: "vnd-enhanced.settings.voiceAutoSpotlight.hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: false
+  });
+
+  // Per-client, because it is that user's own microphone and their own consent.
+  game.settings.register(ID, "voiceInputMode", {
+    name: "vnd-enhanced.settings.voiceInputMode.name",
+    hint: "vnd-enhanced.settings.voiceInputMode.hint",
+    scope: "client",
+    config: true,
+    type: String,
+    choices: {
+      off: "vnd-enhanced.settings.voiceInputMode.off",
+      mic: "vnd-enhanced.settings.voiceInputMode.mic",
+      ptt: "vnd-enhanced.settings.voiceInputMode.ptt"
+    },
+    default: "off",
+    onChange: applyVoiceMode
+  });
+
+  game.settings.register(ID, "voiceThreshold", {
+    name: "vnd-enhanced.settings.voiceThreshold.name",
+    hint: "vnd-enhanced.settings.voiceThreshold.hint",
+    scope: "client",
+    config: true,
+    type: Number,
+    range: { min: -70, max: -20, step: 1 },
+    default: -45
+  });
+
+  // Optional override for users who voice someone other than their assigned
+  // character. Empty falls back to the assigned character, then to the selected
+  // token — which is the natural gesture for a GM voicing an NPC.
+  game.settings.register(ID, "voiceActorId", {
+    name: "vnd-enhanced.settings.voiceActorId.name",
+    hint: "vnd-enhanced.settings.voiceActorId.hint",
+    scope: "client",
+    config: true,
+    type: String,
+    default: ""
+  });
+
   // RPG Classic Style — opt-in battlefield layout for Combat Mode. Default off:
   // an existing world keeps the side-panel + VS arrangement it already knows.
   game.settings.register(ID, "combatRpgStyle", {
@@ -240,6 +349,28 @@ export function registerSettings() {
       // Visibility and the background are decided at render time, so the open
       // window has to be rebuilt for the switch to take effect without a reload.
       Hooks.callAll("vnd-enhanced.rerender");
+    }
+  });
+
+  // TaleSpire Symbiote layout — "auto" switches it on only inside a Symbiote,
+  // so desktop browsers keep the landscape layout untouched.
+  game.settings.register(ID, "symbioteLayout", {
+    name: "vnd-enhanced.settings.symbioteLayout.name",
+    hint: "vnd-enhanced.settings.symbioteLayout.hint",
+    scope: "client",
+    config: true,
+    type: String,
+    choices: {
+      auto: "vnd-enhanced.settings.symbioteLayout.auto",
+      on:   "vnd-enhanced.settings.symbioteLayout.on",
+      off:  "vnd-enhanced.settings.symbioteLayout.off"
+    },
+    default: "auto",
+    onChange: () => {
+      applySymbioteLayout();
+      applyMobileMode();
+      // Strips vs paged columns and the page size are built in JS, not CSS.
+      Hooks.callAll("vnd-enhanced.relayout");
     }
   });
 

@@ -504,12 +504,15 @@ body.vne-rpg-style .vne-stage    { grid-row: 3; }
 
 /* RPG Classic Style ONLY → the battlefield also replaces the side panels and
    takes the full stage width, so the scene stays the protagonist (§2/§19).
-   Without the option the three-column stage is untouched. */
-body.vne-rpg-style #vne-main.vne-combat-mode .vne-side-panel { display: none !important; }
-body.vne-rpg-style #vne-main.vne-combat-mode .vne-stage,
-body.vne-rpg-style #vne-main.vne-combat-mode .vne-stage.vne-left-collapsed,
-body.vne-rpg-style #vne-main.vne-combat-mode .vne-stage.vne-right-collapsed,
-body.vne-rpg-style #vne-main.vne-combat-mode .vne-stage.vne-left-collapsed.vne-right-collapsed {
+   Without the option the three-column stage is untouched.
+   HUD-only is excluded throughout: it has no battlefield to hand the stage to,
+   so collapsing to one column would leave the left panel's plates stretched
+   across the whole screen while the right panel sat in an implicit column. */
+body.vne-rpg-style:not(.vne-hud-only) #vne-main.vne-combat-mode .vne-side-panel { display: none !important; }
+body.vne-rpg-style:not(.vne-hud-only) #vne-main.vne-combat-mode .vne-stage,
+body.vne-rpg-style:not(.vne-hud-only) #vne-main.vne-combat-mode .vne-stage.vne-left-collapsed,
+body.vne-rpg-style:not(.vne-hud-only) #vne-main.vne-combat-mode .vne-stage.vne-right-collapsed,
+body.vne-rpg-style:not(.vne-hud-only) #vne-main.vne-combat-mode .vne-stage.vne-left-collapsed.vne-right-collapsed {
   grid-template-columns: 1fr;
 }
 /* Belt and braces: the element is also emptied and .vne-hidden'd from JS. */
@@ -3974,9 +3977,15 @@ body.vne-rpg-style #vne-toggle-fab {
   --cp-port:    70px;
 }
 
-/* Wider side columns in combat; :not(collapsed) keeps the collapse feature. */
-body:not(.vne-rpg-style) #vne-main.vne-combat-mode .vne-stage:not(.vne-left-collapsed):not(.vne-right-collapsed) {
-  grid-template-columns: 288px 1fr 288px;
+/* Wider side columns in combat; :not(collapsed) keeps the collapse feature.
+   The width rides in a custom property so the breakpoints at the bottom of this
+   block only restate the number, not the "which layouts get three columns"
+   condition — which is: anything but RPG Classic Style handing the stage to its
+   battlefield, and HUD-only never builds one. */
+#vne-main.vne-combat-mode .vne-stage { --cp-col: 288px; }
+body:not(.vne-rpg-style) #vne-main.vne-combat-mode .vne-stage:not(.vne-left-collapsed):not(.vne-right-collapsed),
+body.vne-hud-only        #vne-main.vne-combat-mode .vne-stage:not(.vne-left-collapsed):not(.vne-right-collapsed) {
+  grid-template-columns: var(--cp-col) 1fr var(--cp-col);
 }
 /* Right (NPC) plates stay clear of Foundry's sidebar rail. */
 #vne-main.vne-combat-mode .vne-right-panel { padding-right: 52px; }
@@ -4454,26 +4463,20 @@ body:not(.vne-rpg-style) #vne-main.vne-combat-mode .vne-stage:not(.vne-left-coll
 /* ── Responsive: shed secondary elements before ever crushing HP/portrait ── */
 /* Tablet / narrow window — trim the columns, keep everything readable */
 @media (max-width: 1500px) {
-  body:not(.vne-rpg-style) #vne-main.vne-combat-mode .vne-stage:not(.vne-left-collapsed):not(.vne-right-collapsed) {
-    grid-template-columns: 232px 1fr 232px;
-  }
+  #vne-main.vne-combat-mode .vne-stage { --cp-col: 232px; }
   #vne-main.vne-combat-mode .vne-portraits-list { --cp-port: 62px; --cp-plate-h: 70px; }
   #vne-main.vne-combat-mode .vne-cp-stats { display: none; }   /* AC/speed first to go */
 }
 /* Very tight — drop the secondary rail's sheen text room, shrink further */
 @media (max-width: 1150px) {
-  body:not(.vne-rpg-style) #vne-main.vne-combat-mode .vne-stage:not(.vne-left-collapsed):not(.vne-right-collapsed) {
-    grid-template-columns: 176px 1fr 176px;
-  }
+  #vne-main.vne-combat-mode .vne-stage { --cp-col: 176px; }
   #vne-main.vne-combat-mode .vne-portraits-list { --cp-port: 54px; --cp-plate-h: 64px; }
   #vne-main.vne-combat-mode .vne-cp-name { font-size: 8px; }
   #vne-main.vne-combat-mode .vne-cp-effects { max-width: 46%; }
 }
 /* Ultra-wide — let the plates breathe a little more */
 @media (min-width: 2400px) {
-  body:not(.vne-rpg-style) #vne-main.vne-combat-mode .vne-stage:not(.vne-left-collapsed):not(.vne-right-collapsed) {
-    grid-template-columns: 340px 1fr 340px;
-  }
+  #vne-main.vne-combat-mode .vne-stage { --cp-col: 340px; }
   #vne-main.vne-combat-mode .vne-portraits-list { --cp-port: 78px; --cp-plate-h: 86px; }
 }
 
@@ -4581,10 +4584,93 @@ body.vne-hud-only #vne-hideback-btn { display: none !important; }
 body.vne-hud-only #vne-rp-stage,
 body.vne-hud-only #vne-battlefield { display: none !important; }
 
-/* RPG Classic Style hides the side panels because its battlefield replaces
-   them (see .vne-rpg-style rule above). HUD-only has no battlefield, so the
-   panels are all that is left — they come back, whichever layout is picked.
-   Two body classes + the id outrank that rule, and this block is later. */
-body.vne-hud-only.vne-rpg-style #vne-main.vne-combat-mode .vne-side-panel {
-  display: flex !important;
+/* RPG Classic Style hides the side panels and collapses the stage to one column
+   because its battlefield replaces them. HUD-only has no battlefield, so both
+   of those rules carry :not(.vne-hud-only) at their source instead of being
+   patched back here — undoing only the display left the one-column grid behind,
+   which stretched the left plates across the whole screen.
+
+   Outside combat the panels are the whole HUD, so the scene-mode gradient that
+   bands the left and right thirds of the map has to go too. */
+body.vne-hud-only .vne-side-panel { background: none !important; }
+
+/* ── Voice activity ──────────────────────────────────────────────────────────
+   Applied by voice-activity.js while the player behind a character is talking.
+
+   The transform is composed from two custom properties instead of being written
+   out: a CSS animation beats a plain declaration, so the scale that Spotlight
+   Mode (1.04) and the combat speaking state (1.02) already set has to be
+   carried into the keyframes rather than overwritten by them. The animation
+   also lives on the SLOT, never on .vne-rp-img / .vne-cast-img — those carry an
+   inline transform holding the portrait's scale, mirror and offsets.
+
+   --vne-voice-lift is set inline per portrait from the loudness bucket, so
+   shouting bobs harder than muttering. */
+
+.vne-rp-slot,
+.vne-cast-portrait     { --vne-voice-scale: 1; --vne-voice-lift: 5px; }
+.vne-rp-slot.vne-spotlight-focus { --vne-voice-scale: 1.04; }
+.vne-cast-portrait.vne-speaking  { --vne-voice-scale: 1.02; }
+
+@keyframes vne-voice-bob {
+  from { transform: translateY(0) scale(var(--vne-voice-scale)); }
+  to   { transform: translateY(calc(-1 * var(--vne-voice-lift))) scale(var(--vne-voice-scale)); }
+}
+
+.vne-rp-slot.vne-voice-on {
+  animation: vne-voice-bob 0.42s ease-in-out infinite alternate;
+  z-index: 6;
+}
+.vne-rp-slot.vne-voice-on .vne-rp-img {
+  filter: brightness(1.12) drop-shadow(0 0 18px rgba(200,155,60,0.55));
+  transition: filter 0.18s ease;
+}
+.vne-rp-slot.vne-voice-on .vne-rp-nameplate {
+  box-shadow: 0 0 16px rgba(200,155,60,0.45);
+}
+
+/* Someone dimmed by another character's spotlight still deserves to be seen
+   when they speak up — half way back, not a full override of the focus. */
+.vne-rp-slot.vne-spotlight-dim.vne-voice-on {
+  opacity: 0.55;
+  filter: none;
+}
+
+.vne-cast-portrait.vne-voice-on {
+  animation: vne-voice-bob 0.42s ease-in-out infinite alternate;
+  border-color: var(--vne-accent);
+  box-shadow: 0 0 18px rgba(200,155,60,0.55), 0 0 4px rgba(200,155,60,0.4);
+}
+.vne-cast-portrait.vne-voice-on .vne-cast-img {
+  filter: brightness(1.12) saturate(1.15);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vne-rp-slot.vne-voice-on,
+  .vne-cast-portrait.vne-voice-on { animation: none; }
+}
+
+/* Battlefield units bob too, but they are anchored at the feet with
+   translate(-50%, -100%) — so the anchor rides in a custom property and the
+   keyframes compose on top of it instead of replacing it. Getting this wrong
+   drops every pinned combatant into the corner of the field. */
+.vne-bf-unit   { --vne-voice-anchor: translate(0, 0); --vne-voice-lift: 5px; }
+.vne-bf-placed { --vne-voice-anchor: translate(-50%, -100%); }
+
+@keyframes vne-voice-bob-bf {
+  from { transform: var(--vne-voice-anchor) translateY(0); }
+  to   { transform: var(--vne-voice-anchor) translateY(calc(-1 * var(--vne-voice-lift))); }
+}
+
+.vne-bf-unit.vne-voice-on {
+  animation: vne-voice-bob-bf 0.42s ease-in-out infinite alternate;
+  z-index: 11;
+}
+.vne-bf-unit.vne-voice-on .vne-bf-img {
+  filter: brightness(1.12) drop-shadow(0 0 18px rgba(200,155,60,0.55));
+  transition: filter 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vne-bf-unit.vne-voice-on { animation: none; }
 }

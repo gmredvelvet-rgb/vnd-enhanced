@@ -1,0 +1,380 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   VND Enhanced — TaleSpire Symbiote layout
+   ─────────────────────────────────────────────────────────────────────────────
+   Active only with body.vne-symbiote (client setting "symbioteLayout", see
+   settings.js). A Symbiote is a tall, narrow desktop panel — about 600 × 1200
+   CSS px inside a 448 × 959 px window — driven by a mouse. It is not a phone,
+   so none of mobile.css applies; the landscape stage is re-composed as a
+   portrait instead:
+
+     top bar            controls + location, clear of Foundry's tab rail
+     initiative row     compact cards, wheel scrolls sideways
+     turn controls
+     ┌─ Players ─┬── NPCs ──┐   cast strips (roleplay) or plate columns (combat)
+     │           │          │
+     ├───────────┴──────────┤
+     │  roleplay stage / VS │   the full panel width
+     └──────────────────────┘
+     scenes pill
+
+   Structure that CSS cannot decide lives in main.js: cast strips in roleplay
+   (_isCastStrip) and the plates per page in combat (_sidePanelPageSize, whose
+   pixel figures mirror the plate sizes below — keep the two in step).
+
+   The WebView is Chromium 111: no CSS nesting, no @scope.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+body.vne-symbiote {
+  /* Foundry's sidebar tab rail (32px buttons + 16px padding) is raised above
+     the VN on the right edge, so everything on that edge stays clear of it. */
+  --vne-sym-rail:   52px;
+  --vne-sym-gutter: 8px;
+}
+body.vne-symbiote #vne-main { font-size: 13px; }
+
+/* ── Top bar: one column, controls first, location takes what is left ───── */
+body.vne-symbiote .vne-top-bar {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding: 6px var(--vne-sym-rail) 4px var(--vne-sym-gutter);
+}
+body.vne-symbiote .vne-top-right-section { display: none; }
+body.vne-symbiote .vne-top-left-section {
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+body.vne-symbiote .vne-top-controls { gap: 4px; flex-wrap: wrap; }
+body.vne-symbiote .vne-ctrl-btn { width: 30px; height: 30px; font-size: 0.86em; }
+body.vne-symbiote .vne-location-info { flex: 1 1 120px; min-width: 0; }
+body.vne-symbiote .vne-loc-name,
+body.vne-symbiote .vne-loc-parent { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+body.vne-symbiote .vne-loc-weather,
+body.vne-symbiote .vne-loc-time { display: none; }
+
+/* ── Initiative row: smaller cards, soft edges that say "there is more" ─── */
+body.vne-symbiote #vne-unified-carousel {
+  gap: 5px;
+  padding: 5px var(--vne-sym-rail) 4px var(--vne-sym-gutter);
+  -webkit-mask-image: linear-gradient(to right,
+    transparent 0, #000 var(--vne-sym-gutter),
+    #000 calc(100% - var(--vne-sym-rail)), transparent 100%);
+  mask-image: linear-gradient(to right,
+    transparent 0, #000 var(--vne-sym-gutter),
+    #000 calc(100% - var(--vne-sym-rail)), transparent 100%);
+}
+body.vne-symbiote .vne-carousel-item  { width: 54px; height: 74px; }
+body.vne-symbiote .vne-carousel-footer { height: 17px; }
+body.vne-symbiote .vne-carousel-hp-bar { bottom: 17px; }
+body.vne-symbiote .vne-carousel-cname  { font-size: 8px; }
+body.vne-symbiote .vne-carousel-effects { max-width: 50px; }
+body.vne-symbiote .vne-ce-icon { width: 12px; height: 12px; }
+/* No lift on hover: the row is only 74px tall and the lift clips the card. */
+body.vne-symbiote .vne-carousel-item:hover { transform: none; }
+
+/* ── Turn controls ───────────────────────────────────────────────────────── */
+body.vne-symbiote .vne-combat-hud {
+  padding: 2px var(--vne-sym-rail) 2px var(--vne-sym-gutter);
+}
+body.vne-symbiote .vne-combat-controls { gap: 6px; padding: 2px 0; }
+body.vne-symbiote .vne-turn-nav-btn { padding: 4px 8px; }
+body.vne-symbiote .vne-round-num { font-size: 1.35em; }
+body.vne-symbiote .vne-turn-name { max-width: 180px; }
+
+/* RPG Classic Style HUD: active character and target share a row above the
+   controls. The left inset keeps the docked toggle button clear. */
+body.vne-symbiote.vne-rpg-style .vne-combat-hud {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px 8px;
+  padding: 4px var(--vne-sym-gutter) 4px 52px;
+}
+body.vne-symbiote.vne-rpg-style .vne-combat-controls { grid-column: 1 / -1; order: 2; }
+body.vne-symbiote .vne-hud-card     { padding: 4px 8px; gap: 7px; }
+body.vne-symbiote .vne-hud-portrait { width: 34px; height: 34px; }
+body.vne-symbiote .vne-hud-hp       { width: 100%; max-width: 120px; }
+body.vne-symbiote .vne-hud-name     { max-width: 100%; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STAGE — two columns (Players | NPCs) over a full-width second row that holds
+   the roleplay stage or the VS duel. The empty middle track keeps the desktop
+   column numbers (left = 1, right = 3) so every existing placement still holds.
+   !important because the desktop column rules — collapsed, combat and
+   breakpoint variants — all out-specify a plain override.
+   ═══════════════════════════════════════════════════════════════════════════ */
+body.vne-symbiote #vne-main .vne-stage {
+  grid-template-columns: minmax(0, 1fr) 0 minmax(0, 1fr) !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  padding-right: var(--vne-sym-rail);
+}
+/* A collapsed side shrinks to its chevron and hands the width to the other. */
+body.vne-symbiote #vne-main .vne-stage.vne-left-collapsed {
+  grid-template-columns: 40px 0 minmax(0, 1fr) !important;
+}
+body.vne-symbiote #vne-main .vne-stage.vne-right-collapsed {
+  grid-template-columns: minmax(0, 1fr) 0 40px !important;
+}
+body.vne-symbiote #vne-main .vne-stage.vne-left-collapsed.vne-right-collapsed {
+  grid-template-columns: 40px minmax(0, 1fr) 40px !important;
+}
+
+/* RPG Classic Style battlefield: it replaces the side panels and needs the
+   whole stage, exactly as on desktop. Out-specifies every rule above. */
+body.vne-symbiote.vne-rpg-style:not(.vne-hud-only) #vne-main.vne-combat-mode .vne-stage {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+body.vne-symbiote .vne-battlefield { padding: 4px var(--vne-sym-gutter) 4px; }
+body.vne-symbiote .vne-bf-row  { gap: clamp(6px, 3vw, 20px); }
+body.vne-symbiote .vne-bf-name { font-size: 0.7em; letter-spacing: 0.05em; }
+
+body.vne-symbiote .vne-side-panel { height: auto; padding-top: 4px; }
+/* The panel is content-sized here, so the list must be too — a zero flex basis
+   would let it shrink and clip the page indicator under the chevrons. */
+body.vne-symbiote .vne-side-panel .vne-portraits-list { flex: 0 0 auto; }
+body.vne-symbiote .vne-side-label { margin-bottom: 6px; padding: 0 6px; }
+/* The rail is cleared by the stage itself, so both columns are equally wide. */
+body.vne-symbiote #vne-main .vne-right-panel { padding-right: 0; }
+body.vne-symbiote .vne-add-cast-btn { width: 24px; height: 24px; }
+body.vne-symbiote .vne-panel-nav    { width: 28px; height: 28px; }
+body.vne-symbiote .vne-stage.vne-left-collapsed  .vne-left-panel  .vne-side-label,
+body.vne-symbiote .vne-stage.vne-right-collapsed .vne-right-panel .vne-side-label {
+  justify-content: center;
+}
+
+/* ── ROLEPLAY: cast strips on top, the stage gets the full width ───────────
+   _isCastStrip() renders every portrait in one row (no paging); these rules
+   turn the column into a horizontal, wheel-scrollable strip of cards. */
+body.vne-symbiote #vne-main:not(.vne-combat-mode) .vne-side-panel {
+  padding-bottom: 2px;
+  border: none;
+  border-bottom: 1px solid rgba(200, 155, 60, 0.18);
+  border-radius: 0;
+}
+body.vne-symbiote #vne-main:not(.vne-combat-mode) .vne-left-panel {
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+body.vne-symbiote #vne-main:not(.vne-combat-mode) .vne-portraits-list {
+  flex-direction: row;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 2px 8px 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+body.vne-symbiote #vne-main:not(.vne-combat-mode) .vne-cast-portrait {
+  flex: 0 0 auto;
+  width: 62px;
+  min-width: 62px;
+  height: 84px;
+  min-height: 84px;
+  max-height: 84px;
+}
+/* Small cards are identified by name, not by hover. */
+body.vne-symbiote #vne-main:not(.vne-combat-mode) .vne-cast-name {
+  opacity: 1;
+  font-size: 0.62em;
+  padding: 1px 3px;
+}
+body.vne-symbiote #vne-main:not(.vne-combat-mode) .vne-portrait-qbtn   { width: 18px; height: 18px; }
+body.vne-symbiote #vne-main:not(.vne-combat-mode) .vne-remove-cast-btn { width: 18px; height: 18px; }
+body.vne-symbiote .vne-cast-empty {
+  flex-direction: row;
+  width: auto;
+  height: auto;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+body.vne-symbiote #vne-rp-stage {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-height: 0;
+  padding: 0 var(--vne-sym-gutter);
+}
+body.vne-symbiote .vne-rp-slot          { min-width: 0; }
+body.vne-symbiote .vne-rp-portrait-wrap { min-height: 0; }
+/* Portraits fill their slot instead of a share of the window height: the vh
+   figures on desktop assume a landscape stage and crop heads in a portrait. */
+body.vne-symbiote .vne-rp-img,
+body.vne-symbiote .vne-rp-slot[data-slot-count] .vne-rp-img,
+body.vne-symbiote .vne-rp-stage.vne-two-rows .vne-rp-slot[data-slot-count] .vne-rp-img {
+  max-height: 100%;
+}
+body.vne-symbiote .vne-rp-nameplate { padding: 4px 10px; max-width: 96%; }
+body.vne-symbiote .vne-rp-name {
+  font-size: 0.9em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+body.vne-symbiote .vne-rp-title {
+  font-size: 0.68em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.vne-symbiote .vne-rp-reactions { gap: 3px; padding: 3px 4px; margin-bottom: 6px; max-width: 96%; }
+body.vne-symbiote .vne-rp-reactions .vne-reaction-btn { width: 30px; height: 30px; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMBAT PLATES — each column is ~270px wide here, against 176px at the
+   desktop breakpoint this viewport would otherwise hit. The width goes to the
+   names, which get two full lines instead of an ellipsis after three letters.
+   Height budget (keep _SYM_PLATE_SLOT = plate + gap in main.js in step):
+   2 lines of name 23 + HP 16 + rail 10 + gaps 4 + padding 8 = 61 ≤ 62.
+   ═══════════════════════════════════════════════════════════════════════════ */
+body.vne-symbiote #vne-main.vne-combat-mode .vne-portraits-list {
+  --cp-plate-h: 62px;
+  --cp-port:    56px;
+  gap: 8px;
+  /* 6px each side: off the panel edge, and 12px between the two columns. */
+  padding: 2px 6px 6px;
+}
+body.vne-symbiote #vne-main.vne-combat-mode .vne-cast-plate {
+  gap: 2px;
+  padding: 4px 10px 4px 26px;
+}
+body.vne-symbiote #vne-main.vne-combat-mode .vne-right-panel .vne-cast-plate {
+  padding: 4px 26px 4px 10px;
+}
+body.vne-symbiote #vne-main.vne-combat-mode .vne-cp-name {
+  font-size: 10px;
+  line-height: 1.12;
+  letter-spacing: 0.05em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+body.vne-symbiote #vne-main.vne-combat-mode .vne-cp-hp      { height: 16px; }
+body.vne-symbiote #vne-main.vne-combat-mode .vne-cp-hp-text { font-size: 10.5px; }
+body.vne-symbiote #vne-main.vne-combat-mode .vne-cp-init    { height: 10px; }
+/* AC and speed come back: the column has room for them again. */
+body.vne-symbiote #vne-main.vne-combat-mode .vne-cp-stats   { display: flex; bottom: 4px; }
+body.vne-symbiote #vne-main.vne-combat-mode .vne-cp-effects { max-width: 40%; }
+
+/* The plate paints its own red target frame; the rectangular glow left over
+   from the pre-plate portrait card would box it in a second time. */
+body.vne-symbiote #vne-main.vne-combat-mode .vne-has-plate.vne-targeted { box-shadow: none !important; }
+
+/* The target crosshair sits on the portrait, not over the name. */
+body.vne-symbiote #vne-main.vne-combat-mode .vne-has-plate.vne-targeted::after {
+  left: calc(6px + var(--cp-port) / 2);
+  font-size: 2em;
+  z-index: 5;
+}
+body.vne-symbiote #vne-main.vne-combat-mode .vne-right-panel .vne-has-plate.vne-targeted::after {
+  left: auto;
+  right: calc(6px + var(--cp-port) / 2);
+  transform: translate(50%, -50%);
+}
+
+/* ── VS duel: its own row under the plates instead of an overlay behind them.
+   Classic combat only — under RPG Classic Style the duel still overlays the
+   battlefield, which needs the whole stage. */
+body.vne-symbiote:not(.vne-rpg-style) #vne-main.vne-combat-mode #vne-combat-vs {
+  position: relative;
+  inset: auto;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr);
+  /* Fades in below the plates rather than dimming the whole stage. */
+  background: linear-gradient(to bottom,
+    transparent 0%, rgba(0, 0, 0, 0.45) 18%, rgba(0, 0, 0, 0.78) 100%);
+  backdrop-filter: none;
+}
+body.vne-symbiote .vne-vs-side { min-width: 0; padding-bottom: 6px; }
+body.vne-symbiote .vne-vs-name {
+  font-size: 0.82em;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+body.vne-symbiote .vne-vs-sep { padding-bottom: 22px; }
+body.vne-symbiote .vne-vs-sep span { font-size: 2em; }
+
+/* ── Bottom bar, toggle button, GM visibility card ───────────────────────── */
+body.vne-symbiote .vne-bottom-bar { padding: 4px 56px 6px; }
+body.vne-symbiote .vne-scenes-pill { font-size: 0.9em; max-width: 100%; }
+body.vne-symbiote .vne-sp-pill-current {
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Docked in the bottom-left corner: at the desktop spot it covers the duel. */
+body.vne-symbiote #vne-toggle-fab,
+body.vne-symbiote.vne-rpg-style #vne-toggle-fab {
+  bottom: 8px;
+  left: 8px;
+  width: 38px;
+  height: 38px;
+  font-size: 1em;
+}
+
+/* The GM's always-open player list would cover the stage in a panel this
+   narrow: it folds into its title and opens on hover or keyboard focus. Folded,
+   it sits in the bottom bar beside the scenes pill, clear of the duel's names. */
+body.vne-symbiote .vne-player-panel {
+  top: auto;
+  right: 8px;
+  bottom: 10px;
+  min-width: 0;
+  max-width: 62vw;
+  padding: 6px 10px;
+  gap: 4px;
+  z-index: 40;
+}
+body.vne-symbiote .vne-player-panel:not(:hover):not(:focus-within) > :not(.vne-player-panel-title) {
+  display: none;
+}
+body.vne-symbiote .vne-player-panel:not(:hover):not(:focus-within) .vne-player-panel-title {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: 0;
+  cursor: default;
+}
+
+/* ── Popups: sized to the panel ──────────────────────────────────────────── */
+/* Quick actions become a bottom sheet across the panel. Beside a plate, the
+   344px window would cover the other column anyway. Fixed and above Foundry's
+   sidebar, so it can use the full width. */
+body.vne-symbiote #vne-qa-window {
+  left: 8px !important;
+  right: 8px !important;
+  top: auto !important;
+  bottom: 8px !important;
+  width: auto;
+  max-height: 72vh;
+  border-radius: 12px 12px 8px 8px;
+}
+body.vne-symbiote .vne-qa-entry { padding: 7px 10px 7px 6px; }
+
+body.vne-symbiote #vne-actor-picker { right: var(--vne-sym-rail); }
+body.vne-symbiote #vne-scenes-panel { width: calc(100vw - 16px); }
+body.vne-symbiote #vne-status-picker,
+body.vne-symbiote #vne-carousel-menu,
+body.vne-symbiote .vne-portrait-action-menu { max-width: calc(100vw - 16px); }
+
+/* ── Full-screen moments, recomposed for a portrait panel ────────────────── */
+/* Turn card: the portrait stands along the bottom, the name reads above it. */
+body.vne-symbiote .vne-tc-portrait-wrap { width: 82%; height: 76%; }
+body.vne-symbiote .vne-tc-portrait      { height: 100%; }
+body.vne-symbiote .vne-tc-text-wrap     { top: 20%; right: 6%; max-width: 88%; }
+body.vne-symbiote .vne-tc-name          { font-size: clamp(2em, 9vw, 3.2em); }
+body.vne-symbiote .vne-tc-turn-word     { font-size: clamp(3em, 14vw, 5em); }
+
+body.vne-symbiote .vne-victory-title { font-size: clamp(2em, 11vw, 4.5em); }
+body.vne-symbiote .vne-victory-sub   { font-size: clamp(0.7em, 3.4vw, 1em); letter-spacing: 0.18em; }
+body.vne-symbiote .vne-ao-img        { max-width: 86vw; max-height: 60vh; }
+body.vne-symbiote .vne-ao-label      { bottom: 18%; }
+body.vne-symbiote .vne-crit-img      { max-width: 86vw; }
